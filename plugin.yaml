@@ -1,0 +1,14 @@
+# Jev-Auto: per-request reasoning-effort routing.
+# Task 1 scope: architecture verification. See README.md for the verified
+# access paths and fail-open rules; enable only via plugins.entries settings.
+name: jev-auto
+id: jev-auto
+kind: standalone
+version: 0.1.0
+description: >
+  Opt-in per-request reasoning-effort router. Reads the LLM request in the
+  llm_request middleware, asks Jev for an effort level, and rewrites only an
+  existing, provider-verified effort field. Default mode is off.
+provides: []
+requires:
+  - llm_request middleware (capability: registering llm_request and on_session_end)
