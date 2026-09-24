@@ -126,12 +126,19 @@ Bounded state: `OrderedDict` keyed by `session_id`, FIFO-capped
 
 ## Files
 
+The plugin payload lives in `jev-auto/` — the exact directory name it is
+installed under (`~/.hermes/plugins/jev-auto`) — so the repository root stays a
+plain project container. That matters for the test run: pytest imports a
+directory's `__init__.py` as a package only when the directory name is a valid
+Python identifier (`resolve_package_path()`), so a payload sitting directly in
+`jev-auto-plugin/` (dashes) makes `pytest tests` fail while collecting the root.
+
 ```
-plugin.yaml            manifest: kind standalone, capability llm_request
-__init__.py            register(ctx) -> middleware + on_session_end
-effort.py              rubric -> label -> clamped wire value (pure)
-jev_client.py          JevClient: bounded, validated, fail-open, injectable transport
-middleware.py          on_llm_request + session state + fail-open table above
+jev-auto/plugin.yaml    manifest: kind standalone, capability llm_request
+jev-auto/__init__.py    register(ctx) -> middleware + on_session_end
+jev-auto/effort.py      rubric -> label -> clamped wire value (pure)
+jev-auto/jev_client.py  JevClient: bounded, validated, fail-open, injectable transport
+jev-auto/middleware.py  on_llm_request + session state + fail-open table above
 tests/conftest.py      loads the plugin as a real package; no-network guard
 tests/test_effort.py   thresholds, invalid scores, clamp semantics
 tests/test_jev_client.py   fake transport only: schema, truncation, timeout, no-key

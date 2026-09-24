@@ -1,6 +1,6 @@
 """Shared fixtures for Jev-Auto plugin tests.
 
-Loads the plugin from the task workspace as a real package (the same sibling-module
+Loads the plugin payload (``jev-auto/``) as a real package (the same sibling-module
 layout Hermes' plugin loader builds) and guarantees unit tests never touch the network.
 """
 
@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-PLUGIN_DIR = Path(__file__).resolve().parents[1]
+PLUGIN_DIR = Path(__file__).resolve().parents[1] / "jev-auto"
 PLUGIN_PACKAGE = "hermes_plugin_jev_auto"
 
 
