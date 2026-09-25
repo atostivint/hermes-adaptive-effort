@@ -127,3 +127,65 @@ def test_prompt_is_truncated_before_send():
     client.classify("x" * 500)
     body = json.loads(transport.calls[0]["body"])
     assert len(body["state"]["prompt"]) <= 64
+
+
+# ── classify_detail: the same call, with the *reason* on failure ────────────
+# /jev-auto status reports a failure reason; classify() alone cannot say
+# whether a None meant "no key", "timed out" or "the answer was garbage".
+
+def test_classify_detail_reports_the_score_and_no_reason():
+    client = jev_client.JevClient(api_key="k", transport=FakeTransport(_answer(1.5)))
+    assert client.classify_detail("prompt") == (pytest.approx(1.5), None)
+
+
+def test_classify_detail_names_the_failure():
+    cases = [
+        (jev_client.JevClient(api_key="", transport=FakeTransport(_answer(1.0)),
+                              key_reader=lambda: ""), "credential_missing"),
+        (jev_client.JevClient(api_key="k", transport=FakeTransport(error=TimeoutError())),
+         "timeout"),
+        (jev_client.JevClient(api_key="k", transport=FakeTransport(error=ConnectionError())),
+         "transport_error"),
+        (jev_client.JevClient(api_key="k", transport=FakeTransport({})),
+         "malformed_response"),
+        (jev_client.JevClient(api_key="k", transport=FakeTransport(_answer(-1))),
+         "malformed_response"),
+    ]
+    for client, reason in cases:
+        score, failure = client.classify_detail("prompt")
+        assert score is None
+        assert failure == reason
+
+
+def test_classify_detail_reports_an_empty_prompt_as_invalid_prompt():
+    transport = FakeTransport(_answer(1.0))
+    client = jev_client.JevClient(api_key="k", transport=transport)
+    score, failure = client.classify_detail("   ")
+    assert (score, failure) == (None, "invalid_prompt")
+    assert client.classify("   ") is None          # classify keeps its contract
+    assert transport.calls == []                   # never sent anywhere
+
+
+def test_classify_detail_reports_http_status_failures():
+    response = FakeResponse({}, status=503)
+    client = jev_client.JevClient(
+        api_key="k",
+        transport=lambda request, timeout=None: response,
+    )
+    assert client.classify_detail("prompt") == (None, "http_error")
+
+
+def test_classify_stays_the_simple_wrapper():
+    client = jev_client.JevClient(api_key="k", transport=FakeTransport(_answer(0.75)))
+    assert client.classify("prompt") == pytest.approx(0.75)
+
+
+def test_credential_present_reports_the_key_without_calling_the_transport(monkeypatch):
+    transport = FakeTransport(_answer(1.0))
+    monkeypatch.setattr(jev_client, "_default_key_reader", lambda: "sk-live")
+    client = jev_client.JevClient(transport=transport)
+    assert jev_client.credential_present() is True
+    monkeypatch.setattr(jev_client, "_default_key_reader", lambda: "")
+    assert jev_client.credential_present() is False
+    assert transport.calls == []
+

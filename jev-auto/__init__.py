@@ -9,11 +9,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import command as _command
 from . import middleware as _middleware
 
 
 def register(ctx: Any) -> None:
-    """Attach the middleware and the session cleanup hook to a real PluginContext."""
+    """Attach the middleware, the session cleanup hook and ``/jev-auto`` to a real PluginContext."""
     # Read settings through the context facade when it offers one, so a config
     # edit is picked up per call rather than frozen at import time.
     if hasattr(ctx, "get_config"):
@@ -22,3 +23,10 @@ def register(ctx: Any) -> None:
     ctx.register_middleware("llm_request", _middleware.on_llm_request)
     # Verified hook name: `on_session_end(session_id=...)` clears in-memory state.
     ctx.register_hook("on_session_end", _middleware.on_session_end)
+    # Verified API: PluginContext.register_command (hermes_cli/plugins.py) -> `/jev-auto`.
+    ctx.register_command(
+        "jev-auto",
+        handler=_command.handle,
+        description="Jev-Auto reasoning-effort router: status and bounded probe",
+        args_hint="<status|status json|probe <text>>",
+    )

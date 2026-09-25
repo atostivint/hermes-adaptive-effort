@@ -10,7 +10,7 @@ middleware = import_plugin("middleware")
 
 
 class FakeClassifier:
-    def __init__(self, score=1.0, error=None):
+    def __init__(self, score: "float | None" = 1.0, error=None):
         self.score = score
         self.error = error
         self.calls = []
@@ -256,3 +256,136 @@ def test_no_network_during_auto_path(monkeypatch, no_network):
     use_classifier(monkeypatch, RecordingClassifierFactory(score=1.9))
     out = call(ctx(request=supported_request()))
     assert out["request"]["extra_body"]["reasoning"]["effort"] == "high"
+
+
+# ── what /jev-auto status reports ──────────────────────────────────────────
+
+class DetailedClassifier(FakeClassifier):
+    """Reports *why* it failed, the way JevClient.classify_detail does.
+
+    ``entered``/``release`` let a test hold a probe open to observe concurrency.
+    """
+
+    def __init__(self, score: "float | None" = 1.0, failure=None, entered=None, release=None):
+        super().__init__(score=score)
+        self.failure = failure
+        self.entered = entered
+        self.release = release
+
+    def classify_detail(self, prompt):
+        self.calls.append(prompt)
+        if self.entered is not None:
+            self.entered.set()
+        if self.release is not None:
+            self.release.wait(10)
+        return self.score, self.failure
+
+
+def test_session_entry_records_score_target_timing_and_counts(monkeypatch):
+    use_settings(monkeypatch, {"mode": "auto"})
+    factory = RecordingClassifierFactory(score=1.9)
+    use_classifier(monkeypatch, factory)
+    assert call(ctx(request=supported_request(), session="s1")) is not None
+
+    entry = middleware.session_state()["s1"]
+    assert entry["state"] == "decided"
+    assert entry["score"] == pytest.approx(1.9)
+    assert entry["label"] == "high"
+    assert entry["target"] == "high"
+    assert entry["requests"] == 1
+    assert entry["probes"] == 1
+    assert entry["elapsed_ms"] >= 0
+    assert entry["failure"] is None
+    assert entry["mode"] == "auto"
+    assert entry["updated_at"] > 0
+
+    # A follow-up reuses the decision: count it, never probe twice.
+    assert call(ctx(request=supported_request(), session="s1")) is not None
+    entry = middleware.session_state()["s1"]
+    assert entry["requests"] == 2
+    assert entry["probes"] == 1
+
+
+def test_session_entry_records_the_failure_reason(monkeypatch):
+    use_settings(monkeypatch, {"mode": "auto"})
+
+    class Factory:
+        def __call__(self, timeout=None):
+            return DetailedClassifier(score=None, failure="timeout")
+
+    use_classifier(monkeypatch, Factory)
+    assert call(ctx(request=supported_request(), session="s1")) is None
+    entry = middleware.session_state()["s1"]
+    assert entry["state"] == "failed"
+    assert entry["failure"] == "timeout"
+    assert entry["score"] is None
+    assert entry["probes"] == 1
+
+
+def test_missing_credential_is_reported_without_opening_a_socket(monkeypatch, no_network):
+    use_settings(monkeypatch, {"mode": "auto"})
+    monkeypatch.setattr(middleware, "_classifier_factory", None)
+    monkeypatch.setattr(middleware._jev_client, "_default_key_reader", lambda: "")
+    assert call(ctx(request=supported_request(), session="s1")) is None
+    entry = middleware.session_state()["s1"]
+    assert entry["state"] == "failed"
+    assert entry["failure"] == "credential_missing"
+
+
+# ── criterion: never more than one in-flight probe per session ─────────────
+
+def test_only_one_probe_runs_per_session_at_a_time(monkeypatch):
+    import threading
+
+    use_settings(monkeypatch, {"mode": "auto"})
+    entered, release = threading.Event(), threading.Event()
+    clients = []
+
+    def factory(timeout=None):
+        client = DetailedClassifier(score=1.9, entered=entered, release=release)
+        clients.append(client)
+        return client
+
+    use_classifier(monkeypatch, factory)
+
+    results = {}
+
+    def first_request():
+        results["a"] = call(ctx(request=supported_request(), session="s1"))
+
+    thread = threading.Thread(target=first_request)
+    thread.start()
+    assert entered.wait(10)                       # A is inside the probe
+    assert middleware.in_flight() == ("s1",)
+
+    # Same session, second request while the first probe is still running.
+    assert call(ctx(request=supported_request(), session="s1")) is None
+    assert len(clients) == 1                      # no second Jev call
+
+    release.set()
+    thread.join(10)
+    assert not thread.is_alive()
+    assert results["a"] is not None               # the in-flight one still won
+
+    assert middleware.in_flight() == ()
+    entry = middleware.session_state()["s1"]
+    assert entry["probes"] == 1
+    assert entry["requests"] == 2
+
+
+def test_in_flight_is_released_when_the_probe_fails(monkeypatch):
+    use_settings(monkeypatch, {"mode": "auto"})
+    use_classifier(monkeypatch, RecordingClassifierFactory(error=TimeoutError("slow")))
+    assert call(ctx(request=supported_request(), session="s1")) is None
+    assert middleware.in_flight() == ()
+    entry = middleware.session_state()["s1"]
+    assert entry["state"] == "failed"
+    assert entry["failure"] == "classifier_error"
+
+
+def test_reset_state_also_clears_an_in_flight_probe():
+    assert middleware._claim("s1") is True
+    assert middleware.in_flight() == ("s1",)
+    middleware.reset_state()
+    assert middleware.in_flight() == ()
+    assert middleware._claim("s1") is True        # claimable again after reset

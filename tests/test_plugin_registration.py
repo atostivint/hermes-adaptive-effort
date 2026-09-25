@@ -15,6 +15,7 @@ class FakeCtx:
     def __init__(self):
         self.middleware = []
         self.hooks = []
+        self.commands = []
         self.plugin_id = "jev-auto"
 
     def register_middleware(self, kind, callback):
@@ -23,6 +24,10 @@ class FakeCtx:
 
     def register_hook(self, name, callback):
         self.hooks.append((name, callback))
+        return object()
+
+    def register_command(self, name, handler, description="", args_hint="", argument_mode=None):
+        self.commands.append((name, handler, description))
         return object()
 
     def get_config(self, key, default=None):

@@ -119,13 +119,34 @@ class JevClient:
 
     def classify(self, prompt: Optional[str]) -> Optional[float]:
         """Rubric score for *prompt*, or ``None`` (fail-open) on any problem."""
+        return self.classify_detail(prompt)[0]
+
+    def classify_detail(self, prompt: Optional[str]) -> "tuple[Optional[float], Optional[str]]":
+        """``(score, failure)`` — the same call as :meth:`classify`, plus the reason.
+
+        ``failure`` is ``None`` when a score came back, otherwise one of the
+        documented codes below. That is what ``/jev-auto status`` reports, and
+        it is a *reason code* only: prompt text never reaches it.
+
+        ================  =======================================================
+        reason            meaning
+        ================  =======================================================
+        invalid_prompt    nothing usable to classify (empty / not a string)
+        credential_missing no ``TYPESAFE_API_KEY``, so no request was built
+        http_error        the endpoint answered with a non-2xx status
+        timeout           the transport timed out
+        transport_error   connection / DNS / protocol failure
+        malformed_response the answer arrived but carried no valid score
+        unexpected_error  anything else (still fail-open)
+        ================  =======================================================
+        """
         if not isinstance(prompt, str) or not prompt.strip():
-            return None
+            return None, "invalid_prompt"
         key = self._key()
         if not key:
             # No credential: never open a connection at all.
             logger.debug("jev-auto: no %s credential; skipping classification", SENTINEL_ENV)
-            return None
+            return None, "credential_missing"
         body = {
             "state": {"prompt": truncate_prompt(prompt, self.max_prompt_chars)},
             "model": self.model,
@@ -146,6 +167,35 @@ class JevClient:
         transport = self._transport or _default_transport
         try:
             payload = transport(request, self.timeout)
+        except urllib.error.HTTPError:
+            logger.debug("jev-auto: classification failed after %.0fms",
+                         (time.monotonic() - started) * 1000)
+            return None, "http_error"
+        except urllib.error.URLError as exc:
+            reason = "timeout" if isinstance(getattr(exc, "reason", None), TimeoutError) \
+                else "transport_error"
+            logger.debug("jev-auto: classification failed after %.0fms",
+                         (time.monotonic() - started) * 1000)
+            return None, reason
+        except TimeoutError:
+            logger.debug("jev-auto: classification failed after %.0fms",
+                         (time.monotonic() - started) * 1000)
+            return None, "timeout"
+        except OSError:
+            logger.debug("jev-auto: classification failed after %.0fms",
+                         (time.monotonic() - started) * 1000)
+            return None, "transport_error"
+        except Exception:
+            logger.debug("jev-auto: classification failed after %.0fms",
+                         (time.monotonic() - started) * 1000)
+            return None, "unexpected_error"
+
+        status = getattr(payload, "status", None)
+        if isinstance(status, int) and not 200 <= status < 300:
+            logger.debug("jev-auto: endpoint returned HTTP %d", status)
+            return None, "http_error"
+
+        try:
             if hasattr(payload, "__enter__"):
                 with payload as resp:
                     data = json.load(resp) if hasattr(resp, "read") else resp
@@ -153,32 +203,50 @@ class JevClient:
                 data = json.load(payload)
             else:
                 data = payload
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError,
-                OSError, ValueError, TypeError):
-            logger.debug("jev-auto: classification failed after %.0fms",
+        except Exception:
+            logger.debug("jev-auto: answer was not JSON (%.0fms)",
                          (time.monotonic() - started) * 1000)
-            return None
-        score = _extract_score(data)
-        logger.debug("jev-auto: classified in %.0fms (valid=%s)",
-                     (time.monotonic() - started) * 1000, score is not None)
-        return score
+            return None, "malformed_response"
+
+        score, failure = _extract_score_detail(data)
+        logger.debug("jev-auto: classified in %.0fms (valid=%s, failure=%s)",
+                     (time.monotonic() - started) * 1000, score is not None, failure)
+        return score, failure
+
+
+def credential_present(key_reader: Optional[Callable[[], str]] = None) -> bool:
+    """True when a Jev credential resolves.
+
+    Opens nothing, sends nothing and never returns the secret itself — it only
+    answers "would a request be built at all?", for ``/jev-auto status``.
+    """
+    try:
+        reader = key_reader or _default_key_reader
+        return bool(str(reader() or "").strip())
+    except Exception:
+        return False
 
 
 def _extract_score(payload: Any) -> Optional[float]:
     """Read ``answers.effort.score`` strictly; anything unexpected is ``None``."""
+    return _extract_score_detail(payload)[0]
+
+
+def _extract_score_detail(payload: Any) -> "tuple[Optional[float], Optional[str]]":
+    """``(score, failure)`` for a parsed answer; ``failure`` is a reason code."""
     if not isinstance(payload, dict):
-        return None
+        return None, "malformed_response"
     answers = payload.get("answers")
     if not isinstance(answers, dict):
-        return None
+        return None, "malformed_response"
     answer = answers.get("effort")
     if not isinstance(answer, dict):
-        return None
+        return None, "malformed_response"
     raw = answer.get("score")
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-        return None
+        return None, "malformed_response"
     value = float(raw)
     # Rubric range is 0..len(criteria)-1; NaN/inf fail the same bounds check.
     if not 0.0 <= value <= float(len(QUESTIONS["effort"]["criteria"]) - 1):
-        return None
-    return value
+        return None, "malformed_response"
+    return value, None
