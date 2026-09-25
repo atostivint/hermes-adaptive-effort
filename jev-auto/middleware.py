@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections import OrderedDict
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -50,6 +51,9 @@ _classifier_factory: Optional[Callable[..., Any]] = None
 
 _lock = threading.Lock()
 _SESSIONS: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+#: Sessions with a classification running right now — at most one probe per
+#: session, claimed atomically so two concurrent requests cannot both call Jev.
+_IN_FLIGHT: set = set()
 
 
 # ── session state ───────────────────────────────────────────────────────────
@@ -58,12 +62,39 @@ def reset_state() -> None:
     """Drop every in-memory session decision (tests / plugin reload)."""
     with _lock:
         _SESSIONS.clear()
+        _IN_FLIGHT.clear()
 
 
 def session_state() -> Dict[str, Dict[str, Any]]:
     """Snapshot of stored decisions: effort metadata only, never prompt text."""
     with _lock:
         return {k: dict(v) for k, v in _SESSIONS.items()}
+
+
+def in_flight() -> Tuple[str, ...]:
+    """Session ids whose probe is running right now (sorted snapshot)."""
+    with _lock:
+        return tuple(sorted(_IN_FLIGHT))
+
+
+def _claim(session_id: str) -> bool:
+    """Atomically take the single probe slot for *session_id*.
+
+    ``True`` when this caller owns the probe, ``False`` when another caller is
+    already probing the same session — the loser fails open instead of making a
+    second Jev call.
+    """
+    with _lock:
+        if session_id in _IN_FLIGHT:
+            return False
+        _IN_FLIGHT.add(session_id)
+        return True
+
+
+def _release(session_id: str) -> None:
+    """Give the probe slot back (idempotent; always called from ``finally``)."""
+    with _lock:
+        _IN_FLIGHT.discard(session_id)
 
 
 def _remember(session_id: str, entry: Dict[str, Any], max_sessions: int) -> None:
@@ -74,12 +105,38 @@ def _remember(session_id: str, entry: Dict[str, Any], max_sessions: int) -> None
             _SESSIONS.popitem(last=False)
 
 
+def _touch(session_id: str, settings: Dict[str, Any], mode: str) -> Dict[str, Any]:
+    """The session's record: created once, then counted and stamped here.
+
+    Every request that reaches the decision path is counted (``requests``), while
+    ``probes`` only ever grows inside the claim — that difference is exactly what
+    ``/jev-auto status`` reports as "one Jev call per session".
+    """
+    with _lock:
+        entry = _SESSIONS.get(session_id)
+        if entry is None:
+            entry = {
+                "state": "new", "label": None, "target": None, "score": None,
+                "mode": mode, "requests": 0, "probes": 0, "elapsed_ms": 0.0,
+                "failure": None, "updated_at": 0.0,
+            }
+            _SESSIONS[session_id] = entry
+        entry["requests"] = int(entry.get("requests") or 0) + 1
+        entry["mode"] = mode
+        entry["updated_at"] = time.time()
+        _SESSIONS.move_to_end(session_id)
+        while len(_SESSIONS) > max(1, int(settings["max_sessions"])):
+            _SESSIONS.popitem(last=False)
+    return entry
+
+
 def on_session_end(session_id: Optional[str] = None, **kwargs: Any) -> None:
     """Verified hook: clears the session's decision (in-memory only)."""
     if not session_id:
         return
     with _lock:
         _SESSIONS.pop(str(session_id), None)
+        _IN_FLIGHT.discard(str(session_id))
 
 
 # ── settings ────────────────────────────────────────────────────────────────
@@ -131,8 +188,62 @@ def _settings() -> Dict[str, Any]:
     }
 
 
-def _classify(prompt: str, settings: Dict[str, Any]) -> Optional[float]:
-    """Score the prompt; ``None`` on any failure (fail-open)."""
+def _classifies(client: Any) -> bool:
+    """True when *client* exposes the classification surface we drive."""
+    return (callable(getattr(client, "classify", None))
+            or callable(getattr(client, "classify_detail", None)))
+
+
+def _call_factory(factory: Any, timeout: Any) -> Any:
+    """``factory(timeout=…)`` with a plain ``factory()`` fallback.
+
+    Every useful factory accepts the configured timeout; a bare class handed
+    where an instance was meant rejects keyword arguments outright, so that call
+    is retried once without them. Both paths fail open and never raise.
+    """
+    try:
+        return factory(timeout=timeout)
+    except TypeError:
+        try:
+            return factory()
+        except Exception:
+            logger.debug("jev-auto: classifier factory raised; failing open",
+                         exc_info=True)
+            return None
+    except Exception:
+        logger.debug("jev-auto: classifier factory raised; failing open", exc_info=True)
+        return None
+
+
+def _build_client(factory: Any, settings: Dict[str, Any]) -> Any:
+    """Resolve *factory* to something that can classify, or ``None``.
+
+    Accepted shapes: a function/class returning a client, an instance whose
+    ``__call__`` returns one, and a factory that returns *another* factory (a
+    bare class, which must be instantiated before it classifies). At most three
+    layers are unwrapped; anything else fails open.
+    """
+    candidate: Any = factory
+    for _ in range(3):
+        if not callable(candidate):
+            return None
+        built = _call_factory(candidate, settings["timeout_s"])
+        if built is None:
+            return None
+        if _classifies(built) or not callable(built):
+            return built
+        candidate = built
+    return None
+
+
+def _classify(prompt: str, settings: Dict[str, Any]) -> "Tuple[Optional[float], Optional[str]]":
+    """``(score, failure)`` for one classification.
+
+    ``failure`` is ``None`` when a score came back, otherwise a reason code from
+    the documented table in :mod:`jev_client` plus ``classifier_error`` (the
+    injected client raised, was unavailable, or answered nothing at all). Every
+    path fails open — this function never raises.
+    """
     factory = _classifier_factory
     if factory is None:
         try:
@@ -140,17 +251,55 @@ def _classify(prompt: str, settings: Dict[str, Any]) -> Optional[float]:
                                            endpoint=settings["endpoint"],
                                            max_prompt_chars=settings["prompt_chars"])
         except Exception:
-            return None
+            logger.debug("jev-auto: JevClient unavailable; failing open", exc_info=True)
+            return None, "classifier_error"
     else:
-        try:
-            client = factory(timeout=settings["timeout_s"])
-        except Exception:
-            return None
+        client = _build_client(factory, settings)
+        if client is None:
+            return None, "classifier_error"
+    detail: Any = getattr(client, "classify_detail", None)
     try:
-        return client.classify(prompt)
+        if callable(detail):
+            score, failure = detail(prompt)
+        else:
+            score, failure = client.classify(prompt), None
     except Exception:
-        logger.debug("jev-auto: classifier raised; failing open")
-        return None
+        logger.debug("jev-auto: classifier raised; failing open", exc_info=True)
+        return None, "classifier_error"
+    if score is None:
+        return None, failure or "classifier_error"
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        return None, "malformed_response"
+    return score, None
+
+
+def run_probe(prompt: str,
+              settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Exactly one bounded classification for ``/jev-auto probe``.
+
+    Deliberately touches **no** session state and claims no in-flight slot: a
+    probe is an operator's question about a text they typed themselves, not a
+    request decision.
+    """
+    settings = settings if settings is not None else _settings()
+    started = time.monotonic()
+    if isinstance(prompt, str) and prompt.strip():
+        score, failure = _classify(prompt, settings)
+    else:
+        score, failure = None, "invalid_prompt"
+    label = _effort.score_to_label(score) if score is not None else None
+    if score is None:
+        failure = failure or "classifier_error"
+    elif label is None:
+        failure = "malformed_response"  # a score the rubric cannot express
+    else:
+        failure = None
+    return {
+        "score": score,
+        "label": label,
+        "failure": failure,
+        "elapsed_ms": (time.monotonic() - started) * 1000.0,
+    }
 
 
 # ── request inspection ──────────────────────────────────────────────────────
@@ -246,43 +395,56 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     provider = kwargs.get("provider")
     model = kwargs.get("model")
 
-    entry = _SESSIONS.get(session_id)
-    if entry is not None and entry.get("state") in ("failed", "unsupported"):
+    entry = _touch(session_id, settings, mode)
+    if entry.get("state") in ("failed", "unsupported"):
         # A failed attempt, or a request with nothing writable: stay silent and
         # do not re-classify within this session (bounded Jev usage).
         return None
     slot = _effort_slot(request)
     if slot is None:
         # Nothing verifiable to rewrite: remember and stay silent.
-        if entry is None:
-            _remember(session_id, {"state": "unsupported"}, settings["max_sessions"])
+        if entry.get("state") != "decided":
+            entry["state"] = "unsupported"
         logger.debug("jev-auto: no writable effort field; no change")
         return None
 
-    if entry is None or entry.get("state") != "decided":
+    if entry.get("state") != "decided":
         prompt = _first_user_text(request.get("messages"))
         if not prompt:
-            if entry is None:
-                _remember(session_id, {"state": "unsupported"}, settings["max_sessions"])
+            entry["state"] = "unsupported"
             return None
-
-        if entry is None:  # first request of this session
-            entry = {"state": "probing"}
-            _remember(session_id, entry, settings["max_sessions"])
-
-        score = _classify(prompt, settings)
-        if score is None:
-            entry.update(state="failed")
+        if not _claim(session_id):
+            # Another request of this same session is classifying right now:
+            # never a second Jev call, and its entry stays untouched.
+            logger.debug("jev-auto: probe already in flight; failing open")
             return None
-        label = _effort.score_to_label(score)
-        if label is None:
-            entry.update(state="failed")
-            return None
-        target = _effort.map_effort(label, provider, model)
-        if target is None:
-            entry.update(state="unsupported")
-            return None
-        entry.update(state="decided", label=label, target=target)
+        try:
+            entry["state"] = "probing"
+            started = time.monotonic()
+            score, failure = _classify(prompt, settings)
+            entry["elapsed_ms"] = (time.monotonic() - started) * 1000.0
+            entry["probes"] = int(entry.get("probes") or 0) + 1
+            entry["score"] = score
+            entry["failure"] = None if score is not None else failure
+            entry["updated_at"] = time.time()
+            if score is None:
+                entry["state"] = "failed"
+                return None
+            label = _effort.score_to_label(score)
+            if label is None:
+                # A number the rubric cannot express: a malformed answer.
+                entry["state"] = "failed"
+                entry["failure"] = "malformed_response"
+                return None
+            entry["label"] = label
+            target = _effort.map_effort(label, provider, model)
+            if target is None:
+                entry["state"] = "unsupported"
+                return None
+            entry["target"] = target
+            entry["state"] = "decided"
+        finally:
+            _release(session_id)
 
     target = entry.get("target")
     if not isinstance(target, str):
