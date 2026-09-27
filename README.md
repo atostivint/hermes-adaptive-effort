@@ -118,11 +118,58 @@ then `clamp_effort()` onto `route_supported_efforts()`.
 | Jev label not mappable onto the route vocabulary | mark `unsupported`, `None` | `test_map_effort_*` |
 | Any unexpected exception in the middleware | `None` (never raises) | `_handle` wrapped in `on_llm_request` |
 | First prompt missing from `messages` | `None` | covered by the unsupported path |
+| `subagent_mode` unset / invalid (`off` is default) | children are not re-written, even when `mode: auto` | `test_child_default_off_never_classifies`, `test_subagent_mode_off_leaves_children_alone` |
+| `subagent_start` without a `child_goal` | child not registered; it falls back to its own prompt | `test_subagent_start_without_goal_is_not_registered` |
 
 Bounded state: `OrderedDict` keyed by `session_id`, FIFO-capped
 (`max_sessions`, default 64), cleared by `on_session_end`. Entries store only
 `state`/`label`/`target` — **no prompt text is ever persisted** (asserted by
 `test_no_prompt_text_is_stored`), and reason strings carry effort values only.
+
+## Subagent effort routing
+
+A subagent is classified from **the goal its parent wrote**, not from its own
+first prompt. The parent's `goal` is the terse, self-written description of the
+work — the same thing a good parent writes when it knows the sub-task is
+mechanical.
+
+Two verified facts make this work without touching Hermes core:
+
+1. `subagent_start` is emitted with `parent_session_id`, `child_session_id` and
+   `child_goal` (`tools/delegate_tool.py`), **before** the child's first request
+   is submitted — the hook runs at the end of child construction, while the turn
+   itself goes out later from `delegate_tool_child_run.py`. Nothing is missed, so
+   a one-request subagent is still caught.
+2. A child is its own `AIAgent` with its own `session_id` (`is_delegated_child_context`),
+   which is the only reliable way to tell a child's requests from the parent's.
+
+So the registry is `child_session_id -> goal`, populated by `subagent_start`,
+trimmed by `subagent_stop` and by `on_session_end`, and bounded by the same
+`max_sessions` cap. `subagent_mode` is a **second, independent gate**: enabling
+`mode: auto` never silently starts rewriting children's effort.
+
+Cost: exactly **one Jev call per subagent**, not per request — the decision is
+memoised per session, and a subagent is one session.
+
+### The `codex_responses` effort shape
+
+Effort reaches the wire in three different places depending on the route, and
+reading one shape while writing another produces a **silent no-op**: the plugin
+reports a decision, the request looks rewritten, and the provider never sees it.
+All three are now handled by the same read/write pair:
+
+| Route family | Slot |
+| --- | --- |
+| `extra_body.reasoning.effort` (chat_completions, anthropic) | nested |
+| `request["reasoning_effort"]` (kimi, tokenhub, lmstudio) | top-level flat |
+| `request["reasoning"].effort` (**codex_responses** — the delegation default) | nested top-level |
+
+The third shape was verified live against `ResponsesApiTransport.build_kwargs`,
+which returns `reasoning={"effort":…,"summary":…}` with `extra_body` absent. It
+is the shape every subagent actually uses, and the old `_apply` wrote it into
+`extra_body` — where the transport drops it. `_apply` now writes back into
+whichever container `_effort_slot` actually read, so a readable slot is always a
+writable one, and a sibling key (`summary`) is never dropped.
 
 ## Files
 

@@ -23,6 +23,13 @@ def register(ctx: Any) -> None:
     ctx.register_middleware("llm_request", _middleware.on_llm_request)
     # Verified hook name: `on_session_end(session_id=...)` clears in-memory state.
     ctx.register_hook("on_session_end", _middleware.on_session_end)
+    # Verified hook names (tools/delegate_tool.py emits them with these kwargs):
+    #   subagent_start(parent_session_id=…, child_session_id=…, child_goal=…)
+    #   subagent_stop(parent_session_id=…, child_session_id=…)
+    # Together they let a child's own request be recognised and classified from
+    # the goal its parent wrote.
+    ctx.register_hook("subagent_start", _middleware.on_subagent_start)
+    ctx.register_hook("subagent_stop", _middleware.on_subagent_stop)
     # Verified API: PluginContext.register_command (hermes_cli/plugins.py) -> `/jev-auto`.
     ctx.register_command(
         "jev-auto",

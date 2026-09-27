@@ -38,6 +38,7 @@ PLUGIN_ID = "jev-auto"
 VALID_MODES: Tuple[str, ...] = ("off", "recommend", "auto")
 DEFAULTS: Dict[str, Any] = {
     "mode": "off",
+    "subagent_mode": "off",
     "timeout_s": _jev_client.DEFAULT_TIMEOUT_S,
     "max_sessions": 64,
     "prompt_chars": _jev_client.DEFAULT_MAX_PROMPT_CHARS,
@@ -54,6 +55,11 @@ _SESSIONS: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 #: Sessions with a classification running right now — at most one probe per
 #: session, claimed atomically so two concurrent requests cannot both call Jev.
 _IN_FLIGHT: set = set()
+#: child_session_id -> the goal its parent wrote. Populated by the verified
+#: ``subagent_start`` hook, which hands over the text verbatim, so the classifier
+#: never parses the child's prompt. A child is its own agent with its own
+#: session_id, which is the only reliable way to tell a child's requests apart.
+_CHILD_GOALS: "OrderedDict[str, str]" = OrderedDict()
 
 
 # ── session state ───────────────────────────────────────────────────────────
@@ -63,12 +69,19 @@ def reset_state() -> None:
     with _lock:
         _SESSIONS.clear()
         _IN_FLIGHT.clear()
+        _CHILD_GOALS.clear()
 
 
 def session_state() -> Dict[str, Dict[str, Any]]:
     """Snapshot of stored decisions: effort metadata only, never prompt text."""
     with _lock:
         return {k: dict(v) for k, v in _SESSIONS.items()}
+
+
+def child_goals() -> Dict[str, str]:
+    """Snapshot of the child registry: session id -> the goal its parent wrote."""
+    with _lock:
+        return dict(_CHILD_GOALS)
 
 
 def in_flight() -> Tuple[str, ...]:
@@ -137,6 +150,57 @@ def on_session_end(session_id: Optional[str] = None, **kwargs: Any) -> None:
     with _lock:
         _SESSIONS.pop(str(session_id), None)
         _IN_FLIGHT.discard(str(session_id))
+        _CHILD_GOALS.pop(str(session_id), None)
+
+
+# ── subagent registry ────────────────────────────────────────────────────────
+
+def on_subagent_start(parent_session_id: Optional[str] = None,
+                      child_session_id: Optional[str] = None,
+                      child_goal: Optional[str] = None,
+                      **kwargs: Any) -> None:
+    """Verified hook: remember which session ids are subagents, and their goal.
+
+    Both kwargs come straight from ``tools/delegate_tool.py``; the goal is stored
+    verbatim because it IS the parent's own terse description of the work — the
+    text a classifier should read. A child with no goal is not registered: the
+    fallback (its own prompt) is no worse than not routing it at all.
+    """
+    if not child_session_id:
+        return
+    goal = str(child_goal or "").strip()
+    if not goal:
+        return
+    with _lock:
+        _CHILD_GOALS[str(child_session_id)] = goal
+        _CHILD_GOALS.move_to_end(str(child_session_id))
+        cap = _child_cap()
+        while len(_CHILD_GOALS) > cap:
+            _CHILD_GOALS.popitem(last=False)
+
+
+def on_subagent_stop(parent_session_id: Optional[str] = None,
+                     child_session_id: Optional[str] = None,
+                     **kwargs: Any) -> None:
+    """Verified hook: drop the child's registration once it is done."""
+    if not child_session_id:
+        return
+    with _lock:
+        _CHILD_GOALS.pop(str(child_session_id), None)
+
+
+def _child_cap() -> int:
+    """Bounded registry size. Reuses the session bound; never a second setting."""
+    try:
+        return max(1, int(_read_setting("max_sessions", DEFAULTS["max_sessions"])))
+    except Exception:
+        return int(DEFAULTS["max_sessions"])
+
+
+def _child_goal(session_id: str) -> Optional[str]:
+    """The parent's goal for *session_id*, or ``None`` when it is not a child."""
+    with _lock:
+        return _CHILD_GOALS.get(str(session_id))
 
 
 # ── settings ────────────────────────────────────────────────────────────────
@@ -164,6 +228,12 @@ def _settings() -> Dict[str, Any]:
     mode = str(_read_setting("mode", DEFAULTS["mode"]) or "").strip().lower()
     if mode not in VALID_MODES:
         mode = "off"
+    # Independent gate: children are routed only when BOTH the session mode and
+    # this one allow it, so opting into session routing never silently starts
+    # rewriting subagent effort.
+    subagent_mode = str(_read_setting("subagent_mode", DEFAULTS["subagent_mode"]) or "").strip().lower()
+    if subagent_mode not in VALID_MODES:
+        subagent_mode = "off"
 
     def _num(key: str, fallback: float) -> float:
         try:
@@ -181,6 +251,7 @@ def _settings() -> Dict[str, Any]:
 
     return {
         "mode": mode,
+        "subagent_mode": subagent_mode,
         "timeout_s": _num("timeout_s", DEFAULTS["timeout_s"]),
         "max_sessions": _int("max_sessions", DEFAULTS["max_sessions"]),
         "prompt_chars": _int("prompt_chars", DEFAULTS["prompt_chars"]),
@@ -345,25 +416,51 @@ def _effort_slot(request: Dict[str, Any]) -> Optional[Tuple[Dict[str, Any], str,
     value = request.get("reasoning_effort")
     if isinstance(value, str) and value.strip() and value.strip().lower() != "none":
         return request, "reasoning_effort", value.strip().lower()
+    # codex_responses (and the Responses family generally) carries effort in a
+    # TOP-LEVEL ``reasoning`` object — verified live against ResponsesApiTransport:
+    # build_kwargs() returns reasoning={"effort":…,"summary":…} with extra_body
+    # absent. Without this branch every subagent on our delegation route would be
+    # a silent no-op, because the parent session never uses it.
+    reasoning = request.get("reasoning")
+    if isinstance(reasoning, dict):
+        value = reasoning.get("effort")
+        if (isinstance(value, str) and value.strip()
+                and value.strip().lower() != "none"):
+            return reasoning, "effort", value.strip().lower()
     return None
 
 
 def _apply(request: Dict[str, Any], slot: Tuple[Dict[str, Any], str, str],
            target: str) -> Dict[str, Any]:
-    """Full replacement payload with exactly one value changed."""
+    """Full replacement payload with exactly one value changed.
+
+    ``slot`` is ``(container, key, old)`` where ``container`` is the dict that
+    actually holds the value. Writing back into that same container — rather than
+    rebuilding a fixed path — is what keeps a read/write pair honest: any shape
+    ``_effort_slot`` can read is a shape ``_apply`` can write, so a discovered
+    slot can never degrade into a silent no-op.
+    """
     container, key, old = slot
     if target == old:
         return request
     new = dict(request)
+    new_container = dict(container)
+    new_container[key] = target
     if container is request:
         new[key] = target
         return new
-    extra_body = dict(request.get("extra_body") or {})
-    reasoning = dict(extra_body.get("reasoning") or {})
-    reasoning[key] = target
-    extra_body["reasoning"] = reasoning
-    new["extra_body"] = extra_body
-    return new
+    if container is new.get("extra_body", {}).get("reasoning"):
+        extra_body = dict(request.get("extra_body") or {})
+        extra_body["reasoning"] = new_container
+        new["extra_body"] = extra_body
+        return new
+    # Nested top-level container (codex_responses ``reasoning``): replace that
+    # key with the mutated copy, leaving every sibling untouched.
+    for owner_key, owner in request.items():
+        if owner is container:
+            new[owner_key] = new_container
+            return new
+    return request
 
 
 # ── the middleware itself ───────────────────────────────────────────────────
@@ -395,6 +492,15 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     provider = kwargs.get("provider")
     model = kwargs.get("model")
 
+    # A subagent is classified from the goal its PARENT wrote, not from its own
+    # first prompt. subagent_mode is a second, independent gate: the session mode
+    # alone never starts rewriting children's effort.
+    child_goal = _child_goal(session_id)
+    if child_goal is not None and settings["subagent_mode"] == "off":
+        return None
+    if child_goal is not None:
+        mode = settings["subagent_mode"]
+
     entry = _touch(session_id, settings, mode)
     if entry.get("state") in ("failed", "unsupported"):
         # A failed attempt, or a request with nothing writable: stay silent and
@@ -409,7 +515,9 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
     if entry.get("state") != "decided":
-        prompt = _first_user_text(request.get("messages"))
+        # A subagent classifies the terse goal its parent wrote; a normal session
+        # classifies its own first user message.
+        prompt = child_goal if child_goal is not None else _first_user_text(request.get("messages"))
         if not prompt:
             entry["state"] = "unsupported"
             return None
