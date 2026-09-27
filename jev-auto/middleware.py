@@ -40,7 +40,7 @@ DEFAULTS: Dict[str, Any] = {
     "mode": "off",
     "subagent_mode": "off",
     "timeout_s": _jev_client.DEFAULT_TIMEOUT_S,
-    "max_sessions": 64,
+    "max_turns": 64,
     "prompt_chars": _jev_client.DEFAULT_MAX_PROMPT_CHARS,
     "endpoint": _jev_client.DEFAULT_ENDPOINT,
 }
@@ -70,6 +70,23 @@ def reset_state() -> None:
         _SESSIONS.clear()
         _IN_FLIGHT.clear()
         _CHILD_GOALS.clear()
+
+
+def _decision_key(session_id: str, turn_id: Any) -> str:
+    """Memo key for one turn of one session.
+
+    ``turn_id`` is minted fresh per user message (``agent/turn_context.py``,
+    ``_bind_turn_identity``) and is constant for every API request of that turn,
+    so keying on it re-classifies each user message while a tool loop inside one
+    turn still reuses a single decision — and therefore a single Jev call.
+    """
+    turn = str(turn_id or "").strip()
+    return f"{session_id}/{turn}" if turn else str(session_id)
+
+
+def _session_of(key: str) -> str:
+    """The session a decision key belongs to (used by per-session cleanup)."""
+    return key.split("/", 1)[0]
 
 
 def session_state() -> Dict[str, Dict[str, Any]]:
@@ -118,27 +135,27 @@ def _remember(session_id: str, entry: Dict[str, Any], max_sessions: int) -> None
             _SESSIONS.popitem(last=False)
 
 
-def _touch(session_id: str, settings: Dict[str, Any], mode: str) -> Dict[str, Any]:
-    """The session's record: created once, then counted and stamped here.
+def _touch(key: str, settings: Dict[str, Any], mode: str) -> Dict[str, Any]:
+    """One turn's record: created once, then counted and stamped here.
 
     Every request that reaches the decision path is counted (``requests``), while
     ``probes`` only ever grows inside the claim — that difference is exactly what
-    ``/jev-auto status`` reports as "one Jev call per session".
+    ``/jev-auto status`` reports as "one Jev call per turn".
     """
     with _lock:
-        entry = _SESSIONS.get(session_id)
+        entry = _SESSIONS.get(key)
         if entry is None:
             entry = {
                 "state": "new", "label": None, "target": None, "score": None,
                 "mode": mode, "requests": 0, "probes": 0, "elapsed_ms": 0.0,
                 "failure": None, "updated_at": 0.0,
             }
-            _SESSIONS[session_id] = entry
+            _SESSIONS[key] = entry
         entry["requests"] = int(entry.get("requests") or 0) + 1
         entry["mode"] = mode
         entry["updated_at"] = time.time()
-        _SESSIONS.move_to_end(session_id)
-        while len(_SESSIONS) > max(1, int(settings["max_sessions"])):
+        _SESSIONS.move_to_end(key)
+        while len(_SESSIONS) > max(1, int(settings["max_turns"])):
             _SESSIONS.popitem(last=False)
     return entry
 
@@ -147,10 +164,15 @@ def on_session_end(session_id: Optional[str] = None, **kwargs: Any) -> None:
     """Verified hook: clears the session's decision (in-memory only)."""
     if not session_id:
         return
+    session = str(session_id)
     with _lock:
-        _SESSIONS.pop(str(session_id), None)
-        _IN_FLIGHT.discard(str(session_id))
-        _CHILD_GOALS.pop(str(session_id), None)
+        # Every turn of that session, plus the bare key used when no turn id was
+        # available: ending a session must not leave decisions behind.
+        for key in [k for k in _SESSIONS if _session_of(k) == session]:
+            _SESSIONS.pop(key, None)
+            _IN_FLIGHT.discard(key)
+        _IN_FLIGHT.discard(session)
+        _CHILD_GOALS.pop(session, None)
 
 
 # ── subagent registry ────────────────────────────────────────────────────────
@@ -190,11 +212,11 @@ def on_subagent_stop(parent_session_id: Optional[str] = None,
 
 
 def _child_cap() -> int:
-    """Bounded registry size. Reuses the session bound; never a second setting."""
+    """Bounded registry size. Reuses the decision bound; never a second setting."""
     try:
-        return max(1, int(_read_setting("max_sessions", DEFAULTS["max_sessions"])))
+        return max(1, int(_read_setting("max_turns", DEFAULTS["max_turns"])))
     except Exception:
-        return int(DEFAULTS["max_sessions"])
+        return int(DEFAULTS["max_turns"])
 
 
 def _child_goal(session_id: str) -> Optional[str]:
@@ -253,7 +275,7 @@ def _settings() -> Dict[str, Any]:
         "mode": mode,
         "subagent_mode": subagent_mode,
         "timeout_s": _num("timeout_s", DEFAULTS["timeout_s"]),
-        "max_sessions": _int("max_sessions", DEFAULTS["max_sessions"]),
+        "max_turns": _int("max_turns", DEFAULTS["max_turns"]),
         "prompt_chars": _int("prompt_chars", DEFAULTS["prompt_chars"]),
         "endpoint": str(_read_setting("endpoint", DEFAULTS["endpoint"])),
     }
@@ -492,6 +514,12 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     provider = kwargs.get("provider")
     model = kwargs.get("model")
 
+    # One decision per USER TURN, not per session: a "hey" opening a long
+    # session must not freeze `low` onto every later question. turn_id is minted
+    # per user message, so a tool loop inside one turn still reuses its decision
+    # and therefore still costs a single Jev call.
+    key = _decision_key(session_id, kwargs.get("turn_id"))
+
     # A subagent is classified from the goal its PARENT wrote, not from its own
     # first prompt. subagent_mode is a second, independent gate: the session mode
     # alone never starts rewriting children's effort.
@@ -501,7 +529,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if child_goal is not None:
         mode = settings["subagent_mode"]
 
-    entry = _touch(session_id, settings, mode)
+    entry = _touch(key, settings, mode)
     if entry.get("state") in ("failed", "unsupported"):
         # A failed attempt, or a request with nothing writable: stay silent and
         # do not re-classify within this session (bounded Jev usage).
@@ -521,7 +549,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if not prompt:
             entry["state"] = "unsupported"
             return None
-        if not _claim(session_id):
+        if not _claim(key):
             # Another request of this same session is classifying right now:
             # never a second Jev call, and its entry stays untouched.
             logger.debug("jev-auto: probe already in flight; failing open")
@@ -552,7 +580,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             entry["target"] = target
             entry["state"] = "decided"
         finally:
-            _release(session_id)
+            _release(key)
 
     target = entry.get("target")
     if not isinstance(target, str):

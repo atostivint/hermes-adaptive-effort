@@ -142,7 +142,7 @@ def _status_text() -> str:
         f"mode: {payload['mode']}",
         f"credential: {'present' if payload['credential'] else 'missing'}",
         f"settings: timeout_s={settings['timeout_s']} "
-        f"max_sessions={settings['max_sessions']} "
+        f"max_turns={settings['max_turns']} "
         f"max_prompt_chars={settings['prompt_chars']}",
         f"endpoint: {settings['endpoint']}",
         f"counts: sessions={counts['sessions']} in_flight={counts['in_flight']} "

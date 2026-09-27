@@ -235,7 +235,7 @@ def test_no_prompt_text_is_stored(monkeypatch):
 
 
 def test_session_state_is_bounded(monkeypatch):
-    use_settings(monkeypatch, {"mode": "auto", "max_sessions": 2})
+    use_settings(monkeypatch, {"mode": "auto", "max_turns": 2})
     use_classifier(monkeypatch, RecordingClassifierFactory(score=1.0))
     for i in range(4):
         call(ctx(request=supported_request(), session=f"s{i}"))
@@ -246,9 +246,10 @@ def test_session_end_clears_state(monkeypatch):
     use_settings(monkeypatch, {"mode": "auto"})
     use_classifier(monkeypatch, RecordingClassifierFactory(score=1.0))
     call(ctx(request=supported_request(), session="s1"))
-    assert "s1" in middleware.session_state()
+    # Decisions are keyed per (session, turn); ending a session clears them all.
+    assert "s1/turn" in middleware.session_state()
     middleware.on_session_end(session_id="s1")
-    assert "s1" not in middleware.session_state()
+    assert "s1/turn" not in middleware.session_state()
 
 
 def test_no_network_during_auto_path(monkeypatch, no_network):
@@ -287,7 +288,7 @@ def test_session_entry_records_score_target_timing_and_counts(monkeypatch):
     use_classifier(monkeypatch, factory)
     assert call(ctx(request=supported_request(), session="s1")) is not None
 
-    entry = middleware.session_state()["s1"]
+    entry = middleware.session_state()["s1/turn"]
     assert entry["state"] == "decided"
     assert entry["score"] == pytest.approx(1.9)
     assert entry["label"] == "high"
@@ -301,7 +302,7 @@ def test_session_entry_records_score_target_timing_and_counts(monkeypatch):
 
     # A follow-up reuses the decision: count it, never probe twice.
     assert call(ctx(request=supported_request(), session="s1")) is not None
-    entry = middleware.session_state()["s1"]
+    entry = middleware.session_state()["s1/turn"]
     assert entry["requests"] == 2
     assert entry["probes"] == 1
 
@@ -315,7 +316,7 @@ def test_session_entry_records_the_failure_reason(monkeypatch):
 
     use_classifier(monkeypatch, Factory)
     assert call(ctx(request=supported_request(), session="s1")) is None
-    entry = middleware.session_state()["s1"]
+    entry = middleware.session_state()["s1/turn"]
     assert entry["state"] == "failed"
     assert entry["failure"] == "timeout"
     assert entry["score"] is None
@@ -327,7 +328,7 @@ def test_missing_credential_is_reported_without_opening_a_socket(monkeypatch, no
     monkeypatch.setattr(middleware, "_classifier_factory", None)
     monkeypatch.setattr(middleware._jev_client, "_default_key_reader", lambda: "")
     assert call(ctx(request=supported_request(), session="s1")) is None
-    entry = middleware.session_state()["s1"]
+    entry = middleware.session_state()["s1/turn"]
     assert entry["state"] == "failed"
     assert entry["failure"] == "credential_missing"
 
@@ -356,7 +357,7 @@ def test_only_one_probe_runs_per_session_at_a_time(monkeypatch):
     thread = threading.Thread(target=first_request)
     thread.start()
     assert entered.wait(10)                       # A is inside the probe
-    assert middleware.in_flight() == ("s1",)
+    assert middleware.in_flight() == ("s1/turn",)
 
     # Same session, second request while the first probe is still running.
     assert call(ctx(request=supported_request(), session="s1")) is None
@@ -368,7 +369,7 @@ def test_only_one_probe_runs_per_session_at_a_time(monkeypatch):
     assert results["a"] is not None               # the in-flight one still won
 
     assert middleware.in_flight() == ()
-    entry = middleware.session_state()["s1"]
+    entry = middleware.session_state()["s1/turn"]
     assert entry["probes"] == 1
     assert entry["requests"] == 2
 
@@ -378,14 +379,14 @@ def test_in_flight_is_released_when_the_probe_fails(monkeypatch):
     use_classifier(monkeypatch, RecordingClassifierFactory(error=TimeoutError("slow")))
     assert call(ctx(request=supported_request(), session="s1")) is None
     assert middleware.in_flight() == ()
-    entry = middleware.session_state()["s1"]
+    entry = middleware.session_state()["s1/turn"]
     assert entry["state"] == "failed"
     assert entry["failure"] == "classifier_error"
 
 
 def test_reset_state_also_clears_an_in_flight_probe():
-    assert middleware._claim("s1") is True
-    assert middleware.in_flight() == ("s1",)
+    assert middleware._claim("s1/turn") is True
+    assert middleware.in_flight() == ("s1/turn",)
     middleware.reset_state()
     assert middleware.in_flight() == ()
-    assert middleware._claim("s1") is True        # claimable again after reset
+    assert middleware._claim("s1/turn") is True        # claimable again after reset

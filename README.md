@@ -126,6 +126,28 @@ Bounded state: `OrderedDict` keyed by `session_id`, FIFO-capped
 `state`/`label`/`target` — **no prompt text is ever persisted** (asserted by
 `test_no_prompt_text_is_stored`), and reason strings carry effort values only.
 
+## Effort is classified per USER TURN, not per session
+
+One decision per session is the wrong granularity for an interactive session:
+a conversation opening with "hey" would freeze `low` onto every later question —
+verified, and it silently capped a multi-region redesign at `low` for the rest of
+the session.
+
+`_bind_turn_identity` (`agent/turn_context.py:536`) mints a **fresh `turn_id` per
+user message**, and it stays constant for every API request of that turn. So the
+memo key is `(session_id, turn_id)`, which gives both properties at once:
+
+* each user message is classified afresh;
+* a tool loop inside one turn (several API requests, `api_call_count` 1..N) still
+  reuses one decision — and therefore still costs a **single Jev call**.
+
+A subagent is one session and normally one turn, so per-turn granularity does not
+increase its cost either: still one call per subagent.
+
+`max_sessions` was renamed `max_turns` (same default, 64) because it now bounds
+turn decisions. `on_session_end` clears every turn of that session, and the child
+registry keeps its own FIFO rather than sharing the decision list.
+
 ## Subagent effort routing
 
 A subagent is classified from **the goal its parent wrote**, not from its own

@@ -152,7 +152,7 @@ def test_subagent_stop_forgets_the_child():
 
 
 def test_registry_is_bounded_fifo(monkeypatch):
-    use_settings(monkeypatch, {"max_sessions": 3})
+    use_settings(monkeypatch, {"max_turns": 3})
     for index in range(6):
         start_child(child_session_id=f"c{index}", goal=f"goal {index}")
     keys = list(middleware.child_goals())
@@ -249,7 +249,7 @@ def test_unregistered_session_falls_back_to_its_own_prompt(monkeypatch):
 
 def test_stale_child_registration_is_evicted_by_bound(monkeypatch):
     """A child that never reports stop is bounded, not leaked forever."""
-    use_settings(monkeypatch, {"mode": "auto", "subagent_mode": "auto", "max_sessions": 2})
+    use_settings(monkeypatch, {"mode": "auto", "subagent_mode": "auto", "max_turns": 2})
     use_classifier(monkeypatch, Factory(score=1.9))
     for index in range(4):
         start_child(child_session_id=f"c{index}")
