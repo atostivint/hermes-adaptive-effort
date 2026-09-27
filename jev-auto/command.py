@@ -15,6 +15,7 @@ import json
 import time
 from typing import Any, Dict, List, Optional
 
+from . import cache_safety as _cache_safety
 from . import jev_client as _jev_client
 from . import middleware as _middleware
 
@@ -25,7 +26,9 @@ USAGE = """Usage:
   /jev-auto probe <text>  Classify <text> once (prints score/label, stores nothing)
   /jev-auto help        Show this help
 
-Modes: off | recommend | auto. Re-run /jev-auto setup to change mode.
+Modes: off | recommend | auto | cache_safe. Re-run /jev-auto setup to change mode.
+  cache_safe routes per turn only on routes where an effort change keeps the
+  prompt cache; elsewhere it pins one level for the whole session.
 Probe asks Jev for a rubric score on the text you typed — it does not use or
 store your session's conversation, and never writes to session state."""
 
@@ -115,6 +118,7 @@ def _status_payload() -> Dict[str, Any]:
         "plugin": PLUGIN_ID,
         "mode": settings["mode"],
         "settings": settings,
+        "cache_safety": _cache_safety.explain(),
         "credential": _jev_client.credential_present(),
         "counts": counts,
         "sessions": sessions,
@@ -140,6 +144,7 @@ def _status_text() -> str:
     lines = [
         "jev-auto status",
         f"mode: {payload['mode']}",
+        f"cache safety: {payload['cache_safety']}",
         f"credential: {'present' if payload['credential'] else 'missing'}",
         f"settings: timeout_s={settings['timeout_s']} "
         f"max_turns={settings['max_turns']} "

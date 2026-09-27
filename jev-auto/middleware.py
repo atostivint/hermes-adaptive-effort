@@ -29,13 +29,14 @@ import time
 from collections import OrderedDict
 from typing import Any, Callable, Dict, Optional, Tuple
 
+from . import cache_safety as _cache_safety
 from . import effort as _effort
 from . import jev_client as _jev_client
 
 logger = logging.getLogger(__name__)
 
 PLUGIN_ID = "jev-auto"
-VALID_MODES: Tuple[str, ...] = ("off", "recommend", "auto")
+VALID_MODES: Tuple[str, ...] = ("off", "recommend", "auto", "cache_safe")
 DEFAULTS: Dict[str, Any] = {
     "mode": "off",
     "subagent_mode": "off",
@@ -520,6 +521,15 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     # and therefore still costs a single Jev call.
     key = _decision_key(session_id, kwargs.get("turn_id"))
 
+    # `cache_safe` is per-turn routing where the route survives an effort change,
+    # and session-pinned routing where it does not. Verified per api_mode by
+    # cache_safety.effort_is_cache_safe(); an unknown route pins, never gambles.
+    if mode == "cache_safe":
+        safe = _cache_safety.effort_is_cache_safe(
+            provider, model, kwargs.get("api_mode"))
+        if not safe:
+            key = _decision_key(session_id, None)
+
     # A subagent is classified from the goal its PARENT wrote, not from its own
     # first prompt. subagent_mode is a second, independent gate: the session mode
     # alone never starts rewriting children's effort.
@@ -584,6 +594,10 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     target = entry.get("target")
     if not isinstance(target, str):
+        return None
+    if target == slot[2]:
+        # The route already sits at the level Jev picked: nothing to send, so we
+        # report no decision at all rather than a rewrite identical to the input.
         return None
     if mode == "recommend":
         return {

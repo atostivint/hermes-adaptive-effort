@@ -126,6 +126,40 @@ Bounded state: `OrderedDict` keyed by `session_id`, FIFO-capped
 `state`/`label`/`target` — **no prompt text is ever persisted** (asserted by
 `test_no_prompt_text_is_stored`), and reason strings carry effort values only.
 
+## Cache safety, and the `cache_safe` mode
+
+Effort is a **request field**, not prompt text, on the routes that matter here —
+verified live: `ResponsesApiTransport.build_kwargs` returns an identical
+`prompt_cache_key` for `low` and `high`, and the effort string never appears in
+`input` or `instructions`. Changing it mid-session costs nothing on those routes.
+
+That is **not** a provider-independent rule. The Anthropic family renders its
+thinking configuration into the prompt and documents that changing it
+invalidates message blocks; its transport carries `thinking.budget_tokens`
+rather than an effort level at all, so an effort rewrite there is not merely
+cache-hostile, it is meaningless.
+
+So there are three routing scopes and one per-route table:
+
+| mode | scope | on `codex_responses` | on `anthropic_messages` |
+|---|---|---|---|
+| `off` | nothing | no call | no call |
+| `recommend` | per turn, reports only | per turn | per turn |
+| `auto` | per turn, rewrites | per turn | per turn |
+| `cache_safe` | per turn **only where the cache survives** | per turn | pinned to the session |
+
+`cache_safe` is the default I would actually install. An unrecognised route is
+treated as **unsafe** and pins the session: guessing wrong the other way silently
+degrades the cache, which only shows up in the bill, whereas pinning merely costs
+one level of adaptation. `/jev-auto status` prints the verdict and its reason.
+
+A turn that already sits at the level Jev picked costs no rewrite at all — the
+middleware reports no decision rather than a rewrite identical to its input.
+
+**Not measured:** the plugin's real effect on `cache_read_tokens` on this box. It
+is not installed, so the only way to know is to run it and compare the
+`session_model_usage` columns before and after.
+
 ## Effort is classified per USER TURN, not per session
 
 One decision per session is the wrong granularity for an interactive session:
