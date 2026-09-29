@@ -1,8 +1,8 @@
-# Jev-Auto: per-request reasoning-effort routing.
+# Jev-Auto Effort: per-request reasoning-effort routing.
 # Task 1 scope: architecture verification. See README.md for the verified
 # access paths and fail-open rules; enable only via plugins.entries settings.
-name: jev-auto
-id: jev-auto
+name: jev-auto-effort
+id: jev-auto-effort
 kind: standalone
 version: 0.1.0
 description: >

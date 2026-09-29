@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 from typing import Optional, Sequence
 
-#: Normalized labels Jev-Auto may select. Never a fourth value.
+#: Normalized labels Jev-Auto Effort may select. Never a fourth value.
 EFFORT_LABELS: tuple[str, ...] = ("low", "medium", "high")
 
 #: Rubric boundaries (documented in README.md).

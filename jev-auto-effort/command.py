@@ -1,4 +1,4 @@
-"""/jev-auto — explain, inspect and steer the plugin.
+"""/jev-auto-effort — explain, inspect and steer the plugin.
 
 ``status`` and ``probe`` never classify a conversation, never rewrite a request
 and never store anything: they only render what the middleware already holds.
@@ -7,7 +7,7 @@ process — the plugin never edits the operator's config file, and the reply say
 so. Every command runs through the plugin dispatcher's argument split, so
 `handle()` receives a string, not a list.
 
-Schemas below are part of the documented contract (`jev-auto.*.v1`): the keys
+Schemas below are part of the documented contract (`jev-auto-effort.*.v1`): the keys
 are stable, and no prompt text ever leaves this module beyond the text the
 operator typed themselves for a probe.
 """
@@ -24,12 +24,12 @@ from . import middleware as _middleware
 PLUGIN_ID = _middleware.PLUGIN_ID
 MODES = _middleware.VALID_MODES
 USAGE = """Usage:
-  /jev-auto status            Show mode, settings, credential, session counts
-  /jev-auto status json       Machine-readable status payload
-  /jev-auto off|recommend|auto|cache_safe
+  /jev-auto-effort status            Show mode, settings, credential, session counts
+  /jev-auto-effort status json       Machine-readable status payload
+  /jev-auto-effort off|recommend|auto|cache_safe
                               Set the mode used by future requests
-  /jev-auto probe <text>      Classify <text> once (prints score/label, stores nothing)
-  /jev-auto help              Show this help
+  /jev-auto-effort probe <text>      Classify <text> once (prints score/label, stores nothing)
+  /jev-auto-effort help              Show this help
 
 Modes:
   off         do nothing (the default)
@@ -40,12 +40,12 @@ Modes:
 
 A mode set here applies to future requests served by this process. It is not
 written to config.yaml (nothing here edits your files), so it does not survive a
-restart; persist it as plugins.entries.jev-auto.settings.mode instead.
+restart; persist it as plugins.entries.jev-auto-effort.settings.mode instead.
 Probe asks Jev for a rubric score on the text you typed — it does not use or
 store your session's conversation, and never writes to session state."""
 
-STATUS_SCHEMA = "jev-auto.status.v1"
-PROBE_SCHEMA = "jev-auto.probe.v1"
+STATUS_SCHEMA = "jev-auto-effort.status.v1"
+PROBE_SCHEMA = "jev-auto-effort.probe.v1"
 
 #: The only session fields ever rendered — an entry may hold anything (it is
 #: plugin-author payload), so prompt text and provider junk are filtered out.
@@ -105,9 +105,9 @@ def _set_mode(target: str) -> str:
     if applied is None:  # unreachable from _dispatch; kept fail-safe
         return USAGE
     if applied == before:
-        return (f"jev-auto mode: {applied} (unchanged; applies to future requests "
+        return (f"jev-auto-effort mode: {applied} (unchanged; applies to future requests "
                 f"in this process, not persisted)")
-    return (f"jev-auto mode: {before} -> {applied} (applies to future requests in "
+    return (f"jev-auto-effort mode: {before} -> {applied} (applies to future requests in "
             f"this process; not persisted, set "
             f"plugins.entries.{PLUGIN_ID}.settings.mode to make it stick)")
 
@@ -156,7 +156,7 @@ def _status_payload() -> Dict[str, Any]:
         "schema": STATUS_SCHEMA,
         "plugin": PLUGIN_ID,
         "mode": settings["mode"],
-        # "config" (the file decides) vs "override" (/jev-auto in this process);
+        # "config" (the file decides) vs "override" (/jev-auto-effort in this process);
         # a runtime override applies to future requests only and is not persisted.
         "mode_source": settings["mode_source"],
         "settings": settings,
@@ -198,7 +198,7 @@ def _status_text() -> str:
     settings = payload["settings"]
     counts = payload["counts"]
     lines = [
-        "jev-auto status",
+        "jev-auto-effort status",
         f"mode: {payload['mode']} (from {settings.get('mode_source', 'config')})",
         f"cache safety: {payload['cache_safety']}",
         f"credential: {'present' if payload['credential'] else 'missing'}",

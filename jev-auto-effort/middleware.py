@@ -36,7 +36,7 @@ from . import jev_client as _jev_client
 
 logger = logging.getLogger(__name__)
 
-PLUGIN_ID = "jev-auto"
+PLUGIN_ID = "jev-auto-effort"
 VALID_MODES: Tuple[str, ...] = ("off", "recommend", "auto", "cache_safe")
 DEFAULTS: Dict[str, Any] = {
     "mode": "off",
@@ -55,7 +55,7 @@ _classifier_factory: Optional[Callable[..., Any]] = None
 # live profile. Tests inject a hermetic reader so a unit run never depends on
 # (and never reads) whatever mode the live profile happens to carry.
 _config_reader: Optional[Callable[[], Dict[str, Any]]] = None
-# Mode chosen at runtime through ``/jev-auto off|recommend|auto|cache_safe``.
+# Mode chosen at runtime through ``/jev-auto-effort off|recommend|auto|cache_safe``.
 # Process-local by design: the plugin never writes the operator's config file,
 # and the command's reply says so. ``None`` means "use the configured mode".
 _MODE_OVERRIDE: Optional[str] = None
@@ -88,7 +88,7 @@ def reset_state() -> None:
         _MODE_OVERRIDE = None
 
 
-# ── runtime mode override (``/jev-auto off|recommend|auto|cache_safe``) ──────
+# ── runtime mode override (``/jev-auto-effort off|recommend|auto|cache_safe``) ──────
 
 def set_mode_override(mode: Any) -> Optional[str]:
     """Accept a runtime mode for FUTURE requests; ``None`` when it is not a mode.
@@ -189,7 +189,7 @@ def _touch(key: str, settings: Dict[str, Any], mode: str,
 
     Every request that reaches the decision path is counted (``requests``), while
     ``probes`` only ever grows inside the claim — that difference is exactly what
-    ``/jev-auto status`` reports as "one Jev call per turn".
+    ``/jev-auto-effort status`` reports as "one Jev call per turn".
     """
     with _lock:
         entry = _SESSIONS.get(key)
@@ -299,7 +299,7 @@ def _live_config() -> Dict[str, Any]:
 
 
 def _read_setting(key: str, default: Any = None) -> Any:
-    """``plugins.entries.jev-auto.settings.<key>``, via ctx when present."""
+    """``plugins.entries.jev-auto-effort.settings.<key>``, via ctx when present."""
     provider = _settings_provider
     if provider is not None:
         try:
@@ -319,7 +319,7 @@ def _settings() -> Dict[str, Any]:
         mode = "off"
     override = mode_override()
     if override is not None:
-        # A runtime choice outranks the file: /jev-auto just told the operator it
+        # A runtime choice outranks the file: /jev-auto-effort just told the operator it
         # applies to future requests, so it must.
         mode, mode_source = override, "override"
     # Independent gate: children are routed only when BOTH the session mode and
@@ -378,11 +378,11 @@ def _call_factory(factory: Any, timeout: Any) -> Any:
         try:
             return factory()
         except Exception:
-            logger.debug("jev-auto: classifier factory raised; failing open",
+            logger.debug("jev-auto-effort: classifier factory raised; failing open",
                          exc_info=True)
             return None
     except Exception:
-        logger.debug("jev-auto: classifier factory raised; failing open", exc_info=True)
+        logger.debug("jev-auto-effort: classifier factory raised; failing open", exc_info=True)
         return None
 
 
@@ -422,7 +422,7 @@ def _classify(prompt: str, settings: Dict[str, Any]) -> "Tuple[Optional[float], 
                                            endpoint=settings["endpoint"],
                                            max_prompt_chars=settings["prompt_chars"])
         except Exception:
-            logger.debug("jev-auto: JevClient unavailable; failing open", exc_info=True)
+            logger.debug("jev-auto-effort: JevClient unavailable; failing open", exc_info=True)
             return None, "classifier_error"
     else:
         client = _build_client(factory, settings)
@@ -435,7 +435,7 @@ def _classify(prompt: str, settings: Dict[str, Any]) -> "Tuple[Optional[float], 
         else:
             score, failure = client.classify(prompt), None
     except Exception:
-        logger.debug("jev-auto: classifier raised; failing open", exc_info=True)
+        logger.debug("jev-auto-effort: classifier raised; failing open", exc_info=True)
         return None, "classifier_error"
     if score is None:
         return None, failure or "classifier_error"
@@ -446,7 +446,7 @@ def _classify(prompt: str, settings: Dict[str, Any]) -> "Tuple[Optional[float], 
 
 def run_probe(prompt: str,
               settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Exactly one bounded classification for ``/jev-auto probe``.
+    """Exactly one bounded classification for ``/jev-auto-effort probe``.
 
     Deliberately touches **no** session state and claims no in-flight slot: a
     probe is an operator's question about a text they typed themselves, not a
@@ -641,7 +641,7 @@ def on_llm_request(**kwargs: Any) -> Optional[Dict[str, Any]]:
     try:
         return _handle(kwargs)
     except Exception:
-        logger.debug("jev-auto: middleware error; failing open", exc_info=True)
+        logger.debug("jev-auto-effort: middleware error; failing open", exc_info=True)
         return None
 
 
@@ -657,7 +657,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     session_id = str(kwargs.get("session_id") or "")
     if not session_id:
-        logger.debug("jev-auto: no session id; failing open")
+        logger.debug("jev-auto-effort: no session id; failing open")
         return None
 
     provider = kwargs.get("provider")
@@ -697,7 +697,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         # Nothing verifiable to rewrite: remember and stay silent.
         if entry.get("state") != "decided":
             entry["state"] = "unsupported"
-        logger.debug("jev-auto: no writable effort field; no change")
+        logger.debug("jev-auto-effort: no writable effort field; no change")
         return None
 
     if entry.get("state") != "decided":
@@ -710,7 +710,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if not _claim(key):
             # Another request of this same session is classifying right now:
             # never a second Jev call, and its entry stays untouched.
-            logger.debug("jev-auto: probe already in flight; failing open")
+            logger.debug("jev-auto-effort: probe already in flight; failing open")
             return None
         try:
             entry["state"] = "probing"

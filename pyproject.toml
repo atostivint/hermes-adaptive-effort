@@ -1,7 +1,7 @@
-# Tool configuration for the Jev-Auto plugin repository.
+# Tool configuration for the Jev-Auto Effort plugin repository.
 #
-# There is deliberately no [project] table: the deliverable is the `jev-auto/`
-# directory, which Hermes installs as `~/.hermes/plugins/jev-auto`. It is a payload,
+# There is deliberately no [project] table: the deliverable is the `jev-auto-effort/`
+# directory, which Hermes installs as `~/.hermes/plugins/jev-auto-effort`. It is a payload,
 # not a distributable package, so there is nothing pip-installable to declare here.
 
 [tool.pytest.ini_options]
