@@ -1,4 +1,4 @@
-# Jev-Auto — suivi de la revue DeepSeek (2026-09-29)
+# Jev-Auto Effort — suivi de la revue DeepSeek (2026-09-29)
 
 Revue complète : [`review-deepseek-2026-09-29.md`](review-deepseek-2026-09-29.md)
 (modèle `deepseek-v4-pro` via `opencode-go`, lecture seule, aucune exécution).
@@ -54,13 +54,13 @@ de réponse non bornée de `jev_client.py` (lire `resp.read(MAX_RESPONSE_BYTES)`
 
 | Élément | Valeur |
 |---|---|
-| Emplacement | `/root/.hermes/plugins/jev-auto/` (copie octet pour octet du dépôt) |
+| Emplacement | `/root/.hermes/plugins/jev-auto-effort/` (copie octet pour octet du dépôt) |
 | État | `enabled` dans `plugins.enabled`, rechargé dans la gateway en cours |
-| `plugins.entries.jev-auto.settings.mode` | `auto` (B1 et B2 corrigés) |
+| `plugins.entries.jev-auto-effort.settings.mode` | `auto` (B1 et B2 corrigés) |
 | `settings.endpoint` | `https://api.typesafe.ai/v1` (figé — point SSRF de §4 de la revue) |
 | `settings.subagent_mode` | `off` (défaut) — les enfants Codex restent non routés |
 | Clé | `TYPESAFE_API_KEY` (scope Hermes / `~/.hermes/.env`), jamais loggée |
-| `hermes plugins doctor jev-auto` | OK — 0 outil, 3 hooks, aucun avertissement |
+| `hermes plugins doctor jev-auto-effort` | OK — 0 outil, 3 hooks, aucun avertissement |
 
 Un seul appel Jev par session (mémoïsé), fail-open sur toute erreur. Les 20 tâches
 cron qui tournent sur `gpt-6-luna` (codex) feront donc un appel Jev par exécution :

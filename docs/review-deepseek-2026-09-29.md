@@ -2,7 +2,7 @@ Voici la revue. Elle est le fruit d'une lecture croisée du code du plugin contr
 
 ---
 
-# Revue sévère — plugin Hermes `jev-auto`
+# Revue sévère — plugin Hermes `jev-auto-effort`
 
 ## 1. Verdict global
 
@@ -115,7 +115,7 @@ Le README et `test_turn_scope.py:114-127` affirment que `api_call_count` maintie
 - TLS vérifié : `urlopen` avec contexte par défaut valide les certificats (pas de `ssl._create_unverified_context`).
 - Timeout présent (3 s par défaut, testé `test_jev_client.py:102-106`).
 - **Taille de réponse non bornée** : `json.load(resp)` lit le corps **entier** sans cap (`jev_client.py`). Le prompt émis est plafonné (`truncate_prompt`, `max_prompt_chars=4000`, testé `test_jev_client.py:124-129`), mais pas la réponse d'un endpoint compromis. Mineur : ajouter un `resp.read(MAX_RESPONSE_BYTES)` borné.
-- **SSRF / URL injectable** : `endpoint` est un réglage libre (`settings.endpoint`, passé tel quel à `urllib.request.Request(self.endpoint, …)`). L'en-tête `Authorization` part donc vers **l'URL configurée**. Ce n'est exploitable que par qui peut écrire `plugins.entries.jev-auto.settings.endpoint` (config locale), donc risque faible ; le README le signale d'ailleurs en question ouverte. À figer sur `https://api.typesafe.ai/v1` si on veut couper court.
+- **SSRF / URL injectable** : `endpoint` est un réglage libre (`settings.endpoint`, passé tel quel à `urllib.request.Request(self.endpoint, …)`). L'en-tête `Authorization` part donc vers **l'URL configurée**. Ce n'est exploitable que par qui peut écrire `plugins.entries.jev-auto-effort.settings.endpoint` (config locale), donc risque faible ; le README le signale d'ailleurs en question ouverte. À figer sur `https://api.typesafe.ai/v1` si on veut couper court.
 
 **Ce qui est loggé** — uniquement durée/statut/raison d'échec. **Ce qui est persisté** — rien : `_SESSIONS`, `_CHILD_GOALS`, `_IN_FLIGHT` sont en mémoire, `session_state()` n'expose que des métadonnées d'effort (`middleware.py:93-96`), `child_goals()` n'expose que le `child_goal` (le but écrit par le parent, jamais le prompt de l'enfant — testé `test_subagent.py:259-266`). Le texte complet du prompt n'est **jamais** stocké au-delà de la durée de l'appel `run_probe`.
 

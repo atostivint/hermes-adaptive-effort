@@ -1,4 +1,4 @@
-# Passation — carte `t_cb5d47d0` (plugin `jev-auto`)
+# Passation — carte `t_cb5d47d0` (plugin `jev-auto-effort`)
 
 Document de référence du README : preuves, commandes, matrice de routes, rechargement et rollback.
 Rédigé par Iris à partir de la passation de la carte et des vérifications refaites sur cette machine.
@@ -15,7 +15,7 @@ Rédigé par Iris à partir de la passation de la carte et des vérifications re
 
 | Élément | Valeur |
 |---|---|
-| Dépôt | `/root/workspace/Hermes/jev-auto-plugin` — aucun remote, rien n'a été poussé |
+| Dépôt | `/root/workspace/Hermes/jev-auto-effort-plugin` — aucun remote, rien n'a été poussé |
 | `master` | `82d201a45ea7920d748f4a8cc99d7a0db8ec77c1` (fast-forward depuis l'ancien tip `7ca51bd`) |
 | Branche `wip/kanban-t_cb5d47d0-run22` | conservée, pointe sur le même commit |
 | Arbre de travail | propre (`git status --short` vide) |
@@ -25,7 +25,7 @@ Le message du commit `82d201a` (« wip … parked at 60/60 iterations ») décri
 ## Vérifier sur cette machine
 
 ```bash
-cd /root/workspace/Hermes/jev-auto-plugin
+cd /root/workspace/Hermes/jev-auto-effort-plugin
 ./scripts/bootstrap_test_env.sh -q     # recrée .venv puis lance la suite
 ./scripts/run_tests.sh -q              # 127 passed
 ./scripts/run_lint.sh                  # All checks passed!  (ruff 0.16.9)
@@ -41,7 +41,7 @@ Le venv est créé avec `--system-site-packages` : ce n'est pas un détail, le t
 | # | Critère | Verdict |
 |---|---|---|
 | 1 | README | **Fermé** — réécrit sur les faits vérifiés ; « 35 passed » disparu, compte 127 vérifié |
-| 2 | Commande `/jev-auto` | **Fermé** — 4 verbes `off\|recommend\|auto\|cache_safe` via `set_mode_override()` (override en mémoire, aucun fichier écrit) ; `/jev-auto setup` mort supprimé ; 10 tests |
+| 2 | Commande `/jev-auto-effort` | **Fermé** — 4 verbes `off\|recommend\|auto\|cache_safe` via `set_mode_override()` (override en mémoire, aucun fichier écrit) ; `/jev-auto-effort setup` mort supprimé ; 10 tests |
 | 3 | Cache de décision | **Fermé** — entrée porte `provider` + `model` ; à la réutilisation, `_target_for_route()` re-clampe le LABEL sur la route courante ; route incapable d'exprimer le label → `unsupported`, rien n'est écrit |
 | 4 | Suite verte en environnement capable | **Fermé** — les 2 tests rouges réparés à la racine (seam `_config_reader` + fixture autouse `hermetic_plugin_settings`), plus aucune lecture de `~/.hermes/config.yaml` par la suite |
 | 5 | Intégration dispatcher | **Fermé** — 6 tests via `PluginManager.discover_and_load()` + `apply_llm_request_middleware` |
@@ -67,21 +67,21 @@ Le venv est créé avec `--system-site-packages` : ce n'est pas un détail, le t
 ## Commandes et cycle de vie
 
 ```text
-/jev-auto status | status json | probe <texte> | off | recommend | auto | cache_safe
+/jev-auto-effort status | status json | probe <texte> | off | recommend | auto | cache_safe
 ```
 
-- Un mode posé au chat vit dans le **processus**. Pour qu'il survive à un redémarrage : `plugins.entries.jev-auto.settings.mode`, puis redémarrage.
+- Un mode posé au chat vit dans le **processus**. Pour qu'il survive à un redémarrage : `plugins.entries.jev-auto-effort.settings.mode`, puis redémarrage.
 - **Il n'existe pas de `hermes plugins reload`** (vérifié : `hermes plugins --help` n'expose que install/search/browse/validate/update/adopt/remove/list/enable/disable/capabilities/doctor/pack/show). Les plugins sont découverts au **démarrage du processus** : `hermes gateway restart`.
 - `mode_source` (config vs override) est exposé dans `status`, donc l'origine du mode est lisible.
 
 ## Déploiement (non fait) et rollback
 
-Le dépôt et le runtime divergent volontairement. `diff -r` entre la copie vivante `/root/.hermes/plugins/jev-auto` et `master` : **identique sauf `__init__.py`, `command.py`, `middleware.py`**. Il manque donc au runtime les verbes de mode, la télémétrie `provider`/`model` et le re-clamp par route.
+Le dépôt et le runtime divergent volontairement. `diff -r` entre la copie vivante `/root/.hermes/plugins/jev-auto-effort` et `master` : **identique sauf `__init__.py`, `command.py`, `middleware.py`**. Il manque donc au runtime les verbes de mode, la télémétrie `provider`/`model` et le re-clamp par route.
 
 La mise en service n'a pas été faite : le plugin route encore les requêtes de l'opérateur ; la décision de mise en service lui revient.
 
 - **Rollback dépôt** : `git reset --hard 7ca51bd` (l'ancien tip, commit intact).
-- **Rollback vivant** : restaurer la copie de `plugins/jev-auto` prise **avant** le déploiement, puis `hermes gateway restart`.
+- **Rollback vivant** : restaurer la copie de `plugins/jev-auto-effort` prise **avant** le déploiement, puis `hermes gateway restart`.
 
 ## Risques et points ouverts
 

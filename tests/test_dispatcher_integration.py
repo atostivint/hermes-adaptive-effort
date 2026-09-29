@@ -1,7 +1,7 @@
 """Integration: the plugin driven by the REAL Hermes middleware dispatcher.
 
 This is the one test that does not call our callback directly. It boots a
-throwaway ``HERMES_HOME``, copies the payload into ``<home>/plugins/jev-auto``,
+throwaway ``HERMES_HOME``, copies the payload into ``<home>/plugins/jev-auto-effort``,
 lets Hermes' own ``PluginManager`` discover and register it, then enters through
 ``hermes_cli.middleware.apply_llm_request_middleware`` — the exact function
 ``agent/turn_api_request.py`` calls before building a provider request.
@@ -74,7 +74,7 @@ def dispatched(tmp_path_factory):
     home = tmp_path_factory.mktemp("jev_home")
     (home / "plugins").mkdir()
     shutil.copytree(
-        PLUGIN_DIR, home / "plugins" / "jev-auto",
+        PLUGIN_DIR, home / "plugins" / "jev-auto-effort",
         ignore=shutil.ignore_patterns("__pycache__"),
     )
     bundled = home / "bundled_plugins"
@@ -82,8 +82,8 @@ def dispatched(tmp_path_factory):
     (home / "config.yaml").write_text(
         json.dumps({
             "plugins": {
-                "enabled": ["jev-auto"],
-                "entries": {"jev-auto": {"settings": {"mode": "auto"}}},
+                "enabled": ["jev-auto-effort"],
+                "entries": {"jev-auto-effort": {"settings": {"mode": "auto"}}},
             },
         }),
         encoding="utf-8",
@@ -133,12 +133,12 @@ def test_real_dispatcher_discovers_registers_and_rewrites(dispatched, no_network
     assert result.payload["extra_body"]["reasoning"]["effort"] == "high"
     assert request["extra_body"]["reasoning"]["effort"] == "medium"
     assert result.original_payload["extra_body"]["reasoning"]["effort"] == "medium"
-    assert result.trace and result.trace[0]["source"] == "jev-auto"
+    assert result.trace and result.trace[0]["source"] == "jev-auto-effort"
 
     # Registered through the real PluginContext, nothing more and nothing less.
-    plugin = dispatched["manager"]._plugins["jev-auto"]
+    plugin = dispatched["manager"]._plugins["jev-auto-effort"]
     assert plugin.middleware_registered == ["llm_request"]
-    assert "jev-auto" in plugin.commands_registered
+    assert "jev-auto-effort" in plugin.commands_registered
     assert "on_session_end" in plugin.hooks_registered
     assert not getattr(plugin, "tools_registered", None)
 

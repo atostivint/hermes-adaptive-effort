@@ -1,9 +1,9 @@
-# jev-auto
+# jev-auto-effort
 
 A Hermes plugin that lets an external rubric scorer (Jev) pick the **reasoning effort**
 of a request instead of leaving it to a fixed default.
 
-`jev-auto/` is the payload: Hermes installs it as `~/.hermes/plugins/jev-auto`. This
+`jev-auto-effort/` is the payload: Hermes installs it as `~/.hermes/plugins/jev-auto-effort`. This
 repository is the source of that payload plus its test suite, and nothing is
 pip-installable — there is no `[project]` table on purpose.
 
@@ -38,25 +38,25 @@ turns thinking off, and never touches anything but that one slot.
 
 ## Commands
 
-`/jev-auto` is registered through the host's `register_command` API. The usage text is
+`/jev-auto-effort` is registered through the host's `register_command` API. The usage text is
 the contract:
 
 ```text
 Usage:
-  /jev-auto status            Show mode, settings, credential, session counts
-  /jev-auto status json       Machine-readable status payload
-  /jev-auto off|recommend|auto|cache_safe
+  /jev-auto-effort status            Show mode, settings, credential, session counts
+  /jev-auto-effort status json       Machine-readable status payload
+  /jev-auto-effort off|recommend|auto|cache_safe
                               Set the mode used by future requests
-  /jev-auto probe <text>      Classify <text> once (prints score/label, stores nothing)
-  /jev-auto help              Show this help
+  /jev-auto-effort probe <text>      Classify <text> once (prints score/label, stores nothing)
+  /jev-auto-effort help              Show this help
 ```
 
 A mode set this way applies to **future requests served by that process**. It is not
 written to `config.yaml` (the command edits no file of yours) and therefore does not
 survive a restart: persist it as
-`plugins.entries.jev-auto.settings.mode`.
+`plugins.entries.jev-auto-effort.settings.mode`.
 
-`/jev-auto setup` used to appear in the usage text. It was removed rather than
+`/jev-auto-effort setup` used to appear in the usage text. It was removed rather than
 implemented: the host API for plugins (`hermes_cli/plugins.py`) exposes
 `register_command` and no generic setup entry point, so there was nothing to delegate to.
 An unknown verb, or a mode with a stray argument, returns the usage text and changes
@@ -68,7 +68,7 @@ stores the session's conversation.
 
 ## Configuration
 
-Settings live under `plugins.entries.jev-auto.settings` in `config.yaml`; the defaults are
+Settings live under `plugins.entries.jev-auto-effort.settings` in `config.yaml`; the defaults are
 in `middleware.DEFAULTS`.
 
 | setting | default | meaning |
@@ -143,7 +143,7 @@ declares `OX_ALPHA_EFFORTS` and `OX_ALPHA_OVERRIDES` but exposes **no route sele
 for that slug, so `route_supported_efforts` hands this plugin the wide set and the plugin
 can legitimately choose `medium` — which the vendor then rejects. This is a live, unfixed
 risk, tracked by criterion 8 of the card and **not** worked around here (a follow-up
-would add the Ox Alpha slug to `wire_efforts()`/`wire_overrides()` in `jev-auto/effort.py`,
+would add the Ox Alpha slug to `wire_efforts()`/`wire_overrides()` in `jev-auto-effort/effort.py`,
 mirroring the Kimi and GLM entries that are already there).
 
 ## Fail-open behaviour
@@ -185,14 +185,14 @@ entry, keyed by its own session and turn.
 ## Files
 
 ```text
-jev-auto/                 the payload installed as ~/.hermes/plugins/jev-auto
+jev-auto-effort/                 the payload installed as ~/.hermes/plugins/jev-auto-effort
   plugin.yaml             manifest: id, commands, hooks, settings defaults
   __init__.py             register(): commands + the llm_request middleware
   middleware.py           settings, mode, decision cache, request rewrite, session state
   effort.py               pure score -> label -> wire-effort mapping (no I/O)
   jev_client.py           HTTP client for the scorer + credential probe (lazy core import)
   cache_safety.py         is an effort change cache-neutral on this route?
-  command.py              /jev-auto: help, status, status json, probe, mode verbs
+  command.py              /jev-auto-effort: help, status, status json, probe, mode verbs
 tests/                    134 tests, one module per contract
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh
 pyproject.toml            pytest + ruff configuration
@@ -207,7 +207,7 @@ Test modules, by contract:
 | `test_middleware.py` | 24 | settings, gating, the rewrite itself |
 | `test_subagent.py` | 17 | child routing, child goals, inheritance |
 | `test_jev_client.py` | 18 | transport, credential probe, failure modes, endpoint normalization |
-| `test_command.py` | 16 | `/jev-auto` rendering, schemas, no prompt leak |
+| `test_command.py` | 16 | `/jev-auto-effort` rendering, schemas, no prompt leak |
 | `test_cache_safety.py` | 11 | cache-neutral vs cache-hostile routes |
 | `test_command_modes.py` | 10 | the `off`/`recommend`/`auto`/`cache_safe` verbs |
 | `test_turn_scope.py` | 8 | the `(session_id, turn_id)` decision key |
@@ -220,7 +220,7 @@ Test modules, by contract:
 ## Running the tests
 
 ```bash
-cd /root/workspace/Hermes/jev-auto-plugin
+cd /root/workspace/Hermes/jev-auto-effort
 
 ./scripts/run_tests.sh          # the invocation that works, with the interpreter that works
 ./scripts/run_lint.sh           # ruff, configured in pyproject.toml
@@ -245,7 +245,7 @@ profile with `mode: auto` cannot turn a "default is off" test red.
 ### The integration test is real, and it runs
 
 `tests/test_dispatcher_integration.py` does not call the plugin's callback directly: it
-boots a throwaway `HERMES_HOME`, copies the payload into `<home>/plugins/jev-auto`, lets
+boots a throwaway `HERMES_HOME`, copies the payload into `<home>/plugins/jev-auto-effort`, lets
 Hermes' own `PluginManager.discover_and_load()` find and register it, and then enters
 through `hermes_cli.middleware.apply_llm_request_middleware` — the function
 `agent/turn_api_request.py` calls before building a provider request. It covers, in that
@@ -264,7 +264,7 @@ It runs in `./scripts/run_tests.sh`; it is never skipped there.
 ## Not covered / open
 
 * **Cost effect unmeasured** — see "Prompt cache" above.
-* **Deployment** — the copy the live runtime executes, `~/.hermes/plugins/jev-auto`, is
+* **Deployment** — the copy the live runtime executes, `~/.hermes/plugins/jev-auto-effort`, is
   byte-identical to `7ca51bd`, i.e. it does **not** contain this delivery. Reload and
   rollback are in the handoff doc.
 * **Activation is the operator's call** — the live `/root/.hermes/config.yaml` enables

@@ -56,7 +56,7 @@ def effort_is_cache_safe(provider: Optional[str] = None, model: Optional[str] = 
 
 def explain(provider: Optional[str] = None, model: Optional[str] = None,
             api_mode: Optional[str] = None) -> str:
-    """One short, human-readable reason for a ``/jev-auto status`` line."""
+    """One short, human-readable reason for a ``/jev-auto-effort status`` line."""
     mode = str(api_mode or "").strip().lower()
     if mode in CACHE_SAFE_API_MODES:
         return f"cache-safe on {mode}: effort is a request field, not prompt text"

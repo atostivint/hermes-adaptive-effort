@@ -105,7 +105,7 @@ def test_recommend_records_but_does_not_mutate(monkeypatch):
     out = call(ctx(request=req))
     assert out is not None
     assert out["request"]["extra_body"]["reasoning"]["effort"] == "medium"
-    assert out["source"] == "jev-auto"
+    assert out["source"] == "jev-auto-effort"
     assert "high" in out["reason"] and "not applied" in out["reason"]
     assert factory.instances[0].calls == ["first user prompt"]
 
@@ -120,7 +120,7 @@ def test_auto_rewrites_only_the_effort_value(monkeypatch, no_network):
     before, after = dict(req), dict(out["request"])
     assert after["messages"] == before["messages"]
     assert after["model"] == before["model"]
-    assert out["source"] == "jev-auto"
+    assert out["source"] == "jev-auto-effort"
 
 
 def test_auto_never_adds_an_effort_field(monkeypatch):
@@ -259,7 +259,7 @@ def test_no_network_during_auto_path(monkeypatch, no_network):
     assert out["request"]["extra_body"]["reasoning"]["effort"] == "high"
 
 
-# ── what /jev-auto status reports ──────────────────────────────────────────
+# ── what /jev-auto-effort status reports ──────────────────────────────────────────
 
 class DetailedClassifier(FakeClassifier):
     """Reports *why* it failed, the way JevClient.classify_detail does.
