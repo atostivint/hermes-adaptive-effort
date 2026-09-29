@@ -189,3 +189,36 @@ def test_credential_present_reports_the_key_without_calling_the_transport(monkey
     assert jev_client.credential_present() is False
     assert transport.calls == []
 
+
+# ── endpoint normalization ──────────────────────────────────────────────────
+# `plugins.entries.jev-auto.settings.endpoint` is hand-written, so a base URL
+# there reaches the API root, which answers 404. Every classification then fails
+# open as `http_error` and the plugin looks enabled while doing nothing at all.
+
+def test_a_base_url_in_endpoint_still_reaches_the_scoring_route():
+    for configured in ("https://api.typesafe.ai/v1",
+                       "https://api.typesafe.ai/v1/",
+                       "https://api.typesafe.ai",
+                       "  https://api.typesafe.ai/v1  "):
+        assert jev_client.normalize_endpoint(configured) == jev_client.DEFAULT_ENDPOINT
+
+
+def test_the_scoring_route_and_custom_paths_are_used_verbatim():
+    for url in (jev_client.DEFAULT_ENDPOINT,
+                "http://127.0.0.1:8080/v2/systemone",
+                "https://proxy.internal/team/jev"):
+        assert jev_client.normalize_endpoint(url) == url
+
+
+def test_a_blank_endpoint_falls_back_to_the_documented_default():
+    for value in ("", "   ", None):
+        assert jev_client.normalize_endpoint(value) == jev_client.DEFAULT_ENDPOINT
+
+
+def test_client_posts_to_the_normalized_url_not_the_raw_setting():
+    transport = FakeTransport(_answer(1.0))
+    client = jev_client.JevClient(api_key="k", transport=transport,
+                                  endpoint="https://api.typesafe.ai/v1")
+    assert client.classify("prompt") == pytest.approx(1.0)
+    assert transport.calls[0]["url"] == jev_client.DEFAULT_ENDPOINT
+

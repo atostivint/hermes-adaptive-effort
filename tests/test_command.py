@@ -189,3 +189,29 @@ def test_probe_failure_is_reported_as_a_reason(monkeypatch, no_network):
     payload = json.loads(command.handle("probe something"))
     assert payload["failure"] == "classifier_error"
     assert payload["score"] is None
+
+
+def test_settings_expose_the_effective_endpoint(monkeypatch):
+    """A base URL in the config must be visible as such, not silently posted to."""
+    monkeypatch.setattr(middleware, "_settings_provider",
+                        lambda key, default=None: {"endpoint": "https://api.typesafe.ai/v1"}.get(key, default))
+    settings = middleware._settings()
+    assert settings["endpoint"] == "https://api.typesafe.ai/v1"
+    assert settings["endpoint_effective"] == "https://api.typesafe.ai/v1/systemone"
+
+
+def test_status_points_at_the_effective_endpoint_and_shows_the_raw_setting(monkeypatch):
+    monkeypatch.setattr(middleware, "_settings_provider",
+                        lambda key, default=None: {"endpoint": "https://api.typesafe.ai/v1"}.get(key, default))
+    out = command.handle("status")
+    assert "https://api.typesafe.ai/v1/systemone" in out
+    assert "configured: https://api.typesafe.ai/v1" in out
+
+
+def test_status_on_the_canonical_endpoint_does_not_add_a_configured_note(monkeypatch):
+    monkeypatch.setattr(middleware, "_settings_provider",
+                        lambda key, default=None: {
+                            "endpoint": "https://api.typesafe.ai/v1/systemone"}.get(key, default))
+    out = command.handle("status")
+    assert "https://api.typesafe.ai/v1/systemone" in out
+    assert "configured" not in out

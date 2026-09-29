@@ -66,6 +66,33 @@ nothing.
 middleware already holds. `probe` scores the text the operator typed — it never reads or
 stores the session's conversation.
 
+## Configuration
+
+Settings live under `plugins.entries.jev-auto.settings` in `config.yaml`; the defaults are
+in `middleware.DEFAULTS`.
+
+| setting | default | meaning |
+| --- | --- | --- |
+| `mode` | `off` | mode a fresh process starts in: `off` / `recommend` / `auto` / `cache_safe` |
+| `subagent_mode` | `off` | mode for child sessions, independent of the parent |
+| `endpoint` | `https://api.typesafe.ai/v1/systemone` | where a classification is POSTed |
+| `timeout_s` | `3.0` | per-classification HTTP timeout; a timeout fails open |
+| `max_turns` | `64` | decision-cache entries kept per process |
+| `prompt_chars` | `4000` | prompt text sent to the scorer, truncated there and never stored |
+
+The scorer's model is the `jev_client.JEV_MODEL` constant, not a setting.
+
+`endpoint` accepts **either** the scoring route or the API base that contains it:
+`https://api.typesafe.ai/v1` is normalized to `…/v1/systemone`, a bare host has
+`/v1/systemone` appended, and a URL that already carries a non-version path is used
+verbatim, so a proxy with its own route keeps working.
+
+That tolerance is not cosmetic. The API root answers **404**, and a 404 here fails open on
+*every* request — the plugin stays enabled, reports a present credential, and classifies
+nothing. An endpoint one level too high is therefore a silent total outage, which is why
+`status` prints the URL requests really go to and names the raw setting beside it whenever
+the two differ.
+
 ## Decision cache: one decision per turn, valid only for its route
 
 The memo key is `(session_id, turn_id)`:
@@ -166,7 +193,7 @@ jev-auto/                 the payload installed as ~/.hermes/plugins/jev-auto
   jev_client.py           HTTP client for the scorer + credential probe (lazy core import)
   cache_safety.py         is an effort change cache-neutral on this route?
   command.py              /jev-auto: help, status, status json, probe, mode verbs
-tests/                    127 tests, one module per contract
+tests/                    134 tests, one module per contract
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh
 pyproject.toml            pytest + ruff configuration
 requirements-dev.txt      test/lint pins (pytest 9.1.1, ruamel.yaml 0.19.1, ruff 0.16.9)
@@ -179,8 +206,8 @@ Test modules, by contract:
 | --- | --- | --- |
 | `test_middleware.py` | 24 | settings, gating, the rewrite itself |
 | `test_subagent.py` | 17 | child routing, child goals, inheritance |
-| `test_jev_client.py` | 14 | transport, credential probe, failure modes |
-| `test_command.py` | 13 | `/jev-auto` rendering, schemas, no prompt leak |
+| `test_jev_client.py` | 18 | transport, credential probe, failure modes, endpoint normalization |
+| `test_command.py` | 16 | `/jev-auto` rendering, schemas, no prompt leak |
 | `test_cache_safety.py` | 11 | cache-neutral vs cache-hostile routes |
 | `test_command_modes.py` | 10 | the `off`/`recommend`/`auto`/`cache_safe` verbs |
 | `test_turn_scope.py` | 8 | the `(session_id, turn_id)` decision key |

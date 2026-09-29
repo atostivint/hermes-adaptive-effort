@@ -19,8 +19,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any, Callable, Dict, Optional
 
@@ -32,6 +34,39 @@ SENTINEL_ENV = "TYPESAFE_API_KEY"
 JEV_MODEL = "jev-latest"
 DEFAULT_TIMEOUT_S = 3.0
 DEFAULT_MAX_PROMPT_CHARS = 4000
+
+#: The scoring route. ``endpoint`` may name either this full path or the API base
+#: that contains it — see :func:`normalize_endpoint`.
+SYSTEMONE_PATH = "/systemone"
+_VERSION_ROOT = re.compile(r"^v\d+(?:\.\d+)*$")
+
+
+def normalize_endpoint(value: Any) -> str:
+    """Return the URL to POST to, tolerating a base URL in ``endpoint``.
+
+    ``plugins.entries.jev-auto.settings.endpoint`` is written by hand, so both of
+    these must land on the scoring route:
+
+    * the full path — ``https://api.typesafe.ai/v1/systemone`` (used verbatim)
+    * the API base — ``https://api.typesafe.ai/v1`` → ``…/v1/systemone``
+    * a bare host — ``https://api.typesafe.ai`` → ``…/v1/systemone``
+
+    A trailing slash is ignored. Any URL that already carries a non-version path
+    is used verbatim, so a deployment behind a proxy with its own route keeps
+    working. Without this, a base URL in the setting posts to the API root, which
+    answers 404 and makes every classification fail open as ``http_error``.
+    """
+    url = str(value or "").strip().rstrip("/")
+    if not url:
+        return DEFAULT_ENDPOINT
+    segments = [segment for segment in urllib.parse.urlsplit(url).path.split("/")
+                if segment]
+    if not segments:
+        return url + "/v1" + SYSTEMONE_PATH
+    if _VERSION_ROOT.match(segments[-1]):
+        return url + SYSTEMONE_PATH
+    return url
+
 
 #: Ordered 3-level rubric: index 0 = low, 1 = medium, 2 = high (see effort.py).
 QUESTIONS: Dict[str, Dict[str, Any]] = {
@@ -101,7 +136,7 @@ class JevClient:
                  transport: Optional[Callable[..., Any]] = None,
                  key_reader: Optional[Callable[[], str]] = None):
         self.api_key = (api_key or "").strip()
-        self.endpoint = endpoint or DEFAULT_ENDPOINT
+        self.endpoint = normalize_endpoint(endpoint or DEFAULT_ENDPOINT)
         self.model = model or JEV_MODEL
         self.timeout = float(timeout) if timeout else DEFAULT_TIMEOUT_S
         self.max_prompt_chars = int(max_prompt_chars or DEFAULT_MAX_PROMPT_CHARS)

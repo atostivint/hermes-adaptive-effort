@@ -351,6 +351,11 @@ def _settings() -> Dict[str, Any]:
         "max_turns": _int("max_turns", DEFAULTS["max_turns"]),
         "prompt_chars": _int("prompt_chars", DEFAULTS["prompt_chars"]),
         "endpoint": str(_read_setting("endpoint", DEFAULTS["endpoint"])),
+        # The URL the client will actually POST to: the setting above may name the
+        # API base instead of the scoring route, and a mismatch is invisible until
+        # every classification fails open. Reported so `status` shows the truth.
+        "endpoint_effective": _jev_client.normalize_endpoint(
+            str(_read_setting("endpoint", DEFAULTS["endpoint"]))),
     }
 
 
