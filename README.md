@@ -13,7 +13,7 @@ the provider/model matrix live in `docs/handoff-t_cb5d47d0.md`. Verified on this
 
 | check | command | result |
 | --- | --- | --- |
-| suite | `./scripts/run_tests.sh` | `127 passed` in ~8 s |
+| suite | `./scripts/run_tests.sh` | `146 passed` in ~8 s |
 | lint | `./scripts/run_lint.sh` | `All checks passed!` (ruff 0.16.9) |
 
 ## What it does
@@ -69,7 +69,10 @@ stores the session's conversation.
 ## Configuration
 
 Settings live under `plugins.entries.jev-auto-effort.settings` in `config.yaml`; the defaults are
-in `middleware.DEFAULTS`.
+in `middleware.DEFAULTS`. Every key is also declared in `plugin.yaml`
+`config_schema`, so the Desktop app renders it as a field in
+**Capabilities → Plugins** (gear row) — same writer as `ctx.set_config()`, same
+values the middleware reads back. No Desktop code needed for that half.
 
 | setting | default | meaning |
 | --- | --- | --- |
@@ -92,6 +95,31 @@ That tolerance is not cosmetic. The API root answers **404**, and a 404 here fai
 nothing. An endpoint one level too high is therefore a silent total outage, which is why
 `status` prints the URL requests really go to and names the raw setting beside it whenever
 the two differ.
+
+## Desktop / GUI: enable, disable, live status
+
+Two tiers, both fail-open:
+
+1. **Settings form (no extra install).** `config_schema` gives a persisted mode
+   dropdown (`off` / `recommend` / `auto` / `cache_safe`) in
+   Capabilities → Plugins. This is the persistent counterpart to
+   `/jev-auto-effort <mode>`, which stays runtime-only by design (the plugin
+   never writes your config from a chat command).
+2. **Live toggle (unified desktop plugin, opt-in).** `desktop/plugin.js`
+   contributes a status-bar chip (`Jev <mode>`), a `Jev Effort` pane and
+   `Jev Effort: …` palette commands, backed by `dashboard/plugin_api.py`
+   (`GET /status`, `POST /mode`, `POST /probe` under
+   `/api/plugins/jev-auto-effort/`). Switching persists
+   `settings.mode` and applies to future requests of the running process.
+   The desktop half ships `defaultEnabled: false` and degrades to `Jev —`
+   when the agent half is not in `plugins.enabled` (the Python backend only
+   mounts for enabled plugins — a security boundary, not a bug).
+
+The backend reuses `command._status_payload()` (`jev-auto-effort.status.v1`) and
+`middleware.set_mode_override()` from the already-loaded agent modules, so the
+chip reports the same decisions `/jev-auto-effort status` prints. No prompt text
+is stored or echoed on any route — `probe` returns score/label/failure plus a
+`text_chars` count only.
 
 ## Decision cache: one decision per turn, valid only for its route
 
@@ -186,14 +214,17 @@ entry, keyed by its own session and turn.
 
 ```text
 jev-auto-effort/                 the payload installed as ~/.hermes/plugins/jev-auto-effort
-  plugin.yaml             manifest: id, commands, hooks, settings defaults
+  plugin.yaml             manifest: id, commands, hooks, settings defaults + config_schema (Desktop form)
   __init__.py             register(): commands + the llm_request middleware
   middleware.py           settings, mode, decision cache, request rewrite, session state
   effort.py               pure score -> label -> wire-effort mapping (no I/O)
   jev_client.py           HTTP client for the scorer + credential probe (lazy core import)
   cache_safety.py         is an effort change cache-neutral on this route?
   command.py              /jev-auto-effort: help, status, status json, probe, mode verbs
-tests/                    134 tests, one module per contract
+  dashboard/manifest.json + plugin_api.py
+                          desktop backend: GET /status, POST /mode, POST /probe
+  desktop/plugin.js       desktop half: status-bar chip, pane, palette commands (opt-in)
+tests/                    146 tests, one module per contract
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh
 pyproject.toml            pytest + ruff configuration
 requirements-dev.txt      test/lint pins (pytest 9.1.1, ruamel.yaml 0.19.1, ruff 0.16.9)
@@ -216,6 +247,8 @@ Test modules, by contract:
 | `test_effort.py` | 6 | score thresholds, clamping, overrides |
 | `test_dispatcher_integration.py` | 6 | through Hermes' own plugin manager + middleware |
 | `test_plugin_registration.py` | 3 | manifest, `register()` contract |
+| `test_config_schema.py` | 4 | `config_schema` keys/types/defaults match `DEFAULTS` + `VALID_MODES` |
+| `test_plugin_api.py` | 8 | dashboard backend (status/mode/probe, no prompt leak) + desktop static contract |
 
 ## Running the tests
 
