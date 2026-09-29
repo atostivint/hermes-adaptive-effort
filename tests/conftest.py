@@ -100,12 +100,47 @@ class _NoNetwork:
         raise AssertionError("unit tests must not open network sockets")
 
 
-@pytest.fixture
-def no_network(monkeypatch):
-    """Fail the test if anything opens a socket while this fixture is active."""
+@pytest.fixture(scope="session", autouse=True)
+def no_network():
+    """Fail the whole run if ANY test opens a socket.
+
+    Session-scoped and autouse on purpose: an opt-in, function-scoped guard
+    proves nothing about the tests that forgot to request it, and it would not
+    cover module-scoped fixtures either. Patching for the entire session covers
+    both, so "the suite provably opens no socket" is a property of the run
+    rather than of the tests that remembered.
+    """
     import socket
+    from unittest import mock
 
     guard = _NoNetwork()
-    monkeypatch.setattr(socket, "socket", guard)
-    monkeypatch.setattr(socket, "create_connection", guard)
-    return guard
+    with mock.patch.object(socket, "socket", guard), \
+            mock.patch.object(socket, "create_connection", guard):
+        yield guard
+
+
+@pytest.fixture(autouse=True)
+def hermetic_plugin_settings(monkeypatch):
+    """Every test starts from the documented defaults, never from the live profile.
+
+    Two seams are involved, and both matter once the Hermes core is importable:
+
+    * ``_settings_provider`` — tests that set it to ``None`` deliberately drop
+      back to the config reader, which used to read
+      ``~/.hermes/config.yaml``. The live profile carries ``mode: auto``, so the
+      plugin's own "the default is off" tests failed on any machine where the
+      plugin is installed (caught by the 2026-09-29 review as criterion 4).
+    * ``_config_reader`` — the injected reader below is that same fallback, made
+      hermetic: ``{}`` means "no settings anywhere", i.e. every documented
+      default. It is ``None`` in production, so the live reader is unchanged.
+
+    It also resets in-memory state before and after each test, so no decision and
+    no runtime mode override can leak from one test into the next.
+    """
+    middleware = import_plugin("middleware")
+    monkeypatch.setattr(middleware, "_config_reader", lambda: {})
+    monkeypatch.setattr(middleware, "_settings_provider", None)
+    monkeypatch.setattr(middleware, "_classifier_factory", None)
+    middleware.reset_state()
+    yield
+    middleware.reset_state()

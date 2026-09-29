@@ -262,5 +262,5 @@ def test_no_prompt_text_is_stored_beyond_the_parent_goal(monkeypatch):
     use_classifier(monkeypatch, Factory(score=1.9))
     start_child(goal="mechanical rename")
     middleware.on_llm_request(**ctx(request=child_request()))
-    for key, value in middleware.child_goals().items():
+    for _key, value in middleware.child_goals().items():
         assert value == "mechanical rename"

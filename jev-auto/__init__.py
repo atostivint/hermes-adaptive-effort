@@ -34,6 +34,9 @@ def register(ctx: Any) -> None:
     ctx.register_command(
         "jev-auto",
         handler=_command.handle,
-        description="Jev-Auto reasoning-effort router: status and bounded probe",
-        args_hint="<status|status json|probe <text>>",
+        description=(
+            "Jev-Auto reasoning-effort router: status, bounded probe, and "
+            "off|recommend|auto|cache_safe for future requests"
+        ),
+        args_hint="<status|status json|probe <text>|off|recommend|auto|cache_safe>",
     )

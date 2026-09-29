@@ -183,7 +183,7 @@ def test_classify_stays_the_simple_wrapper():
 def test_credential_present_reports_the_key_without_calling_the_transport(monkeypatch):
     transport = FakeTransport(_answer(1.0))
     monkeypatch.setattr(jev_client, "_default_key_reader", lambda: "sk-live")
-    client = jev_client.JevClient(transport=transport)
+    jev_client.JevClient(transport=transport)
     assert jev_client.credential_present() is True
     monkeypatch.setattr(jev_client, "_default_key_reader", lambda: "")
     assert jev_client.credential_present() is False

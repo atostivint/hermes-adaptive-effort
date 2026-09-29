@@ -195,3 +195,152 @@ def test_real_dispatcher_leaves_the_request_untouched_when_mode_is_off(dispatche
     assert result.trace == []
     assert calls["n"] == 0          # off means *no* Jev call, not a silent one
     assert middleware.session_state() == {}
+
+
+# ── criterion 3: one decision per TURN, re-clamped when the route changes ───
+#
+# These three go through the same real dispatcher: the point is that the reuse rule
+# survives the host's own plumbing (context keys, deep copies, the trace it builds).
+
+def _recorded():
+    """A fresh deep copy of the recorded turn, so a rewrite cannot leak sideways."""
+    return json.loads(json.dumps(RECORDED_REQUEST))
+
+
+def _counting_factory(state, score=1.9, failure=None):
+    def factory(**kwargs):
+        state["n"] += 1
+        return _FakeJev(score, failure)
+    return factory
+
+
+def test_real_dispatcher_reuses_one_decision_across_a_tool_loop(dispatched, no_network):
+    """A tool loop is several requests of ONE turn: one probe, one decision."""
+    from hermes_cli.middleware import apply_llm_request_middleware
+
+    middleware = dispatched["middleware"]
+    middleware.reset_state()
+    probes = {"n": 0}
+    middleware._classifier_factory = _counting_factory(probes, 1.9)
+
+    for call_count in (1, 2, 3):
+        result = apply_llm_request_middleware(
+            _recorded(),
+            session_id="sess-int-loop",
+            provider="openrouter",
+            model="openrouter/meta/llama-3.3-70b-instruct",
+            api_mode="chat",
+            turn_id="turn-1",
+            api_call_count=call_count,
+        )
+        assert result.changed is True
+        assert result.payload["extra_body"]["reasoning"]["effort"] == "high"
+
+    entry = middleware.session_state()["sess-int-loop/turn-1"]
+    assert entry["requests"] == 3
+    assert entry["probes"] == 1
+    assert probes["n"] == 1
+
+
+def test_real_dispatcher_reclamps_a_stale_target_when_the_route_changes(
+        dispatched, no_network):
+    """A provider fallback lands on Moonshot K3 in the SAME turn.
+
+    K3 declares exactly low/high/max, so replaying the recorded ``medium`` would be a
+    vendor-side 400. The recorded label is re-clamped instead, without a second probe.
+    """
+    from hermes_cli.middleware import apply_llm_request_middleware
+
+    middleware = dispatched["middleware"]
+    middleware.reset_state()
+    probes = {"n": 0}
+    middleware._classifier_factory = _counting_factory(probes, 1.0)  # -> medium
+
+    first = apply_llm_request_middleware(
+        _recorded(), session_id="sess-int-fallback", provider="openrouter",
+        model="openrouter/meta/llama-3.3-70b-instruct", api_mode="chat",
+        turn_id="turn-fb", api_call_count=1,
+    )
+    # The wide route already sits at `medium`: no change reported, but recorded.
+    assert first.changed is False
+    entry = middleware.session_state()["sess-int-fallback/turn-fb"]
+    assert entry["state"] == "decided"
+    assert entry["target"] == "medium"
+
+    second = apply_llm_request_middleware(
+        _recorded(), session_id="sess-int-fallback", provider="moonshot",
+        model="moonshot/kimi-k3", api_mode="chat",
+        turn_id="turn-fb", api_call_count=2,
+    )
+
+    assert second.changed is True
+    assert second.payload["extra_body"]["reasoning"]["effort"] == "high"
+    # Re-read: session_state() hands out snapshots, so the entry must be fetched again.
+    entry = middleware.session_state()["sess-int-fallback/turn-fb"]
+    assert entry["target"] == "high"
+    assert entry["provider"] == "moonshot"
+    assert entry["model"] == "moonshot/kimi-k3"
+    assert entry["probes"] == 1
+    assert probes["n"] == 1
+
+
+def test_real_dispatcher_fails_open_and_does_not_retry_a_failed_turn(
+        dispatched, no_network):
+    """A classifier failure must leave the request alone, and cost one probe only."""
+    from hermes_cli.middleware import apply_llm_request_middleware
+
+    middleware = dispatched["middleware"]
+    middleware.reset_state()
+    probes = {"n": 0}
+    middleware._classifier_factory = _counting_factory(
+        probes, score=None, failure="classifier_timeout")
+
+    result = apply_llm_request_middleware(
+        _recorded(), session_id="sess-int-fail", provider="openrouter",
+        model="openrouter/meta/llama-3.3-70b-instruct", api_mode="chat",
+        turn_id="turn-fail", api_call_count=1,
+    )
+
+    assert result.changed is False
+    assert result.payload["extra_body"]["reasoning"]["effort"] == "medium"
+    entry = middleware.session_state()["sess-int-fail/turn-fail"]
+    assert entry["state"] == "failed"
+    assert entry["failure"] == "classifier_timeout"
+    assert entry["probes"] == 1
+
+    again = apply_llm_request_middleware(
+        _recorded(), session_id="sess-int-fail", provider="openrouter",
+        model="openrouter/meta/llama-3.3-70b-instruct", api_mode="chat",
+        turn_id="turn-fail", api_call_count=2,
+    )
+
+    assert again.changed is False
+    assert entry["probes"] == 1          # the failure is not retried inside the turn
+    assert probes["n"] == 1
+    assert dispatched["command"].handle("status json").count("sess-int-fail") >= 1
+
+
+def test_real_dispatcher_marks_an_unwritable_request_unsupported(dispatched, no_network):
+    """Reasoning disabled: there is nothing to rewrite, and no Jev call is spent."""
+    from hermes_cli.middleware import apply_llm_request_middleware
+
+    middleware = dispatched["middleware"]
+    middleware.reset_state()
+    probes = {"n": 0}
+    middleware._classifier_factory = _counting_factory(probes)
+
+    request = _recorded()
+    request["extra_body"]["reasoning"]["enabled"] = False
+
+    result = apply_llm_request_middleware(
+        request, session_id="sess-int-none", provider="openrouter",
+        model="openrouter/meta/llama-3.3-70b-instruct", api_mode="chat",
+        turn_id="turn-none", api_call_count=1,
+    )
+
+    assert result.changed is False
+    assert result.payload["extra_body"]["reasoning"]["effort"] == "medium"
+    entry = middleware.session_state()["sess-int-none/turn-none"]
+    assert entry["state"] == "unsupported"
+    assert entry["probes"] == 0
+    assert probes["n"] == 0
