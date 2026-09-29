@@ -10,8 +10,10 @@ a multi-region redesign. Verified against the installed source:
 * A subagent is one session AND typically one turn, so per-turn granularity
   costs the same single Jev call there — it does not multiply the cost.
 
-So the memo key moves from ``session_id`` to ``(session_id, turn_id)``, and
-``api_call_count`` keeps a multi-call turn (tool loop) on one decision.
+So the memo key moves from ``session_id`` to ``(session_id, turn_id)``: a
+multi-call turn (a tool loop) reuses the decision its first call made. The turn id
+is the only authority here — ``api_call_count`` is not consulted, so the reuse
+holds whatever the host reports for it.
 """
 
 from __future__ import annotations

@@ -17,8 +17,9 @@ Contract (verified against ``hermes_cli/middleware.py`` and
 
 Scope rules enforced here: default mode is off; only an *existing* effort field
 is ever rewritten (no field is invented, thinking is never re-enabled); the new
-value is clamped onto the route's declared vocabulary; one Jev call per session
-(and none at all when the field cannot be rewritten); no prompt text is stored.
+value is clamped onto the route's declared vocabulary and re-clamped whenever the
+route changes; one Jev call per user TURN (and none at all when the field cannot
+be rewritten); no prompt text is stored.
 """
 
 from __future__ import annotations
@@ -50,6 +51,14 @@ DEFAULTS: Dict[str, Any] = {
 _settings_provider: Optional[Callable[[str, Any], Any]] = None
 # Injected by tests so classification never reaches the network.
 _classifier_factory: Optional[Callable[..., Any]] = None
+# Config source seam. ``None`` in production: the plugin reads the operator's
+# live profile. Tests inject a hermetic reader so a unit run never depends on
+# (and never reads) whatever mode the live profile happens to carry.
+_config_reader: Optional[Callable[[], Dict[str, Any]]] = None
+# Mode chosen at runtime through ``/jev-auto off|recommend|auto|cache_safe``.
+# Process-local by design: the plugin never writes the operator's config file,
+# and the command's reply says so. ``None`` means "use the configured mode".
+_MODE_OVERRIDE: Optional[str] = None
 
 _lock = threading.Lock()
 _SESSIONS: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
@@ -66,11 +75,49 @@ _CHILD_GOALS: "OrderedDict[str, str]" = OrderedDict()
 # ── session state ───────────────────────────────────────────────────────────
 
 def reset_state() -> None:
-    """Drop every in-memory session decision (tests / plugin reload)."""
+    """Drop every in-memory session decision (tests / plugin reload).
+
+    Also drops a runtime mode override: a reset means "back to the configured
+    mode", so no test can leak a mode into the next one.
+    """
+    global _MODE_OVERRIDE
     with _lock:
         _SESSIONS.clear()
         _IN_FLIGHT.clear()
         _CHILD_GOALS.clear()
+        _MODE_OVERRIDE = None
+
+
+# ── runtime mode override (``/jev-auto off|recommend|auto|cache_safe``) ──────
+
+def set_mode_override(mode: Any) -> Optional[str]:
+    """Accept a runtime mode for FUTURE requests; ``None`` when it is not a mode.
+
+    The value is kept for this process only. Writing it to the operator's config
+    would make a chat command mutate a configuration file the operator owns —
+    that decision belongs to the operator, so the command explains the scope
+    instead of persisting behind their back.
+    """
+    value = str(mode or "").strip().lower()
+    if value not in VALID_MODES:
+        return None
+    global _MODE_OVERRIDE
+    with _lock:
+        _MODE_OVERRIDE = value
+    return value
+
+
+def clear_mode_override() -> None:
+    """Forget the runtime override; the configured mode applies again."""
+    global _MODE_OVERRIDE
+    with _lock:
+        _MODE_OVERRIDE = None
+
+
+def mode_override() -> Optional[str]:
+    """The runtime override in force, or ``None`` when the config decides."""
+    with _lock:
+        return _MODE_OVERRIDE
 
 
 def _decision_key(session_id: str, turn_id: Any) -> str:
@@ -136,7 +183,8 @@ def _remember(session_id: str, entry: Dict[str, Any], max_sessions: int) -> None
             _SESSIONS.popitem(last=False)
 
 
-def _touch(key: str, settings: Dict[str, Any], mode: str) -> Dict[str, Any]:
+def _touch(key: str, settings: Dict[str, Any], mode: str,
+           provider: Any = None, model: Any = None) -> Dict[str, Any]:
     """One turn's record: created once, then counted and stamped here.
 
     Every request that reaches the decision path is counted (``requests``), while
@@ -148,7 +196,8 @@ def _touch(key: str, settings: Dict[str, Any], mode: str) -> Dict[str, Any]:
         if entry is None:
             entry = {
                 "state": "new", "label": None, "target": None, "score": None,
-                "mode": mode, "requests": 0, "probes": 0, "elapsed_ms": 0.0,
+                "mode": mode, "provider": provider, "model": model,
+                "requests": 0, "probes": 0, "elapsed_ms": 0.0,
                 "failure": None, "updated_at": 0.0,
             }
             _SESSIONS[key] = entry
@@ -228,6 +277,27 @@ def _child_goal(session_id: str) -> Optional[str]:
 
 # ── settings ────────────────────────────────────────────────────────────────
 
+def _live_config() -> Dict[str, Any]:
+    """The operator's profile config, or ``{}`` when it cannot be read.
+
+    ``_config_reader`` is the seam a test run injects so it never reads the live
+    profile: a profile carrying ``mode: auto`` used to make this plugin's own
+    "the default is off" tests fail once the Hermes core was importable. In
+    production the reader is ``None`` and the real config is read per call.
+    """
+    reader = _config_reader
+    if reader is not None:
+        try:
+            return reader() or {}
+        except Exception:
+            return {}
+    try:
+        from hermes_cli.config import load_config_readonly
+        return load_config_readonly() or {}
+    except Exception:
+        return {}
+
+
 def _read_setting(key: str, default: Any = None) -> Any:
     """``plugins.entries.jev-auto.settings.<key>``, via ctx when present."""
     provider = _settings_provider
@@ -237,20 +307,21 @@ def _read_setting(key: str, default: Any = None) -> Any:
             return default if value in (None, "") else value
         except Exception:
             return default
-    try:
-        from hermes_cli.config import load_config_readonly
-        entry = (((load_config_readonly() or {}).get("plugins") or {})
-                 .get("entries") or {}).get(PLUGIN_ID) or {}
-        value = (entry.get("settings") or {}).get(key)
-        return default if value in (None, "") else value
-    except Exception:
-        return default
+    entry = ((_live_config().get("plugins") or {}).get("entries") or {}).get(PLUGIN_ID) or {}
+    value = (entry.get("settings") or {}).get(key)
+    return default if value in (None, "") else value
 
 
 def _settings() -> Dict[str, Any]:
     mode = str(_read_setting("mode", DEFAULTS["mode"]) or "").strip().lower()
+    mode_source = "config"
     if mode not in VALID_MODES:
         mode = "off"
+    override = mode_override()
+    if override is not None:
+        # A runtime choice outranks the file: /jev-auto just told the operator it
+        # applies to future requests, so it must.
+        mode, mode_source = override, "override"
     # Independent gate: children are routed only when BOTH the session mode and
     # this one allow it, so opting into session routing never silently starts
     # rewriting subagent effort.
@@ -274,6 +345,7 @@ def _settings() -> Dict[str, Any]:
 
     return {
         "mode": mode,
+        "mode_source": mode_source,
         "subagent_mode": subagent_mode,
         "timeout_s": _num("timeout_s", DEFAULTS["timeout_s"]),
         "max_turns": _int("max_turns", DEFAULTS["max_turns"]),
@@ -525,6 +597,38 @@ def _apply(request: Dict[str, Any], slot: Tuple[Dict[str, Any], str, str],
     return request
 
 
+# ── route-aware reuse of a stored decision ──────────────────────────────────
+
+def _target_for_route(entry: Dict[str, Any], provider: Any, model: Any) -> Optional[str]:
+    """The wire target *entry* gets on the CURRENT route, or ``None``.
+
+    A stored target is only legal for the route that produced it. A provider
+    fallback inside one turn — or ``cache_safe`` pinning a session and then
+    seeing the route change — keeps the same decision key while the route
+    changes underneath it, and applying the recorded level verbatim is exactly
+    how a narrow route receives a value its vendor rejects (HTTP 400).
+
+    The label is the route-independent part (it describes the PROMPT), so on a
+    route change it is re-clamped onto the new route's wire vocabulary. The
+    re-clamped value is written back, so the record always shows what was
+    actually applied. ``None`` means the new route cannot express the label at
+    all: the caller reports ``unsupported`` and rewrites nothing.
+    """
+    label = entry.get("label")
+    if not isinstance(label, str) or not label:
+        return None
+    if (entry.get("provider"), entry.get("model")) == (provider, model):
+        target = entry.get("target")
+        return target if isinstance(target, str) and target else None
+    target = _effort.map_effort(label, provider, model)
+    if target is None:
+        return None
+    entry["target"] = target
+    entry["provider"] = provider
+    entry["model"] = model
+    return target
+
+
 # ── the middleware itself ───────────────────────────────────────────────────
 
 def on_llm_request(**kwargs: Any) -> Optional[Dict[str, Any]]:
@@ -578,7 +682,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if child_goal is not None:
         mode = settings["subagent_mode"]
 
-    entry = _touch(key, settings, mode)
+    entry = _touch(key, settings, mode, provider, model)
     if entry.get("state") in ("failed", "unsupported"):
         # A failed attempt, or a request with nothing writable: stay silent and
         # do not re-classify within this session (bounded Jev usage).
@@ -626,13 +730,22 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             if target is None:
                 entry["state"] = "unsupported"
                 return None
+            # Record the route that produced this target: the value is only legal
+            # for it, and every later request re-checks the route it arrives on.
             entry["target"] = target
+            entry["provider"] = provider
+            entry["model"] = model
             entry["state"] = "decided"
         finally:
             _release(key)
 
-    target = entry.get("target")
-    if not isinstance(target, str):
+    target = _target_for_route(entry, provider, model)
+    if target is None:
+        if entry.get("state") == "decided":
+            # The decision stands for the prompt, but THIS route has no level
+            # for it (a narrower route mid-turn). Rewriting nothing is the only
+            # safe answer, and the label is not re-classified in this turn.
+            entry["state"] = "unsupported"
         return None
     if target == slot[2]:
         # The route already sits at the level Jev picked: nothing to send, so we

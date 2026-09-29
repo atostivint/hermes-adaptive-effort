@@ -1,0 +1,29 @@
+# Tool configuration for the Jev-Auto plugin repository.
+#
+# There is deliberately no [project] table: the deliverable is the `jev-auto/`
+# directory, which Hermes installs as `~/.hermes/plugins/jev-auto`. It is a payload,
+# not a distributable package, so there is nothing pip-installable to declare here.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# No `-q` here on purpose: the per-test dots are fine, but the final "N passed" line is
+# the number worth seeing in a handoff, and a second -q on the command line silences it.
+addopts = "-ra"
+# tests/conftest.py puts the Hermes source tree (agent/, hermes_cli/) on sys.path, so the
+# real-dispatcher integration test runs instead of skipping itself. Set HERMES_SOURCE_ROOT
+# when Hermes lives somewhere else; see scripts/bootstrap_test_env.sh for the venv.
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+# The payload's default rule set is ruff's own default (E4/E7/E9 + F) plus everything
+# else that catches real defects without reflowing reviewed prose.
+select = ["E", "F", "W", "B"]
+# `I` (import sorting) is deliberately NOT enabled: it would reorder the import block of
+# every already-reviewed module, which is churn without a correctness win.
+# E501: the payload carries long single-line prose (docstrings, the usage banner and the
+# reason strings it emits); wrapping those is diff noise, not a correctness win.
+ignore = ["E501"]
