@@ -10,5 +10,9 @@ description: >
   llm_request middleware, asks Jev for an effort level, and rewrites only an
   existing, provider-verified effort field. Default mode is off.
 provides: []
+provides_hooks:
+  - on_session_end
+  - subagent_start
+  - subagent_stop
 requires:
   - llm_request middleware (capability: registering llm_request and on_session_end)

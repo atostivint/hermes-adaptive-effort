@@ -417,6 +417,45 @@ def _first_user_text(messages: Any) -> Optional[str]:
     return None
 
 
+def _first_responses_text(input_items: Any) -> Optional[str]:
+    """First user text of a *preflighted* ``codex_responses`` payload.
+
+    On that route the middleware sees the payload AFTER
+    ``agent._get_transport().preflight_kwargs()`` has replaced ``messages`` with
+    ``input`` (``codex_responses_adapter._preflight_codex_api_kwargs``), so
+    ``_first_user_text(request["messages"])`` is always ``None`` and every normal
+    Codex session was a silent no-op — only subagents, classified from the goal
+    their parent wrote, ever worked.
+    """
+    if not isinstance(input_items, list):
+        return None
+    for item in input_items:
+        if not isinstance(item, dict) or item.get("role") != "user":
+            continue
+        content = item.get("content")
+        if isinstance(content, str) and content.strip():
+            return content
+        if isinstance(content, list):
+            parts = [part.get("text", "") for part in content
+                     if isinstance(part, dict) and isinstance(part.get("text"), str)]
+            text = "".join(parts)
+            if text.strip():
+                return text
+    return None
+
+
+def _first_user_prompt(request: Dict[str, Any]) -> Optional[str]:
+    """Classification target of a request in any of the shapes we can see.
+
+    Chat Completions carries ``messages``; a preflighted Codex payload carries
+    ``input`` instead. Read both so the decision does not depend on the api_mode.
+    """
+    prompt = _first_user_text(request.get("messages"))
+    if prompt:
+        return prompt
+    return _first_responses_text(request.get("input"))
+
+
 def _effort_slot(request: Dict[str, Any]) -> Optional[Tuple[Dict[str, Any], str, str]]:
     """Locate an *existing* effort field to rewrite: ``(container, key, old)``.
 
@@ -555,7 +594,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if entry.get("state") != "decided":
         # A subagent classifies the terse goal its parent wrote; a normal session
         # classifies its own first user message.
-        prompt = child_goal if child_goal is not None else _first_user_text(request.get("messages"))
+        prompt = child_goal if child_goal is not None else _first_user_prompt(request)
         if not prompt:
             entry["state"] = "unsupported"
             return None
