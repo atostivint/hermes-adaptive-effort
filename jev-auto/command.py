@@ -179,6 +179,20 @@ def _render_entry(entry: Dict[str, Any]) -> str:
     return "  " + " ".join(parts)
 
 
+def _endpoint_line(settings: Dict[str, Any]) -> str:
+    """Render the URL requests really go to.
+
+    ``settings['endpoint']`` is the raw setting and ``endpoint_effective`` is what
+    the client POSTs to; when they differ the raw value is shown too, so a base
+    URL left in the config is never mistaken for the scoring route.
+    """
+    configured = str(settings.get("endpoint") or "")
+    effective = str(settings.get("endpoint_effective") or configured)
+    if configured.strip().rstrip("/") != effective:
+        return f"{effective} (configured: {configured})"
+    return effective
+
+
 def _status_text() -> str:
     payload = _status_payload()
     settings = payload["settings"]
@@ -191,7 +205,7 @@ def _status_text() -> str:
         f"settings: timeout_s={settings['timeout_s']} "
         f"max_turns={settings['max_turns']} "
         f"max_prompt_chars={settings['prompt_chars']}",
-        f"endpoint: {settings['endpoint']}",
+        f"endpoint: {_endpoint_line(settings)}",
         f"counts: sessions={counts['sessions']} in_flight={counts['in_flight']} "
         f"requests={counts['requests']} probes={counts['probes']} "
         f"decided={counts['decided']} failed={counts['failed']} "
