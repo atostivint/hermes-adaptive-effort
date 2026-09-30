@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-
+import pytest
 
 from conftest import PLUGIN_DIR, import_plugin
 
@@ -68,3 +68,28 @@ def test_registered_callback_is_the_middleware_handler():
     ctx = FakeCtx()
     init_module.register(ctx)
     assert ctx.middleware[0][1] is middleware.on_llm_request
+
+
+def test_manifest_declares_every_middleware_register():
+    """The manifest must list what ``register`` actually registers.
+
+    ``hermes plugins validate`` fails with "undeclared middleware registered"
+    when this drifts, and nothing in the unit suite covered it: the manifest can
+    register nothing while the code registers ``llm_request``, or the reverse.
+    """
+    manifest_path = PLUGIN_DIR / "plugin.yaml"
+    try:
+        from ruamel.yaml import YAML
+        data = YAML(typ="safe").load(manifest_path.read_text(encoding="utf-8")) or {}
+    except Exception:  # pragma: no cover - dev dep absent in a bare env
+        pytest.skip("ruamel.yaml unavailable; manifest parity needs it")
+
+    declared = set(data.get("provides_middleware") or ())
+    ctx = FakeCtx()
+    init_module.register(ctx)
+    registered = {kind for kind, _ in ctx.middleware}
+
+    assert registered == {"llm_request"}
+    assert registered == declared, (
+        f"register() registers {sorted(registered)} but provides_middleware "
+        f"declares {sorted(declared)}; 'hermes plugins validate' will fail")

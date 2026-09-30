@@ -7,13 +7,15 @@ of a request instead of leaving it to a fixed default.
 repository is the source of that payload plus its test suite, and nothing is
 pip-installable — there is no `[project]` table on purpose.
 
-**State of this tree.** Base commit `7ca51bd` ("chore: commit the working tree the live
-runtime executes") plus the delivery for card `t_cb5d47d0`. Evidence, exact commands and
-the provider/model matrix live in `docs/handoff-t_cb5d47d0.md`. Verified on this machine:
+**State of this tree.** `master` is at `7d1f066` (Desktop GUI layer). The card delivery
+(`t_cb5d47d0`) and its evidence live in `docs/handoff-t_cb5d47d0.md`; the external review and
+its follow-up in `docs/review-*.md`. **`docs/HANDOFF.md` is the entry point for an agent
+picking this up** — verified state, the deployment gap, the invariants, and the open items.
+Verified on this machine:
 
 | check | command | result |
 | --- | --- | --- |
-| suite | `./scripts/run_tests.sh` | `146 passed` in ~8 s |
+| suite | `./scripts/run_tests.sh` | `147 passed` in ~8 s |
 | lint | `./scripts/run_lint.sh` | `All checks passed!` (ruff 0.16.9) |
 
 ## What it does
@@ -224,7 +226,7 @@ jev-auto-effort/                 the payload installed as ~/.hermes/plugins/jev-
   dashboard/manifest.json + plugin_api.py
                           desktop backend: GET /status, POST /mode, POST /probe
   desktop/plugin.js       desktop half: status-bar chip, pane, palette commands (opt-in)
-tests/                    146 tests, one module per contract
+tests/                    147 tests, one module per contract
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh
 pyproject.toml            pytest + ruff configuration
 requirements-dev.txt      test/lint pins (pytest 9.1.1, ruamel.yaml 0.19.1, ruff 0.16.9)
@@ -297,9 +299,10 @@ It runs in `./scripts/run_tests.sh`; it is never skipped there.
 ## Not covered / open
 
 * **Cost effect unmeasured** — see "Prompt cache" above.
-* **Deployment** — the copy the live runtime executes, `~/.hermes/plugins/jev-auto-effort`, is
-  byte-identical to `7ca51bd`, i.e. it does **not** contain this delivery. Reload and
-  rollback are in the handoff doc.
+* **Deployment** — the copy the live runtime executes, `~/.hermes/plugins/jev-auto-effort`, matches
+  `a81d833` (endpoint fix + rename are live) but does **not** contain the Desktop GUI layer
+  (`dashboard/`, `desktop/`, `config_schema`), i.e. commit `7d1f066`. Reload and rollback are in
+  `docs/HANDOFF.md` §4.
 * **Activation is the operator's call** — the live `/root/.hermes/config.yaml` enables
   this plugin (`plugins.enabled`) with `settings.mode: auto`. This task deliberately
   changed nothing there: a router that rewrites billable effort is enabled by the operator,
