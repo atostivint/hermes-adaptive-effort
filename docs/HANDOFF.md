@@ -23,13 +23,21 @@ shape leaves the request **byte-for-byte untouched**.
 
 `jev-auto-effort/` is the **payload**; Hermes installs it at
 `~/.hermes/plugins/jev-auto-effort`. This repo is the payload's source plus its tests.
-There is deliberately **no `[project]` table** — nothing here is pip-installable.
+There is deliberately **no `[project]` table** — nothing here is pip-installable, so
+`pip install` is never the install path. The managed path is:
 
-## 2. Verified state (checked on this machine, 2026-09-30)
+```bash
+hermes plugins install 'atostivint/jev-auto-effort#jev-auto-effort'
+```
+
+(the `#subdir` fragment points at the payload dir inside this repo). The live install
+is currently a hand-copy rather than a managed one — see §3b.
+
+## 2. Verified state (re-checked on this machine, 2026-09-30)
 
 | check | command | result |
 | --- | --- | --- |
-| suite | `./scripts/run_tests.sh` | **`147 passed` in 0.98s** |
+| suite | `./scripts/run_tests.sh` | **`147 passed` in 1.15s** |
 | lint | `./scripts/run_lint.sh` | `All checks passed!` (ruff 0.16.9) |
 | manifest | `hermes plugins doctor jev-auto-effort` | `OK: runtime discovery, manifest parsing, import, and registration passed` — 0 tools, 3 hooks |
 | network | — | the suite is network-free by fixture (`no_network` autouse, session-scoped) |
@@ -41,9 +49,9 @@ test_middleware.py            24   test_jev_client.py        18
 test_command.py               16   test_subagent.py          17
 test_cache_safety.py          11   test_plugin_api.py         8
 test_turn_scope.py             8   test_review_fixes.py       8
-test_decision_cache.py         7   test_command_modes.py      7
 test_effort.py                 6   test_dispatcher_integration.py  6
 test_config_schema.py          4   test_plugin_registration.py     4
+test_command_modes.py         10   test_decision_cache.py     7
 ```
 
 `test_dispatcher_integration.py` is the one that boots a throwaway `HERMES_HOME` with a
@@ -57,7 +65,8 @@ real discovery rather than through the test harness.
 (committed at Elektro's request — it is the agent contract, read it first).
 
 ```text
-0949fb6  manifest/code parity: provides_middleware + registration test; HANDOFF entry point
+870aed8  Manifest/code parity + HANDOFF entry point
+ff6067a  Track AGENTS.md contributor instructions
 7d1f066  Add Desktop GUI: config_schema settings form + unified desktop plugin
 a81d833  refactor: rename the plugin to jev-auto-effort
 8a73601  fix: reach the scoring route when settings.endpoint names the API base
@@ -66,32 +75,76 @@ a81d833  refactor: rename the plugin to jev-auto-effort
 7ca51bd  chore: commit the working tree the live runtime executes
 ```
 
+Note: an earlier revision of this file named `0949fb6` where `870aed8` is correct.
+`0949fb6` is a real object but is **not** on `master` — it is the pre-amend commit
+whose only delta is this very line, so it is not reachable from any branch. Trust
+`git log --oneline master`, never a SHA transcribed into prose.
+
 Stale branch `wip/kanban-t_cb5d47d0-run22` (`82d201a`) still exists locally; it predates
 the endpoint fix and the rename. Nothing depends on it.
 
-## 4. ⚠️ The live install is behind HEAD (deployment gap)
+## 3b. ⚠️ The live install is a hand-copy, not a managed git install
 
-This is the one thing a picking-up agent must not assume:
+Separate from code freshness: the bytes are current (§4), but the *provenance* is not.
+Hermes reports the plugin as `Source: user`, and it has **no entry** in
+`~/.hermes/plugins/.install-metadata.json` — every other git-installed plugin here has one.
+
+Consequence, verified:
 
 ```text
-~/.hermes/plugins/jev-auto-effort/  ==  a81d833, NOT 7d1f066
+$ hermes plugins update jev-auto-effort
+Error: Plugin 'jev-auto-effort' was not installed from git (no .git directory). Cannot update.
 ```
 
-Verified by `diff -rq` (excluding `__pycache__`):
+So "install the update" cannot work for this plugin as installed: the CLI has no source to
+pull from. The fix is to convert it to a managed install — rehearsed end-to-end in a
+throwaway `HERMES_HOME` and confirmed byte-identical on disk:
 
-* All Python modules are **identical** to the repo — the endpoint fix from `8a73601` and
-  the rename from `a81d833` are live.
-* **Missing from the install:** `dashboard/`, `desktop/`, and the whole `config_schema:`
-  block in `plugin.yaml`.
+```bash
+hermes plugins install 'atostivint/jev-auto-effort#jev-auto-effort' --force --enable
+```
 
-Consequence: the **Desktop GUI layer is committed but never deployed**. The chat-side
-plugin works; the settings form and the status-bar chip do not exist in the running
-Desktop. Deploying means copying `plugin.yaml`, `dashboard/` and `desktop/` into
-`~/.hermes/plugins/jev-auto-effort/` and reloading Hermes — **get Elektro's explicit
-go-ahead first**: this changes the runtime that bills his requests.
+The `#subdir` fragment points the installer at the `jev-auto-effort/` payload directory.
+It clones via the `gh`-authenticated credential helper (repo is **private**, scope `repo`),
+records `revision` + `source` in `.install-metadata.json`, preserves
+`plugins.entries.jev-auto-effort.settings`, and afterwards makes
+`hermes plugins update jev-auto-effort` work. **Not yet done** — it was offered to
+Elektro on 2026-09-30 and awaiting his go-ahead, because it touches the runtime that
+bills his requests. Backup taken before the offer:
+`~/.hermes/cache/scratch/jev-backup-20260930-080501/`.
 
-Rollback: keep a copy of the current install directory before copying, and restore it
-on failure. Nothing in the install is generated state, so this is safe to undo.
+Note the *desktop* half is a separate, app-level copy in `~/.hermes/desktop-plugins/`
+and `hermes plugins install` does **not** touch it. The live copy is marker-less
+(hand-copied) but byte-identical to the package's `desktop/plugin.js`, so when the
+Desktop app next runs `materializeDesktopHalf()` for this package — i.e. on an
+app-level install of the unified package from **Capabilities → Plugins** — its adoption
+branch stamps the marker and pairs the row with no change to the file. Until that runs
+the chip still works; the marker only affects how the row is displayed and tracked.
+`hermes plugins doctor`/the agent half are unaffected either way.
+
+## 4. ✅ The live install is current (this section was stale)
+
+An earlier revision of this file carried a "deployment gap" warning here, claiming the
+live install sat at `a81d833` and was missing the whole GUI layer. **That is no longer
+true — re-verify before believing any version of this claim.** Re-checked 2026-09-30:
+
+```text
+~/.hermes/plugins/jev-auto-effort/  ==  master (870aed8)
+```
+
+* `diff -r` (excluding `__pycache__` / `*.pyc`) reports **no differences** against
+  `jev-auto-effort/` in the repo.
+* `plugin.yaml`, `dashboard/plugin_api.py` and `desktop/plugin.js` are all **present**.
+* The `config_schema:` block **is** in the live `plugin.yaml`.
+* `~/.hermes/desktop-plugins/jev-auto-effort/plugin.js` is **present and byte-identical**
+  to the package's `desktop/plugin.js`.
+
+So the Desktop GUI layer from `7d1f066` *is* deployed on both tiers. Do not re-copy
+anything, and do not re-run a "deploy the GUI" task: it has nothing left to do.
+
+The one real gap on this plugin is **provenance, not bytes** — see §3b. Converting the
+hand-copy to a managed git install does not change any file content; it only adds
+`.install-metadata.json` so that `hermes plugins update` has a source to pull from.
 
 ## 5. Live configuration (unchanged by this work, on purpose)
 
@@ -174,13 +227,16 @@ Three files, two tiers:
   command. Polls every 15 s. Shows `Jev —` when the backend is absent.
 
 **Security boundary, not a bug:** the Python backend only mounts for plugins listed in
-`plugins.enabled`. With the plugin enabled but the desktop half not deployed, the chip
-correctly shows `Jev —`.
+`plugins.enabled`. If the backend is genuinely absent or unreachable (for example the
+plugin is disabled, or the dashboard half is not deployed), the chip correctly shows
+`Jev —` rather than failing loudly.
 
 ## 8. Open items, in the order I would take them
 
-1. **Deploy the GUI layer** (§4) — needs Elektro's explicit approval; it touches the
-   live runtime.
+1. **Convert the live install to a managed git install** (§3b) — the payload bytes are
+   already current, so this changes no code; it only adds `.install-metadata.json` so
+   `hermes plugins update` stops failing with "not installed from git". Needs Elektro's
+   explicit approval; it touches the live runtime.
 2. **Ox Alpha / `x-preview-f-free`:** `medium` returns HTTP 400. This is a **known gap,
    deliberately not worked around** — silently remapping it would hide a real vendor
    rejection. Either document it further or make it fail open loudly.

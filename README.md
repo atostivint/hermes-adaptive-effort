@@ -7,15 +7,16 @@ of a request instead of leaving it to a fixed default.
 repository is the source of that payload plus its test suite, and nothing is
 pip-installable — there is no `[project]` table on purpose.
 
-**State of this tree.** `master` is at `7d1f066` (Desktop GUI layer). The card delivery
+**State of this tree.** `master` is at `870aed8`. The card delivery
 (`t_cb5d47d0`) and its evidence live in `docs/handoff-t_cb5d47d0.md`; the external review and
 its follow-up in `docs/review-*.md`. **`docs/HANDOFF.md` is the entry point for an agent
-picking this up** — verified state, the deployment gap, the invariants, and the open items.
+picking this up** — verified state, the live-install provenance gap, the invariants, and
+the open items.
 Verified on this machine:
 
 | check | command | result |
 | --- | --- | --- |
-| suite | `./scripts/run_tests.sh` | `147 passed` in ~8 s |
+| suite | `./scripts/run_tests.sh` | `147 passed` in ~1 s |
 | lint | `./scripts/run_lint.sh` | `All checks passed!` (ruff 0.16.9) |
 
 ## What it does
