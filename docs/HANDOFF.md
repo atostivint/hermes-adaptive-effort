@@ -31,7 +31,7 @@ hermes plugins install 'atostivint/jev-auto-effort#jev-auto-effort'
 ```
 
 (the `#subdir` fragment points at the payload dir inside this repo). The live install
-is currently a hand-copy rather than a managed one — see §3b.
+now follows that path, with the exact command recorded in §3b.
 
 ## 2. Verified state (re-checked on this machine, 2026-09-30)
 
@@ -83,44 +83,37 @@ whose only delta is this very line, so it is not reachable from any branch. Trus
 Stale branch `wip/kanban-t_cb5d47d0-run22` (`82d201a`) still exists locally; it predates
 the endpoint fix and the rename. Nothing depends on it.
 
-## 3b. ⚠️ The live install is a hand-copy, not a managed git install
+## 3b. ✅ The live install is a managed git install (was a hand-copy)
 
-Separate from code freshness: the bytes are current (§4), but the *provenance* is not.
-Hermes reports the plugin as `Source: user`, and it has **no entry** in
-`~/.hermes/plugins/.install-metadata.json` — every other git-installed plugin here has one.
-
-Consequence, verified:
-
-```text
-$ hermes plugins update jev-auto-effort
-Error: Plugin 'jev-auto-effort' was not installed from git (no .git directory). Cannot update.
-```
-
-So "install the update" cannot work for this plugin as installed: the CLI has no source to
-pull from. The fix is to convert it to a managed install — rehearsed end-to-end in a
-throwaway `HERMES_HOME` and confirmed byte-identical on disk:
+Done 2026-09-30. Hermes used to report this plugin as `Source: user` with **no entry** in
+`~/.hermes/plugins/.install-metadata.json`, unlike every other git-installed plugin here.
+That is why `hermes plugins update jev-auto-effort` failed with *"not installed from git"*.
 
 ```bash
 hermes plugins install 'atostivint/jev-auto-effort#jev-auto-effort' --force --enable
 ```
 
 The `#subdir` fragment points the installer at the `jev-auto-effort/` payload directory.
-It clones via the `gh`-authenticated credential helper (repo is **private**, scope `repo`),
-records `revision` + `source` in `.install-metadata.json`, preserves
-`plugins.entries.jev-auto-effort.settings`, and afterwards makes
-`hermes plugins update jev-auto-effort` work. **Not yet done** — it was offered to
-Elektro on 2026-09-30 and awaiting his go-ahead, because it touches the runtime that
-bills his requests. Backup taken before the offer:
-`~/.hermes/cache/scratch/jev-backup-20260930-080501/`.
+It clones via the `gh`-authenticated credential helper (the repo is **private**, scope
+`repo`) and records `revision: 870aed81…` plus `source` in `.install-metadata.json`.
+Verified after the fact: payload byte-identical to the repo, `plugins.entries` settings
+(`mode: auto`, the full `endpoint`) preserved, still enabled, `doctor` and `validate`
+green, desktop half untouched, `hermes plugins update` now reports *already up to date*.
+
+**`plugins list` still shows `Source: user` for this plugin. That is expected, not a
+failed install.** The label is derived from a `.git` directory on disk
+(`plugins_cmd.py:780`: `src_label = "git" if source == "user" and (d / ".git").exists()`),
+and a `#subdir` install publishes a sparse checkout without one. `jev-approvals` is the
+same shape (`…git#plugin`, no `.git`) and also reads `user`. Only a whole-repo install
+(`file-tray`) shows `git`. The managed state lives in `.install-metadata.json`.
 
 Note the *desktop* half is a separate, app-level copy in `~/.hermes/desktop-plugins/`
-and `hermes plugins install` does **not** touch it. The live copy is marker-less
-(hand-copied) but byte-identical to the package's `desktop/plugin.js`, so when the
-Desktop app next runs `materializeDesktopHalf()` for this package — i.e. on an
-app-level install of the unified package from **Capabilities → Plugins** — its adoption
-branch stamps the marker and pairs the row with no change to the file. Until that runs
-the chip still works; the marker only affects how the row is displayed and tracked.
-`hermes plugins doctor`/the agent half are unaffected either way.
+and `hermes plugins install` does **not** touch it — it was verified still byte-identical
+after the conversion. That copy is marker-less (hand-copied), but identical to the
+package's `desktop/plugin.js`, so when the Desktop app next runs `materializeDesktopHalf()`
+for this package (an app-level install from **Capabilities → Plugins**) its adoption branch
+stamps the marker and pairs the row with no change to the file. Until then the chip still
+works; the marker only affects how the row is displayed and tracked.
 
 ## 4. ✅ The live install is current (this section was stale)
 
@@ -233,15 +226,14 @@ plugin is disabled, or the dashboard half is not deployed), the chip correctly s
 
 ## 8. Open items, in the order I would take them
 
-1. **Convert the live install to a managed git install** (§3b) — the payload bytes are
-   already current, so this changes no code; it only adds `.install-metadata.json` so
-   `hermes plugins update` stops failing with "not installed from git". Needs Elektro's
-   explicit approval; it touches the live runtime.
-2. **Ox Alpha / `x-preview-f-free`:** `medium` returns HTTP 400. This is a **known gap,
+1. **Ox Alpha / `x-preview-f-free`:** `medium` returns HTTP 400. This is a **known gap,
    deliberately not worked around** — silently remapping it would hide a real vendor
    rejection. Either document it further or make it fail open loudly.
-3. **Cost effect is unmeasured.** No live A/B has been run, so every cost or cache claim
+2. **Cost effect is unmeasured.** No live A/B has been run, so every cost or cache claim
    in the README is an expectation, not a measurement. Do not restate them as results.
+3. **Pre-install backups** sit in `~/.hermes/cache/scratch/` (`jev-backup-20260930-080501`,
+   `jev-backup-20260930-082258`). Harmless, and they are the rollback path if the managed
+   install ever needs undoing. Clear them once you are satisfied (§3b).
 
 ## 9. Working on this repo
 
