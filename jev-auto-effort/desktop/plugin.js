@@ -22,7 +22,7 @@ import {
   useValue
 } from '@hermes/plugin-sdk'
 import { jsx, jsxs } from 'react/jsx-runtime'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 const ID = 'jev-auto-effort'
 const MODES = ['off', 'recommend', 'auto', 'cache_safe']
@@ -33,6 +33,42 @@ function toneFor(mode, isError) {
   if (mode === 'auto') return 'text-(--ui-accent)'
   if (mode === 'cache_safe' || mode === 'recommend') return 'text-(--ui-text-primary)'
   return 'text-(--ui-text-tertiary)'
+}
+
+function useEffortChanges() {
+  return useQuery({
+    queryKey: [ID, 'changes'],
+    queryFn: () => rest('/changes', { timeoutMs: 15000 }),
+    refetchInterval: 2000,
+    staleTime: 1000,
+    retry: 1
+  })
+}
+
+function ChangeNotifications({ query }) {
+  const cursor = useRef(null)
+
+  useEffect(() => {
+    const data = query.data
+    if (!data || typeof data.stream_id !== 'string' || !Array.isArray(data.events)) return
+    const events = data.events.filter(event => Number.isInteger(event?.id))
+    const latestId = events.reduce((max, event) => Math.max(max, event.id), 0)
+    const current = cursor.current
+    if (!current || current.streamId !== data.stream_id) {
+      cursor.current = { streamId: data.stream_id, lastId: latestId }
+      return
+    }
+    const fresh = events.filter(event => event.id > current.lastId)
+    cursor.current = { streamId: data.stream_id, lastId: Math.max(current.lastId, latestId) }
+    for (const event of fresh) {
+      host.notify({
+        kind: 'info',
+        message: `Jev changed reasoning effort: ${event.from} → ${event.to}`
+      })
+    }
+  }, [query.data])
+
+  return null
 }
 
 async function switchMode(mode, query) {
@@ -69,16 +105,21 @@ function ModeButtons({ mode, query, compact }) {
 
 function JevChip() {
   const [open, setOpen] = useState(false)
+  const changesQuery = useEffortChanges()
   const query = useQuery({
     queryKey: [ID, 'status'],
     queryFn: () => rest('/status', { timeoutMs: 15000 }),
-    refetchInterval: 15000,
-    staleTime: 10000,
+    refetchInterval: 2000,
+    staleTime: 1000,
     retry: 1
   })
   const data = query.data
   const mode = typeof data?.mode === 'string' ? data.mode : null
-  const label = query.isError ? 'Jev —' : mode ? `Jev ${mode}` : 'Jev …'
+  const latest = changesQuery.data?.latest
+  const effort = typeof data?.last?.target === 'string'
+    ? data.last.target
+    : typeof latest?.to === 'string' ? latest.to : '—'
+  const label = `Effort: ${effort}`
   const tone = toneFor(mode, query.isError)
 
   return jsx(Popover, {
@@ -86,6 +127,7 @@ function JevChip() {
     onOpenChange: setOpen,
     children: jsxs('div', {
       children: [
+        jsx(ChangeNotifications, { query: changesQuery }),
         jsx(PopoverTrigger, {
           asChild: true,
           children: jsxs('button', {
@@ -93,7 +135,7 @@ function JevChip() {
             className: `inline-flex h-full items-center gap-1 px-1.5 text-[0.6875rem] ${tone} hover:text-(--ui-text-primary)`,
             title: query.isError
               ? 'Jev backend unavailable — enable the plugin in config (plugins.enabled) and Desktop'
-              : `Jev-Auto Effort: ${mode || 'loading'} — click to switch`,
+              : `Jev-Auto Effort: ${mode || 'loading'} · latest chosen effort: ${effort} — click to switch`,
             children: [jsx(Codicon, { name: 'zap', className: 'text-[0.75rem]' }), label]
           })
         }),
@@ -131,6 +173,7 @@ function JevChip() {
 
 function JevPane() {
   const gateway = useValue(host.state.gateway)
+  const changesQuery = useEffortChanges()
   const query = useQuery({
     queryKey: [ID, 'status-pane'],
     queryFn: () => rest('/status', { timeoutMs: 15000 }),
@@ -141,6 +184,7 @@ function JevPane() {
   const data = query.data
   const mode = typeof data?.mode === 'string' ? data.mode : '…'
   const last = data?.last || null
+  const latestChange = changesQuery.data?.latest || null
 
   return jsxs('div', {
     className: 'flex h-full flex-col gap-3 p-3 text-sm',
@@ -164,6 +208,12 @@ function JevPane() {
           className: 'space-y-2',
           children: [
             jsx('div', { className: 'text-xs text-(--ui-text-secondary)', children: `Mode: ${mode} (persisted on switch)` }),
+            jsx('div', {
+              className: 'text-xs text-(--ui-text-secondary)',
+              children: latestChange
+                ? `last applied effort: ${latestChange.from} → ${latestChange.to}`
+                : 'last applied effort: —'
+            }),
             jsx(ModeButtons, { mode: typeof data?.mode === 'string' ? data.mode : null, query }),
             jsx('div', {
               className: 'text-xs text-(--ui-text-tertiary)',
