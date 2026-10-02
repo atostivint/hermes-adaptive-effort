@@ -61,12 +61,16 @@ real discovery rather than through the test harness.
 
 ## 3. Git state
 
-Work is on branch `codex/windows-desktop-dev-loop` (the GUI half was being finished
-there); `master` is still `870aed8` and matches `origin/master`. Working tree clean as of
-the two commits below. `AGENTS.md` is tracked (committed at Elektro's request — it is the
+Work is on branch `codex/windows-desktop-dev-loop`, pushed to `origin`. It merges
+`codex/jev-effort-visibility` (also on origin) so there is a single change-feed
+implementation. `master` is still `870aed8` and matches `origin/master` — **nothing is
+merged to master yet.** `AGENTS.md` is tracked (committed at Elektro's request — it is the
 agent contract, read it first).
 
 ```text
+a880e82  Merge codex/jev-effort-visibility: one change feed, the stronger implementation
+36e497f  docs: record the branch, the new commits, and the deploy gap they open
+82b95c7  Add live CLI and Desktop effort indicators (codex/jev-effort-visibility)
 00bcdb1  chore: make the suite runnable on Windows (PowerShell scripts, normcase fix)
 8d76a95  feat: serve the applied-effort change feed the desktop chip polls
 870aed8  Manifest/code parity + HANDOFF entry point
@@ -87,18 +91,32 @@ whose only delta is this very line, so it is not reachable from any branch. Trus
 Stale branch `wip/kanban-t_cb5d47d0-run22` (`82d201a`) still exists locally; it predates
 the endpoint fix and the rename. Nothing depends on it.
 
-**The live install now lags these two commits.** `~/.hermes/plugins/jev-auto-effort` still
-holds `870aed8`, so the deployed backend has no `GET /changes` and the deployed
-`desktop/plugin.js` has no effort chip. Nothing is broken by that — the old chip renders
-`Jev <mode>` — but the feature only exists once you pull:
+### 3a. Where each host actually runs this
 
-```bash
-hermes plugins update jev-auto-effort
-```
+Two hosts, two mechanisms, both on `a880e82` (the merge) as of 2026-10-02.
 
-The desktop half is a separate app-level copy (`~/.hermes/desktop-plugins/`, §3b) that
-`hermes plugins update` does not touch; re-copy it, or let Capabilities → Plugins
-re-materialize it from the updated package.
+**This machine (Windows).** `~/AppData/Local/hermes/plugins/jev-auto-effort` is a
+**symlink to `C:\Users\elekt\Projets\jev-auto-effort\jev-auto-effort`** — the repo working
+tree itself. There is nothing to deploy: any commit is live on the next agent start. Run
+`hermes plugins doctor jev-auto-effort` if you want to see it resolve. The desktop half is
+the separate copy `~/.hermes/desktop-plugins/jev-auto-effort/plugin.js` and does need a
+re-copy when `desktop/plugin.js` changes.
+
+**Iris.** `/root/.hermes/plugins/jev-auto-effort` is a managed `#subdir` install of
+`atostivint/jev-auto-effort`, deployed by copying the payload over it (its
+`.install-metadata.json` `revision` is maintained by hand to match). Iris's payload was
+already running a `/changes` feed — the `codex/jev-effort-visibility` implementation —
+because it had been copied there by hand; that branch has now been **merged** into
+`codex/windows-desktop-dev-loop`, so there is one implementation, not two.
+
+Deploying to iris means: copy `jev-auto-effort/` over the payload dir, `scp`
+`desktop/plugin.js` to `/root/.hermes/desktop-plugins/jev-auto-effort/plugin.js`, clear
+`__pycache__`, and set `.install-metadata.json` `revision` to the deployed SHA. Rollback:
+`/root/.hermes/cache/scratch/jev-backup-<stamp>/` holds both trees as they were.
+
+Note `plugins/` and `desktop-plugins/` are **gitignored** in iris's own `/root/.hermes`
+repo (`Elektro121/iris-configs`, synced every few hours), so the payload is not versioned
+there — only these backups are.
 
 ## 3b. ✅ The live install is a managed git install (was a hand-copy)
 
