@@ -59,6 +59,17 @@ installed files have the same hashes as the fixed source, so no copy is needed.
 Restart the Hermes process to reload Python modules; editing the linked files does
 not replace modules already held in memory.
 
+Conversation-aware chip update, 2026-10-03: **168 tests passed**, lint clean.
+An independent Node rendering check covered switching A/B, unsupported B,
+concurrent activity in C, an unknown conversation, and a different backend owner.
+The local `%USERPROFILE%\.hermes\desktop-plugins\jev-auto-effort\plugin.js` copy
+was backed up and updated, with its hash verified against the tested source.
+The chip requires the current Desktop SDK focus atoms and the updated Python
+status entries; deploy both halves together. A focused owner that differs from
+the active plugin REST backend/profile renders `N/A` rather than another route's
+cached effort. Iris was inspected read-only and still has the older middleware;
+the fixes have not been deployed there.
+
 | check | command | result |
 | --- | --- | --- |
 | suite | `./scripts/run_tests.sh` | **`147 passed`** in 1.15s (Linux) |
@@ -276,8 +287,10 @@ The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separ
   `middleware.set_mode_override()`), so the chip reports exactly what
   `/jev-auto-effort status` prints. `probe` returns score/label/failure and a
   `text_chars` count only — **never the text**. It degrades to an `error: status_failed`
-  payload rather than raising. `changes.v1` retains at most 64 prompt-free applied
-  transitions in memory and does not contain session identifiers.
+  payload rather than raising. Each status entry carries an allowlisted
+  `conversation_id` alongside its decision-key `session_id`; this is the exact
+  runtime session id used to scope the Desktop chip. `changes.v1` retains at most 64
+  prompt-free applied transitions in memory and does not contain session identifiers.
 * **`GET /changes`** — the feed of rewrites that actually reached a request:
   `{stream_id, events: [{id, from, to, at}], latest}` under
   `jev-auto-effort.changes.v1`, effort values only, never prompt text.
@@ -290,10 +303,16 @@ The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separ
   restarts). Degrades to a `503 agent_plugin_not_loaded` / `changes_failed` payload
   like `/status`.
 * **`desktop/plugin.js`** — opt-in desktop plugin (`defaultEnabled: false`): a status-bar
-  chip `Effort: <latest chosen effort>`, a `Jev Effort` pane with the last transition, and one
-  toast per newly observed applied change. The changes feed and chip status poll every 2 s;
-  initial history is treated as a baseline, not replayed as toasts. Pane status/mode polling remains every 15 s.
-  Shows `Effort: —` when the backend is absent.
+  chip `Effort: <focused conversation's latest decided effort>`, a `Jev Effort` pane with
+  the global latest transition, and one toast per newly observed applied change. Toasts
+  identify the change as belonging to a conversation because the feed has no session id.
+  The changes feed and chip status poll every 2 s;
+  the chip reads `host.state.focusedSessionId` and matches `conversation_id` exactly, so
+  another chat's activity cannot change its effort. A focused chat with no decision,
+  an unsupported request, or an in-flight classification shows `Effort: N/A`; the
+  global changes feed never supplies a fallback effort. Initial history is treated as
+  a baseline, not replayed as toasts. Pane status/mode polling remains every 15 s.
+  Shows `Effort: N/A` when the backend is absent.
 * **Interactive CLI status bar** — the plugin registers `Effort: —` through the generic
   Hermes `PluginContext.register_cli_status_item()` host API and updates it after each
   distinct applied rewrite. The status handle also prints one bounded notice above the

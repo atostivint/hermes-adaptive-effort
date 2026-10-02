@@ -148,17 +148,25 @@ Persistent settings and runtime status surfaces, all fail-open:
    `/jev-auto-effort <mode>`, which stays runtime-only by design (the plugin
    never writes your config from a chat command).
 2. **Live toggle (unified desktop plugin, opt-in).** `desktop/plugin.js`
-   contributes a status-bar chip (`Effort: <latest chosen effort>`), a `Jev Effort` pane and
+   contributes a status-bar chip (`Effort: <focused conversation effort>`), a `Jev Effort` pane and
    `Jev Effort: …` palette commands, backed by `dashboard/plugin_api.py`
    (`GET /status`, `GET /changes`, `POST /mode`, `POST /probe` under
    `/api/plugins/jev-auto-effort/`). Switching persists
    `settings.mode` and applies to future requests of the running process.
+   The status entry allowlist includes `conversation_id`, the request's exact
+   runtime session id, so the chip follows the currently focused chat and shows
+   `N/A` when that chat has no decided effort. The pane's latest transition and
+   change toasts are labeled as applying across conversations.
+   This requires the Desktop SDK's `focusedSessionId` and `focusedSessionOwner`
+   atoms and the updated agent status schema. If the focused conversation belongs
+   to another backend/profile than the current plugin REST route, the chip shows
+   `N/A` until that route matches; query caches are scoped by owner and active backend.
    `GET /changes` is the bounded feed of rewrites that actually reached a request
    (`jev-auto-effort.changes.v1`: `{stream_id, events: [{id, from, to, at}], latest}`),
-   polled by the chip to show the effort now in force and to notify on each applied
-   change. It carries effort values only — never prompt text — and a new `stream_id`
+   polled by the chip for notifications on each applied change. It carries effort
+   values only — never prompt text — and a new `stream_id`
    after a plugin reload tells a consumer to drop its cursor.
-   The desktop half ships `defaultEnabled: false` and degrades to `Effort: —`
+   The desktop half ships `defaultEnabled: false` and degrades to `Effort: N/A`
    when the agent half is not in `plugins.enabled` (the Python backend only
    mounts for enabled plugins — a security boundary, not a bug).
 3. **Interactive CLI status bar.** The Jev plugin registers a generic host status item and
@@ -171,7 +179,9 @@ The backend reuses `command._status_payload()` (`jev-auto-effort.status.v1`) and
 chip reports the same mode and decisions `/jev-auto-effort status` prints. The
 new `jev-auto-effort.changes.v1` feed holds at most 64 applied transitions in
 memory, with a process stream id and monotonically increasing event ids; it has
-no prompt or session identifiers. Desktop polls every 2 seconds and establishes
+no prompt or session identifiers. The separate status allowlist carries the
+exact runtime `conversation_id` beside each decision key for focused-chat lookup.
+Desktop polls every 2 seconds and establishes
 an initial cursor without replaying old toasts. The core CLI host API supplies
 the persistent `Effort: <level>` status item. No prompt text is stored or echoed
 on any route — `probe` returns score/label/failure plus a `text_chars` count only.
@@ -290,7 +300,7 @@ jev-auto-effort/                 the payload installed as ~/.hermes/plugins/jev-
   dashboard/manifest.json + plugin_api.py
 desktop backend: GET /status, GET /changes, POST /mode, POST /probe
   desktop/plugin.js       desktop half: effort chip, pane, change toasts, palette (opt-in)
-tests/                    167 tests, one module per contract
+tests/                    168 tests, one module per contract
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh (+ .ps1 for Windows)
 pyproject.toml            pytest + ruff configuration
 requirements-dev.txt      test/lint pins (pytest 9.1.1, ruamel.yaml 0.19.1, ruff 0.16.9)
@@ -304,7 +314,7 @@ Test modules, by contract:
 | `test_middleware.py` | 31 | settings, gating, the rewrite itself, the applied-change feed |
 | `test_subagent.py` | 17 | child routing, child goals, inheritance |
 | `test_jev_client.py` | 18 | transport, credential probe, failure modes, endpoint normalization |
-| `test_command.py` | 20 | `/jev-auto-effort` rendering, schemas, observed-route cache safety, no prompt leak |
+| `test_command.py` | 21 | `/jev-auto-effort` rendering, schemas, conversation identity, observed-route cache safety, no prompt leak |
 | `test_cache_safety.py` | 11 | cache-neutral vs cache-hostile routes |
 | `test_command_modes.py` | 10 | the `off`/`recommend`/`auto`/`cache_safe` verbs |
 | `test_turn_scope.py` | 14 | the `(session_id, turn_id)` decision key, current prompt selection with full history |

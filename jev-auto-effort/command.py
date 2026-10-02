@@ -50,7 +50,7 @@ PROBE_SCHEMA = "jev-auto-effort.probe.v1"
 #: The only session fields ever rendered — an entry may hold anything (it is
 #: plugin-author payload), so prompt text and provider junk are filtered out.
 _ENTRY_FIELDS = (
-    "state", "score", "label", "target", "mode", "provider", "model", "api_mode",
+    "conversation_id", "state", "score", "label", "target", "mode", "provider", "model", "api_mode",
     "requests", "probes", "elapsed_ms", "failure", "updated_at",
 )
 
