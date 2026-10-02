@@ -45,6 +45,18 @@ function useEffortChanges() {
   })
 }
 
+function effortForConversation(data, conversationId) {
+  if (typeof conversationId !== 'string' || !conversationId) return 'N/A'
+  const sessions = Array.isArray(data?.sessions) ? data.sessions : []
+  const latest = sessions
+    .filter(entry => entry?.conversation_id === conversationId)
+    .reduce((best, entry) => {
+      const updatedAt = Number(entry?.updated_at) || 0
+      return !best || updatedAt >= (Number(best.updated_at) || 0) ? entry : best
+    }, null)
+  return latest?.state === 'decided' && typeof latest.target === 'string' ? latest.target : 'N/A'
+}
+
 function ChangeNotifications({ query }) {
   const cursor = useRef(null)
 
@@ -63,7 +75,7 @@ function ChangeNotifications({ query }) {
     for (const event of fresh) {
       host.notify({
         kind: 'info',
-        message: `Jev changed reasoning effort: ${event.from} → ${event.to}`
+        message: `Jev changed reasoning effort in a conversation: ${event.from} → ${event.to}`
       })
     }
   }, [query.data])
@@ -105,9 +117,14 @@ function ModeButtons({ mode, query, compact }) {
 
 function JevChip() {
   const [open, setOpen] = useState(false)
+  const focusedSessionId = useValue(host.state.focusedSessionId)
+  const focusedOwner = useValue(host.state.focusedSessionOwner)
+  const activeConnectionId = useValue(host.state.connectionId)
+  const activeProfile = useValue(host.state.profile)
   const changesQuery = useEffortChanges()
   const query = useQuery({
-    queryKey: [ID, 'status'],
+    queryKey: [ID, 'status', focusedOwner?.connectionId, focusedOwner?.profile,
+      activeConnectionId, activeProfile],
     queryFn: () => rest('/status', { timeoutMs: 15000 }),
     refetchInterval: 2000,
     staleTime: 1000,
@@ -115,10 +132,9 @@ function JevChip() {
   })
   const data = query.data
   const mode = typeof data?.mode === 'string' ? data.mode : null
-  const latest = changesQuery.data?.latest
-  const effort = typeof data?.last?.target === 'string'
-    ? data.last.target
-    : typeof latest?.to === 'string' ? latest.to : 'N/A'
+  const ownerMatchesBackend = focusedOwner?.connectionId === activeConnectionId &&
+    focusedOwner?.profile === activeProfile
+  const effort = ownerMatchesBackend ? effortForConversation(data, focusedSessionId) : 'N/A'
   const label = `Effort: ${effort}`
   const tone = toneFor(mode, query.isError)
 
@@ -135,7 +151,7 @@ function JevChip() {
             className: `inline-flex h-full items-center gap-1 px-1.5 text-[0.6875rem] ${tone} hover:text-(--ui-text-primary)`,
             title: query.isError
               ? 'Jev backend unavailable — enable the plugin in config (plugins.enabled) and Desktop'
-              : `Jev-Auto Effort: ${mode || 'loading'} · latest chosen effort: ${effort} — click to switch`,
+              : `Jev-Auto Effort: ${mode || 'loading'} · focused conversation effort: ${effort} — click to switch`,
             children: [jsx(Codicon, { name: 'zap', className: 'text-[0.75rem]' }), label]
           })
         }),
@@ -211,8 +227,8 @@ function JevPane() {
             jsx('div', {
               className: 'text-xs text-(--ui-text-secondary)',
               children: latestChange
-                ? `last applied effort: ${latestChange.from} → ${latestChange.to}`
-                : 'last applied effort: N/A'
+                ? `latest applied effort (all conversations): ${latestChange.from} → ${latestChange.to}`
+                : 'latest applied effort (all conversations): N/A'
             }),
             jsx(ModeButtons, { mode: typeof data?.mode === 'string' ? data.mode : null, query }),
             jsx('div', {
@@ -222,7 +238,7 @@ function JevPane() {
             last
               ? jsx('div', {
                 className: 'text-xs text-(--ui-text-tertiary)',
-                children: `last: state=${last.state} label=${last.label ?? 'N/A'} target=${last.target ?? 'N/A'} score=${last.score ?? 'N/A'}`
+                children: `most recent status (all conversations): state=${last.state} label=${last.label ?? 'N/A'} target=${last.target ?? 'N/A'} score=${last.score ?? 'N/A'}`
               })
               : jsx('div', { className: 'text-xs text-(--ui-text-quaternary)', children: 'last: none' }),
             jsx('div', {

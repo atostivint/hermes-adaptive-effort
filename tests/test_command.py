@@ -145,6 +145,26 @@ def test_status_json_reports_last_score_target_timing_and_failure(monkeypatch):
     middleware.reset_state()
 
 
+def test_status_json_exposes_exact_conversation_identity_for_turn_entries(monkeypatch):
+    monkeypatch.setattr(middleware, "_settings_provider",
+                        lambda key, default=None: {"mode": "recommend"}.get(key, default))
+    middleware.reset_state()
+    middleware.on_llm_request(
+        request={"messages": [{"role": "user", "content": "hello"}]},
+        session_id="room/a", turn_id="turn-1", provider="example", model="model",
+    )
+    middleware.on_llm_request(
+        request={"messages": [{"role": "user", "content": "hello"}]},
+        session_id="room/another", turn_id="turn-1", provider="example", model="model",
+    )
+
+    payload = json.loads(command.handle("status json"))
+    by_decision = {entry["session_id"]: entry for entry in payload["sessions"]}
+    assert by_decision["room/a/turn-1"]["conversation_id"] == "room/a"
+    assert by_decision["room/another/turn-1"]["conversation_id"] == "room/another"
+    middleware.reset_state()
+
+
 def test_status_json_reports_failure_reason_for_a_failed_session():
     middleware.reset_state()
     middleware._remember("s2", {

@@ -66,6 +66,7 @@ def test_status_payload_uses_stable_schema_and_allowlist():
     assert isinstance(payload["sessions"], list)
     for entry in payload["sessions"]:
         assert "session_id" in entry
+        assert "conversation_id" in entry
 
 
 def test_set_mode_rejects_unknown_and_changes_nothing():
@@ -141,6 +142,7 @@ def test_changes_feed_degrades_when_the_feed_raises(monkeypatch):
 
 def test_desktop_plugin_static_contract():
     text = DESKTOP_JS.read_text(encoding="utf-8")
+    chip = text.split("function JevChip", 1)[1].split("function JevPane", 1)[0]
     assert "const ID = 'jev-auto-effort'" in text  # folder name must equal plugin id
     assert "id: ID" in text
     assert "defaultEnabled: false" in text  # opt-in, mirrors plugins.enabled gate
@@ -148,6 +150,16 @@ def test_desktop_plugin_static_contract():
     assert "rest('/status'" in text
     assert "rest('/mode'" in text
     assert "rest('/changes'" in text  # the chip's effort-change feed is a real backend route
+    assert "useValue(host.state.focusedSessionId)" in text
+    assert "useValue(host.state.focusedSessionOwner)" in text
+    assert "effortForConversation(data, focusedSessionId)" in text
+    assert "entry?.conversation_id === conversationId" in text
+    assert "focusedOwner?.connectionId === activeConnectionId" in text
+    assert "focusedOwner?.profile === activeProfile" in text
+    assert "focusedOwner?.connectionId, focusedOwner?.profile" in text
+    assert "changesQuery.data?.latest" not in chip  # a global feed cannot pick the chip effort
+    assert "latest?.state === 'decided'" in text  # unsupported / in-flight focus shows N/A
+    assert "latest applied effort (all conversations)" in text
     for allowed in ("@hermes/plugin-sdk", "react", "react/jsx-runtime"):
         assert allowed in text
     assert "localStorage" not in text  # UI prefs belong to ctx.storage, decisions to backend

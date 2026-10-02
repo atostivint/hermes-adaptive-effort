@@ -259,7 +259,8 @@ def _remember(session_id: str, entry: Dict[str, Any], max_sessions: int) -> None
 
 
 def _touch(key: str, settings: Dict[str, Any], mode: str,
-           provider: Any = None, model: Any = None, api_mode: Any = None) -> Dict[str, Any]:
+           provider: Any = None, model: Any = None, api_mode: Any = None,
+           conversation_id: Optional[str] = None) -> Dict[str, Any]:
     """One turn's record: created once, then counted and stamped here.
 
     Every request that reaches the decision path is counted (``requests``), while
@@ -272,10 +273,13 @@ def _touch(key: str, settings: Dict[str, Any], mode: str,
             entry = {
                 "state": "new", "label": None, "target": None, "score": None,
                 "mode": mode, "provider": provider, "model": model,
+                "conversation_id": conversation_id,
                 "requests": 0, "probes": 0, "elapsed_ms": 0.0,
                 "failure": None, "updated_at": 0.0,
             }
             _SESSIONS[key] = entry
+        if conversation_id is not None:
+            entry["conversation_id"] = conversation_id
         entry["requests"] = int(entry.get("requests") or 0) + 1
         entry["mode"] = mode
         entry["api_mode"] = api_mode
@@ -763,7 +767,10 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if child_goal is not None:
         mode = settings["subagent_mode"]
 
-    entry = _touch(key, settings, mode, provider, model, kwargs.get("api_mode"))
+    entry = _touch(
+        key, settings, mode, provider, model, kwargs.get("api_mode"),
+        conversation_id=session_id,
+    )
     if entry.get("state") in ("failed", "unsupported"):
         # A failed attempt, or a request with nothing writable: stay silent and
         # do not re-classify within this decision's scope (bounded Jev usage).
