@@ -14,6 +14,7 @@ turn, so the assertions are about wiring, not about a live classifier.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -56,10 +57,12 @@ RECORDED_REQUEST = {
 
 def _payload_module(home: Path, suffix: str):
     """The module Hermes loaded from *this* home's payload (not our test copy)."""
-    prefix = str(home / "plugins")
+    # Hermes canonicalizes HERMES_HOME to lowercase on Windows; compare path
+    # spellings with the platform's case rules instead of raw string equality.
+    prefix = os.path.normcase(str(home / "plugins"))
     for name, mod in list(sys.modules.items()):
         filename = getattr(mod, "__file__", "") or ""
-        if filename.startswith(prefix) and name.endswith(suffix):
+        if os.path.normcase(filename).startswith(prefix) and name.endswith(suffix):
             return mod
     raise AssertionError(f"payload module {suffix!r} was not loaded from {home}")
 
