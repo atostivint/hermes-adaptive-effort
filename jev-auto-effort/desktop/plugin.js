@@ -7,7 +7,7 @@
  *
  * Backend is the sibling `dashboard/plugin_api.py` (`/api/plugins/jev-auto-effort/`),
  * itself a thin wrapper around the agent half's command/middleware. Everything
- * fails open: backend disabled or unreachable renders `Effort: —`, actions toast.
+ * fails open: backend disabled or unreachable renders `Effort: N/A`, actions toast.
  */
 import {
   Codicon,
@@ -118,7 +118,7 @@ function JevChip() {
   const latest = changesQuery.data?.latest
   const effort = typeof data?.last?.target === 'string'
     ? data.last.target
-    : typeof latest?.to === 'string' ? latest.to : '—'
+    : typeof latest?.to === 'string' ? latest.to : 'N/A'
   const label = `Effort: ${effort}`
   const tone = toneFor(mode, query.isError)
 
@@ -212,7 +212,7 @@ function JevPane() {
               className: 'text-xs text-(--ui-text-secondary)',
               children: latestChange
                 ? `last applied effort: ${latestChange.from} → ${latestChange.to}`
-                : 'last applied effort: —'
+                : 'last applied effort: N/A'
             }),
             jsx(ModeButtons, { mode: typeof data?.mode === 'string' ? data.mode : null, query }),
             jsx('div', {
@@ -222,7 +222,7 @@ function JevPane() {
             last
               ? jsx('div', {
                 className: 'text-xs text-(--ui-text-tertiary)',
-                children: `last: state=${last.state} label=${last.label ?? '—'} target=${last.target ?? '—'} score=${last.score ?? '—'}`
+                children: `last: state=${last.state} label=${last.label ?? 'N/A'} target=${last.target ?? 'N/A'} score=${last.score ?? 'N/A'}`
               })
               : jsx('div', { className: 'text-xs text-(--ui-text-quaternary)', children: 'last: none' }),
             jsx('div', {

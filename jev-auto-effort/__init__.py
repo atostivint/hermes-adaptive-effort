@@ -25,7 +25,11 @@ def register(ctx: Any) -> None:
     register_cli_status_item = getattr(ctx, "register_cli_status_item", None)
     if callable(register_cli_status_item):
         try:
-            status_handle = register_cli_status_item("effort", "Effort: —", priority=30)
+            # "N/A", not an em dash: this renders in a terminal status bar, and on a
+            # Windows console a non-ASCII glyph degrades to a replacement box. It also
+            # states the truth — a route with no writable effort field has no effort
+            # to report, as opposed to one that simply has not decided yet.
+            status_handle = register_cli_status_item("effort", "Effort: N/A", priority=30)
             _middleware.set_cli_status_handle(status_handle)
         except Exception:
             _middleware.set_cli_status_handle(None)
