@@ -17,7 +17,7 @@ Verified on this machine:
 | check | command | result |
 | --- | --- | --- |
 | suite | `./scripts/run_tests.sh` | `147 passed` in ~1 s (Linux) |
-| suite | `.\scripts\run_tests.ps1` | `156 passed` in ~1 s (Windows, incl. the dispatcher integration test) |
+| suite | `.\scripts\run_tests.ps1` | `157 passed` in ~1 s (Windows, incl. the dispatcher integration test) |
 | lint | `./scripts/run_lint.sh` / `.\scripts\run_lint.ps1` | `All checks passed!` (ruff 0.16.9) |
 
 ### Windows / PowerShell
@@ -64,6 +64,14 @@ turns thinking off, and never touches anything but that one slot.
 | `auto` | classify and rewrite an existing effort field | yes |
 | `cache_safe` | per turn on routes where an effort change keeps the prompt cache; otherwise one level pinned for the whole session | yes |
 
+When `auto` or `cache_safe` actually changes the outgoing effort value, Jev-Auto Effort
+writes a prompt-free INFO notice such as `Effort changed: medium -> high`.
+In the interactive CLI, each distinct change also prints one short notice, and the status bar
+keeps the last applied level (`Effort: high`). `/jev-auto-effort status` reports the last
+`from -> to` change. The Desktop chip shows the
+mode and latest chosen level; its pane shows the latest transition and Desktop raises a toast
+for each new applied transition. To watch INFO notices in another terminal, run `hermes logs -f`.
+
 ## Commands
 
 `/jev-auto-effort` is registered through the host's `register_command` API. The usage text is
@@ -71,7 +79,7 @@ the contract:
 
 ```text
 Usage:
-  /jev-auto-effort status            Show mode, settings, credential, session counts
+  /jev-auto-effort status            Show mode, settings, credential, last applied level, counts
   /jev-auto-effort status json       Machine-readable status payload
   /jev-auto-effort off|recommend|auto|cache_safe
                               Set the mode used by future requests
@@ -124,9 +132,9 @@ nothing. An endpoint one level too high is therefore a silent total outage, whic
 `status` prints the URL requests really go to and names the raw setting beside it whenever
 the two differ.
 
-## Desktop / GUI: enable, disable, live status
+## CLI and Desktop: controls and live status
 
-Two tiers, both fail-open:
+Persistent settings and runtime status surfaces, all fail-open:
 
 1. **Settings form (no extra install).** `config_schema` gives a persisted mode
    dropdown (`off` / `recommend` / `auto` / `cache_safe`) in
@@ -134,25 +142,33 @@ Two tiers, both fail-open:
    `/jev-auto-effort <mode>`, which stays runtime-only by design (the plugin
    never writes your config from a chat command).
 2. **Live toggle (unified desktop plugin, opt-in).** `desktop/plugin.js`
-   contributes a status-bar chip (`Jev <mode>`), a `Jev Effort` pane and
+   contributes a status-bar chip (`Effort: <latest chosen effort>`), a `Jev Effort` pane and
    `Jev Effort: …` palette commands, backed by `dashboard/plugin_api.py`
-   (`GET /status`, `POST /mode`, `POST /probe`, `GET /changes` under
+   (`GET /status`, `GET /changes`, `POST /mode`, `POST /probe` under
    `/api/plugins/jev-auto-effort/`). Switching persists
    `settings.mode` and applies to future requests of the running process.
    `GET /changes` is the bounded feed of rewrites that actually reached a request
-   (`{stream_id, events: [{id, from, to}], latest}`), polled by the chip to show the
-   effort now in force and to notify on each applied change. It carries effort values
-   only — never prompt text — and a new `stream_id` after a plugin reload tells a
-   consumer to drop its cursor.
-   The desktop half ships `defaultEnabled: false` and degrades to `Jev —`
+   (`jev-auto-effort.changes.v1`: `{stream_id, events: [{id, from, to, at}], latest}`),
+   polled by the chip to show the effort now in force and to notify on each applied
+   change. It carries effort values only — never prompt text — and a new `stream_id`
+   after a plugin reload tells a consumer to drop its cursor.
+   The desktop half ships `defaultEnabled: false` and degrades to `Effort: —`
    when the agent half is not in `plugins.enabled` (the Python backend only
    mounts for enabled plugins — a security boundary, not a bug).
+3. **Interactive CLI status bar.** The Jev plugin registers a generic host status item and
+   updates it to `Effort: <level>` and prints one notice after each distinct applied change. This requires the
+   Hermes `register_cli_status_item()` API; older hosts continue to provide the INFO notice
+   and the last transition in `/jev-auto-effort status`.
 
 The backend reuses `command._status_payload()` (`jev-auto-effort.status.v1`) and
 `middleware.set_mode_override()` from the already-loaded agent modules, so the
-chip reports the same decisions `/jev-auto-effort status` prints. No prompt text
-is stored or echoed on any route — `probe` returns score/label/failure plus a
-`text_chars` count only.
+chip reports the same mode and decisions `/jev-auto-effort status` prints. The
+new `jev-auto-effort.changes.v1` feed holds at most 64 applied transitions in
+memory, with a process stream id and monotonically increasing event ids; it has
+no prompt or session identifiers. Desktop polls every 2 seconds and establishes
+an initial cursor without replaying old toasts. The core CLI host API supplies
+the persistent `Effort: <level>` status item. No prompt text is stored or echoed
+on any route — `probe` returns score/label/failure plus a `text_chars` count only.
 
 ## Decision cache: one decision per turn, valid only for its route
 
@@ -249,15 +265,15 @@ entry, keyed by its own session and turn.
 jev-auto-effort/                 the payload installed as ~/.hermes/plugins/jev-auto-effort
   plugin.yaml             manifest: id, commands, hooks, settings defaults + config_schema (Desktop form)
   __init__.py             register(): commands + the llm_request middleware
-  middleware.py           settings, mode, decision cache, request rewrite, applied-change feed, session state
+  middleware.py           settings, decision cache, request rewrite, session state + effort-change feed
   effort.py               pure score -> label -> wire-effort mapping (no I/O)
   jev_client.py           HTTP client for the scorer + credential probe (lazy core import)
   cache_safety.py         is an effort change cache-neutral on this route?
   command.py              /jev-auto-effort: help, status, status json, probe, mode verbs
   dashboard/manifest.json + plugin_api.py
-                          desktop backend: GET /status, POST /mode, POST /probe, GET /changes
-  desktop/plugin.js       desktop half: status-bar chip, pane, palette commands (opt-in)
-tests/                    156 tests, one module per contract
+desktop backend: GET /status, GET /changes, POST /mode, POST /probe
+  desktop/plugin.js       desktop half: effort chip, pane, change toasts, palette (opt-in)
+tests/                    157 tests, one module per contract
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh (+ .ps1 for Windows)
 pyproject.toml            pytest + ruff configuration
 requirements-dev.txt      test/lint pins (pytest 9.1.1, ruamel.yaml 0.19.1, ruff 0.16.9)

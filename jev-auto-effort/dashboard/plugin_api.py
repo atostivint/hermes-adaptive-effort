@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 PLUGIN_ID = "jev-auto-effort"
 STATUS_SCHEMA = "jev-auto-effort.status.v1"
 PROBE_SCHEMA = "jev-auto-effort.probe.v1"
+CHANGES_SCHEMA = "jev-auto-effort.changes.v1"
 VALID_MODES = ("off", "recommend", "auto", "cache_safe")
 MAX_PROBE_CHARS = 4000
 
@@ -147,6 +148,27 @@ def get_status_payload() -> Dict[str, Any]:
     return payload
 
 
+def get_changes_payload() -> Dict[str, Any]:
+    """Recent applied effort changes for Desktop notifications and status."""
+    middleware, _ = _agent_modules()
+    if middleware is None:
+        return {"schema": CHANGES_SCHEMA, "plugin": PLUGIN_ID,
+                "error": "agent_plugin_not_loaded"}
+    try:
+        state = middleware.effort_change_state()
+    except Exception:
+        logger.debug("jev-auto-effort: change feed build failed", exc_info=True)
+        return {"schema": CHANGES_SCHEMA, "plugin": PLUGIN_ID,
+                "error": "changes_failed"}
+    return {
+        "schema": CHANGES_SCHEMA,
+        "plugin": PLUGIN_ID,
+        "stream_id": state["stream_id"],
+        "events": state["events"],
+        "latest": state["latest"],
+    }
+
+
 def set_mode(mode: Any, *, persist: bool = False) -> Dict[str, Any]:
     """Runtime mode switch for future requests of this process (never echoes config).
 
@@ -215,26 +237,6 @@ def run_probe(text: Any) -> Dict[str, Any]:
             "at": time.time()}
 
 
-def get_changes() -> Dict[str, Any]:
-    """Applied-effort feed for the desktop chip: recent rewrites, effort values only.
-
-    ``stream_id`` is the cursor's scope: a consumer that sees a different one must
-    forget the ids it already showed (plugin reload). Degrades to an error payload
-    rather than raising, exactly like ``get_status_payload``.
-    """
-    middleware, _ = _agent_modules()
-    if middleware is None:
-        return {"stream_id": "", "events": [], "latest": None, "error": "agent_plugin_not_loaded"}
-    try:
-        payload = middleware.changes()
-    except Exception:
-        logger.debug("jev-auto-effort: changes feed failed", exc_info=True)
-        return {"stream_id": "", "events": [], "latest": None, "error": "changes_failed"}
-    if not isinstance(payload, dict):
-        return {"stream_id": "", "events": [], "latest": None, "error": "changes_failed"}
-    return payload
-
-
 if _HAS_HTTP and router is not None:  # pragma: no cover - needs serve env
 
     class ModeBody(BaseModel):
@@ -247,6 +249,13 @@ if _HAS_HTTP and router is not None:  # pragma: no cover - needs serve env
     @router.get("/status")
     def status() -> Dict[str, Any]:
         payload = get_status_payload()
+        if payload.get("error"):
+            raise HTTPException(status_code=503, detail=payload["error"])
+        return payload
+
+    @router.get("/changes")
+    def changes() -> Dict[str, Any]:
+        payload = get_changes_payload()
         if payload.get("error"):
             raise HTTPException(status_code=503, detail=payload["error"])
         return payload
@@ -267,9 +276,3 @@ if _HAS_HTTP and router is not None:  # pragma: no cover - needs serve env
             raise HTTPException(status_code=400, detail="text is required")
         return run_probe(body.text)
 
-    @router.get("/changes")
-    def changes_feed() -> Dict[str, Any]:
-        payload = get_changes()
-        if payload.get("error"):
-            raise HTTPException(status_code=503, detail=payload["error"])
-        return payload

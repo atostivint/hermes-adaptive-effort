@@ -114,30 +114,30 @@ def test_probe_clips_long_text():
 
 
 def test_changes_feed_mirrors_the_live_agent_half():
-    empty = api.get_changes()
+    empty = api.get_changes_payload()
     assert empty["events"] == [] and empty["latest"] is None
-    assert isinstance(empty["stream_id"], str)
-    middleware._record_change("medium", "high")
-    feed = api.get_changes()
+    assert empty["schema"] == "jev-auto-effort.changes.v1"
+    middleware._record_effort_change("s1/turn", "medium", "high")
+    feed = api.get_changes_payload()
     assert feed["stream_id"] == empty["stream_id"]  # same process, same stream
-    assert feed["latest"] == {"id": 1, "from": "medium", "to": "high"}
+    assert (feed["latest"]["from"], feed["latest"]["to"]) == ("medium", "high")
 
 
 def test_changes_feed_degrades_without_the_agent_half(monkeypatch):
     monkeypatch.setattr(api, "_agent_modules", lambda: (None, None))
-    payload = api.get_changes()
+    payload = api.get_changes_payload()
     assert payload["error"] == "agent_plugin_not_loaded"
-    assert payload["events"] == [] and payload["latest"] is None
+    assert payload["schema"] == "jev-auto-effort.changes.v1"
 
 
 def test_changes_feed_degrades_when_the_feed_raises(monkeypatch):
     def boom():
         raise RuntimeError("state gone")
 
-    monkeypatch.setattr(middleware, "changes", boom)
-    payload = api.get_changes()
+    monkeypatch.setattr(middleware, "effort_change_state", boom)
+    payload = api.get_changes_payload()
     assert payload["error"] == "changes_failed"
-    assert payload["events"] == [] and payload["latest"] is None
+
 
 def test_desktop_plugin_static_contract():
     text = DESKTOP_JS.read_text(encoding="utf-8")
