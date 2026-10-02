@@ -217,7 +217,7 @@ def _status_text() -> str:
     change = _middleware.effort_change_state()["latest"]
     lines.append(
         f"last applied effort: {change['from']} -> {change['to']}" if change
-        else "last applied effort: —")
+        else "last applied effort: N/A")
     return "\n".join(lines)
 
 
