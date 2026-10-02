@@ -7,7 +7,7 @@
  *
  * Backend is the sibling `dashboard/plugin_api.py` (`/api/plugins/jev-auto-effort/`),
  * itself a thin wrapper around the agent half's command/middleware. Everything
- * fails open: backend disabled or unreachable renders `Jev —`, actions toast.
+ * fails open: backend disabled or unreachable renders `Effort: —`, actions toast.
  */
 import {
   Codicon,

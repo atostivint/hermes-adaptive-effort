@@ -38,16 +38,16 @@ now follows that path, with the exact command recorded in §3b.
 | check | command | result |
 | --- | --- | --- |
 | suite | `./scripts/run_tests.sh` | **`147 passed`** in 1.15s (Linux) |
-| suite | `.\scripts\run_tests.ps1` | **`156 passed`** in 0.89s (Windows, dispatcher integration included) |
+| suite | `.\scripts\run_tests.ps1` | **`157 passed`** in 0.84s (Windows, dispatcher integration included) |
 | lint | `./scripts/run_lint.sh` / `.\scripts\run_lint.ps1` | `All checks passed!` (ruff 0.16.9) |
 | network | — | the suite is network-free by fixture (`no_network` autouse, session-scoped) |
 
 Test count by contract (one module per contract, per `AGENTS.md`):
 
 ```text
-test_middleware.py            24   test_jev_client.py        18
+test_middleware.py            31   test_jev_client.py        18
 test_command.py               16   test_subagent.py          17
-test_cache_safety.py          11   test_plugin_api.py         8
+test_cache_safety.py          11   test_plugin_api.py        11
 test_turn_scope.py             8   test_review_fixes.py       8
 test_effort.py                 6   test_dispatcher_integration.py  6
 test_config_schema.py          4   test_plugin_registration.py     4
@@ -205,20 +205,22 @@ agent. Do not change `mode` in his config.
 7. **Subagents** are classified from the parent-written goal (`subagent_start`), gated by
    the independent `subagent_mode`. `probe`/`status` classify and store nothing; `probe`
    only ever scores operator-typed text.
-8. **No prompt storage, no prompt in logs/reasons/traces.** Reason strings carry effort
-   values only. `command._ENTRY_FIELDS` is the only rendered session allowlist.
+8. **No prompt storage, no prompt in logs/reasons/traces.** Effort-change notices log
+   only the old and new effort values. Reason strings carry effort values only;
+   `command._ENTRY_FIELDS` is the only rendered session allowlist.
 9. **Never write the operator's config from a chat command.** `/jev-auto-effort <mode>`
    sets an in-process `_MODE_OVERRIDE` only; the persist path is
    `plugins.entries.jev-auto-effort.settings.mode`.
 10. **Schemas are a public contract:** `jev-auto-effort.status.v1`,
-    `jev-auto-effort.probe.v1`. Field names and reason codes are not free to rename.
+    `jev-auto-effort.probe.v1`, and `jev-auto-effort.changes.v1`. Field names and reason
+    codes are not free to rename.
 11. **Cache safety:** `cache_safety.effort_is_cache_safe()` returns `True` only for
     `chat_completions` / `codex_responses`; `anthropic_messages` and anything unknown →
     `False` (pin the session, never gamble the cache).
 
-## 7. The Desktop GUI layer (commit `7d1f066`, undocumented elsewhere)
+## 7. Desktop and CLI effort visibility
 
-Three files, two tiers:
+The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separate layers:
 
 * **`plugin.yaml` → `config_schema`** — renders a settings form in Desktop
   Capabilities → Plugins. Saving writes `plugins.entries.jev-auto-effort.settings.<key>`,
@@ -226,31 +228,41 @@ Three files, two tiers:
   `choices` **must** stay in sync with `middleware.DEFAULTS` / `VALID_MODES`; the
   settings writer refuses mismatches, and `tests/test_config_schema.py` enforces it.
 * **`dashboard/plugin_api.py`** — FastAPI backend mounted at
-  `/api/plugins/jev-auto-effort/`: `GET /status`, `POST /mode`, `POST /probe`,
-  `GET /changes`. It reuses the already-loaded agent modules
-  (`command._status_payload()`, `middleware.set_mode_override()`), so the chip reports
-  exactly what `/jev-auto-effort status` prints. `probe` returns score/label/failure and a
+`/api/plugins/jev-auto-effort/`: `GET /status`, `GET /changes`, `POST /mode`,
+  `POST /probe`. It reuses
+  the already-loaded agent modules (`command._status_payload()`,
+  `middleware.set_mode_override()`), so the chip reports exactly what
+  `/jev-auto-effort status` prints. `probe` returns score/label/failure and a
   `text_chars` count only — **never the text**. It degrades to an `error: status_failed`
-  payload rather than raising.
-* **`GET /changes`** — the bounded feed of rewrites that actually reached a request:
-  `{stream_id, events: [{id, from, to}], latest}`, effort values only, never prompt
-  text. `middleware._record_change()` is called at the single point where a
-  rewritten request is returned, so `recommend` / `failed` / `unsupported` / no-op
-  turns and a tool loop re-sending the applied value record nothing. Ids are
-  monotonic within one `stream_id`; `reset_state()` mints a new `stream_id`, which
-  is the chip's signal to drop its cursor (it must — ids restart at 1). Degrades to
-  a `503 agent_plugin_not_loaded` / `changes_failed` payload like `/status`.
+  payload rather than raising. `changes.v1` retains at most 64 prompt-free applied
+  transitions in memory and does not contain session identifiers.
+* **`GET /changes`** — the feed of rewrites that actually reached a request:
+  `{stream_id, events: [{id, from, to, at}], latest}` under
+  `jev-auto-effort.changes.v1`, effort values only, never prompt text.
+  `middleware._record_effort_change()` is called at the single point where a rewritten
+  request is returned, so `recommend` / `failed` / `unsupported` / no-op turns and a
+  tool loop re-sending the applied value record nothing; it also deduplicates on
+  `(decision_key, from, to)`, so a route change re-sending the original level does not
+  replay an event. Ids are monotonic within one `stream_id`; `reset_state()` mints a new
+  `stream_id`, which is the chip's signal to drop its cursor (it must — the sequence
+  restarts). Degrades to a `503 agent_plugin_not_loaded` / `changes_failed` payload
+  like `/status`.
 * **`desktop/plugin.js`** — opt-in desktop plugin (`defaultEnabled: false`): a status-bar
-  chip showing the mode and the effort now in force, a `Jev Effort` pane, and one palette
-  command per mode plus a status command. It polls `/status` and `/changes` every 2 s and
-  notifies once per applied change (`from → to`), which is why the backend must keep
-  serving `/changes`: without it the chip degrades to `Effort: —` and never notifies.
-  Shows `Jev —` when the backend is absent.
+  chip `Effort: <latest chosen effort>`, a `Jev Effort` pane with the last transition, and one
+  toast per newly observed applied change. The changes feed and chip status poll every 2 s;
+  initial history is treated as a baseline, not replayed as toasts. Pane status/mode polling remains every 15 s.
+  Shows `Effort: —` when the backend is absent.
+* **Interactive CLI status bar** — the plugin registers `Effort: —` through the generic
+  Hermes `PluginContext.register_cli_status_item()` host API and updates it after each
+  distinct applied rewrite. The status handle also prints one bounded notice above the
+  prompt for each distinct applied change; the plugin logs the same prompt-free `from -> to` notice and
+  `/jev-auto-effort status` prints the last applied transition. Older Hermes hosts without
+  the status-item API still get the log notice and command output.
 
 **Security boundary, not a bug:** the Python backend only mounts for plugins listed in
 `plugins.enabled`. If the backend is genuinely absent or unreachable (for example the
 plugin is disabled, or the dashboard half is not deployed), the chip correctly shows
-`Jev —` rather than failing loudly.
+`Effort: —` rather than failing loudly.
 
 ## 8. Open items, in the order I would take them
 

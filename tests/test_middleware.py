@@ -397,13 +397,18 @@ def test_reset_state_also_clears_an_in_flight_probe():
 # ── applied-change feed (consumed by the desktop backend's ``GET /changes``) ──
 
 
+def _feed():
+    return middleware.effort_change_state()
+
+
 def test_applied_rewrite_is_recorded(monkeypatch, no_network):
     use_settings(monkeypatch, {"mode": "auto"})
     use_classifier(monkeypatch, RecordingClassifierFactory(score=1.9))
     assert call(ctx(request=supported_request())) is not None
-    feed = middleware.changes()
-    assert feed["events"] == [{"id": 1, "from": "medium", "to": "high"}]
-    assert feed["latest"] == {"id": 1, "from": "medium", "to": "high"}
+    feed = _feed()
+    assert [(e["from"], e["to"]) for e in feed["events"]] == [("medium", "high")]
+    assert feed["events"][0]["id"] == 1
+    assert feed["latest"] == feed["events"][0]
     assert isinstance(feed["stream_id"], str) and feed["stream_id"]
 
 
@@ -413,7 +418,17 @@ def test_re_sending_the_applied_effort_records_nothing(monkeypatch, no_network):
     use_classifier(monkeypatch, RecordingClassifierFactory(score=1.9))
     first = call(ctx(request=supported_request()))
     assert call(ctx(request=first["request"])) is None
-    assert middleware.changes()["events"] == [{"id": 1, "from": "medium", "to": "high"}]
+    assert len(_feed()["events"]) == 1
+
+
+def test_the_same_rewrite_is_recorded_once_per_decision(monkeypatch, no_network):
+    """A route change re-sends the request at its original level: one event, not two."""
+    use_settings(monkeypatch, {"mode": "auto"})
+    use_classifier(monkeypatch, RecordingClassifierFactory(score=1.9))
+    assert call(ctx(request=supported_request())) is not None
+    again = call(ctx(request=supported_request()))
+    assert again["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    assert len(_feed()["events"]) == 1
 
 
 def test_nothing_that_failed_open_is_recorded(monkeypatch, no_network):
@@ -425,7 +440,7 @@ def test_nothing_that_failed_open_is_recorded(monkeypatch, no_network):
     assert call(ctx(request=supported_request(), session="s2")) is not None
     use_settings(monkeypatch, {"mode": "auto"})
     assert call(ctx(request=request_with(), session="s3")) is None  # nothing writable
-    feed = middleware.changes()
+    feed = _feed()
     assert feed["events"] == [] and feed["latest"] is None
 
 
@@ -433,17 +448,19 @@ def test_feed_carries_effort_values_only(monkeypatch, no_network):
     use_settings(monkeypatch, {"mode": "auto"})
     use_classifier(monkeypatch, RecordingClassifierFactory(score=1.9))
     call(ctx(request=supported_request()))
-    assert len(middleware.changes()["events"]) == 1  # a rewrite really happened
-    assert "first user prompt" not in json.dumps(middleware.changes())
+    feed = _feed()
+    assert len(feed["events"]) == 1  # a rewrite really happened
+    assert "first user prompt" not in json.dumps(feed)
+    assert set(feed["events"][0]) == {"id", "from", "to", "at"}
 
 
 def test_reset_state_starts_a_new_stream(monkeypatch, no_network):
     use_settings(monkeypatch, {"mode": "auto"})
     use_classifier(monkeypatch, RecordingClassifierFactory(score=1.9))
     call(ctx(request=supported_request()))
-    before = middleware.changes()["stream_id"]
+    before = _feed()["stream_id"]
     middleware.reset_state()
-    after = middleware.changes()
+    after = _feed()
     assert after["stream_id"] != before  # a consumer must drop its cursor here
     assert after["events"] == [] and after["latest"] is None
 
@@ -452,10 +469,10 @@ def test_feed_is_bounded(monkeypatch, no_network):
     """A long-lived process must not grow the feed without limit, and ids must keep counting."""
     use_settings(monkeypatch, {"mode": "auto"})
     use_classifier(monkeypatch, RecordingClassifierFactory(score=1.9))
-    limit = middleware._CHANGES.maxlen
+    limit = middleware._CHANGE_HISTORY_LIMIT
     for index in range(limit + 5):
         assert call(ctx(request=supported_request(), session=f"s{index}")) is not None
-    feed = middleware.changes()
+    feed = _feed()
     assert len(feed["events"]) == limit
     assert feed["events"][0]["id"] == 6
     assert feed["latest"]["id"] == limit + 5
