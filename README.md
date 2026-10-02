@@ -102,6 +102,12 @@ nothing.
 middleware already holds. `probe` scores the text the operator typed — it never reads or
 stores the session's conversation.
 
+`status` derives cache safety from the **last observed request's `api_mode`**, including
+unsupported requests. That route is included in each public session entry as `api_mode`
+(an additive field in `jev-auto-effort.status.v1`). Before any request is observed,
+the route is unknown. The verdict controls session pinning only in `cache_safe` mode;
+`auto` classifies each user turn regardless of that verdict.
+
 ## Configuration
 
 Settings live under `plugins.entries.jev-auto-effort.settings` in `config.yaml`; the defaults are
@@ -174,6 +180,8 @@ on any route — `probe` returns score/label/failure plus a `text_chars` count o
 
 The memo key is `(session_id, turn_id)`:
 
+* Each new turn classifies the **latest user text** in `messages` or Codex `input`,
+  skipping assistant and tool results. Earlier conversation history is not the new task.
 * A multi-call turn (a tool loop) is **several requests of one turn**: it reuses the
   decision from its first call — one Jev call, not one per request. `api_call_count` is
   not consulted; the turn id is the only authority.
@@ -237,6 +245,15 @@ mirroring the Kimi and GLM entries that are already there).
 The plugin never breaks a turn: a failure to route effort leaves the request exactly as
 the host built it.
 
+`unsupported` with `probes=0` can mean the Hermes provider profile emitted no effort
+field, even if the model generates reasoning. Verified on the current OpenCode Go
+profile: `space-bunny-free` emits no writable field; Kimi K2 and DeepSeek can emit
+top-level `reasoning_effort` when reasoning is configured. Model reasoning support
+alone does not establish a working effort control on a particular provider route.
+Classification each turn also does not imply a different value each turn: a matching
+value produces no rewrite, and narrow vocabularies can map every rubric label to the
+same effort (GLM-5.2 maps `low`/`medium`/`high` to `high`).
+
 ## Prompt cache
 
 An effort change is visible to the cache layer only when the route renders the thinking
@@ -273,7 +290,7 @@ jev-auto-effort/                 the payload installed as ~/.hermes/plugins/jev-
   dashboard/manifest.json + plugin_api.py
 desktop backend: GET /status, GET /changes, POST /mode, POST /probe
   desktop/plugin.js       desktop half: effort chip, pane, change toasts, palette (opt-in)
-tests/                    157 tests, one module per contract
+tests/                    167 tests, one module per contract
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh (+ .ps1 for Windows)
 pyproject.toml            pytest + ruff configuration
 requirements-dev.txt      test/lint pins (pytest 9.1.1, ruamel.yaml 0.19.1, ruff 0.16.9)
@@ -284,18 +301,18 @@ Test modules, by contract:
 
 | module | tests | contract |
 | --- | --- | --- |
-| `test_middleware.py` | 30 | settings, gating, the rewrite itself, the applied-change feed |
+| `test_middleware.py` | 31 | settings, gating, the rewrite itself, the applied-change feed |
 | `test_subagent.py` | 17 | child routing, child goals, inheritance |
 | `test_jev_client.py` | 18 | transport, credential probe, failure modes, endpoint normalization |
-| `test_command.py` | 16 | `/jev-auto-effort` rendering, schemas, no prompt leak |
+| `test_command.py` | 20 | `/jev-auto-effort` rendering, schemas, observed-route cache safety, no prompt leak |
 | `test_cache_safety.py` | 11 | cache-neutral vs cache-hostile routes |
 | `test_command_modes.py` | 10 | the `off`/`recommend`/`auto`/`cache_safe` verbs |
-| `test_turn_scope.py` | 8 | the `(session_id, turn_id)` decision key |
+| `test_turn_scope.py` | 14 | the `(session_id, turn_id)` decision key, current prompt selection with full history |
 | `test_review_fixes.py` | 8 | regressions found by the 2026-09-29 review |
 | `test_decision_cache.py` | 7 | route-tagged decisions, re-clamp, telemetry |
 | `test_effort.py` | 6 | score thresholds, clamping, overrides |
 | `test_dispatcher_integration.py` | 6 | through Hermes' own plugin manager + middleware |
-| `test_plugin_registration.py` | 3 | manifest, `register()` contract |
+| `test_plugin_registration.py` | 4 | manifest, `register()` contract |
 | `test_config_schema.py` | 4 | `config_schema` keys/types/defaults match `DEFAULTS` + `VALID_MODES` |
 | `test_plugin_api.py` | 11 | dashboard backend (status/mode/probe/changes, no prompt leak) + desktop static contract |
 

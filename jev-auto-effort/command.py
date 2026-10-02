@@ -50,7 +50,7 @@ PROBE_SCHEMA = "jev-auto-effort.probe.v1"
 #: The only session fields ever rendered — an entry may hold anything (it is
 #: plugin-author payload), so prompt text and provider junk are filtered out.
 _ENTRY_FIELDS = (
-    "state", "score", "label", "target", "mode", "provider", "model",
+    "state", "score", "label", "target", "mode", "provider", "model", "api_mode",
     "requests", "probes", "elapsed_ms", "failure", "updated_at",
 )
 
@@ -152,6 +152,8 @@ def _status_payload() -> Dict[str, Any]:
         "failed": sum(1 for e in sessions if e.get("state") == "failed"),
         "unsupported": sum(1 for e in sessions if e.get("state") == "unsupported"),
     }
+    last = _last_session(sessions)
+    route = last or {}
     return {
         "schema": STATUS_SCHEMA,
         "plugin": PLUGIN_ID,
@@ -160,18 +162,19 @@ def _status_payload() -> Dict[str, Any]:
         # a runtime override applies to future requests only and is not persisted.
         "mode_source": settings["mode_source"],
         "settings": settings,
-        "cache_safety": _cache_safety.explain(),
+        "cache_safety": _cache_safety.explain(
+            route.get("provider"), route.get("model"), route.get("api_mode")),
         "credential": _jev_client.credential_present(),
         "counts": counts,
         "sessions": sessions,
-        "last": _last_session(sessions),
+        "last": last,
     }
 
 
 def _render_entry(entry: Dict[str, Any]) -> str:
     state = entry.get("state")
     parts = [f"session={entry['session_id']}", f"state={state}"]
-    for key in ("score", "label", "target", "provider", "model", "requests",
+    for key in ("score", "label", "target", "provider", "model", "api_mode", "requests",
                 "probes", "elapsed_ms", "failure"):
         value = entry.get(key)
         if value is not None:

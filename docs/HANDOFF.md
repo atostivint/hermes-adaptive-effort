@@ -35,6 +35,30 @@ now follows that path, with the exact command recorded in §3b.
 
 ## 2. Verified state (re-checked on this machine, 2026-09-30)
 
+Update, 2026-10-03: reproduced and fixed a per-turn bug where new turn ids still
+classified the oldest user message from full conversation history. Normal turns now
+select the latest user text in Chat Completions `messages` or preflighted Codex `input`;
+subagents still classify the parent-written goal. Six new regression cases cover all
+three effort shapes in `auto` and cache-safe routing, including tool-loop reuse and
+low → high → low decisions. Four status cases verify the observed `api_mode` is stored
+and allowlisted, and the cache-safety line describes the latest recorded route rather
+than always claiming an unknown route. `.\scripts\run_tests.ps1`: **167 passed**;
+`.\scripts\run_lint.ps1`: **All checks passed**.
+
+A network-free check using the actual CLI source tree selected by `hermes.cmd`
+(`hermes-agent-project-picker`), its OpenCode Go profile and ChatCompletionsTransport
+confirmed: `space-bunny-free` emits no effort field (unsupported, zero probes);
+Kimi K2.5 and DeepSeek V4 Pro emit `reasoning_effort` and follow low → high → low
+with one fake-scoring call per turn; GLM-5.2 is classified each turn but all rubric
+labels clamp to `high`. No vendor requests, cost measurements or cache A/B were run.
+The installed plugin's middleware matched the source baseline before this fix;
+source test success alone does not prove a running Hermes process has loaded the fix.
+Verified installation detail: `%LOCALAPPDATA%\hermes\plugins\jev-auto-effort` is a
+Windows junction targeting this repository's `jev-auto-effort/` payload. Both changed
+installed files have the same hashes as the fixed source, so no copy is needed.
+Restart the Hermes process to reload Python modules; editing the linked files does
+not replace modules already held in memory.
+
 | check | command | result |
 | --- | --- | --- |
 | suite | `./scripts/run_tests.sh` | **`147 passed`** in 1.15s (Linux) |

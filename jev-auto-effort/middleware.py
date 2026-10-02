@@ -1,4 +1,4 @@
-"""``llm_request`` middleware: classify once per session, rewrite only a verified field.
+"""``llm_request`` middleware: classify once per turn, rewrite only a verified field.
 
 Contract (verified against ``hermes_cli/middleware.py`` and
 ``agent/turn_api_request.py``):
@@ -259,7 +259,7 @@ def _remember(session_id: str, entry: Dict[str, Any], max_sessions: int) -> None
 
 
 def _touch(key: str, settings: Dict[str, Any], mode: str,
-           provider: Any = None, model: Any = None) -> Dict[str, Any]:
+           provider: Any = None, model: Any = None, api_mode: Any = None) -> Dict[str, Any]:
     """One turn's record: created once, then counted and stamped here.
 
     Every request that reaches the decision path is counted (``requests``), while
@@ -278,6 +278,7 @@ def _touch(key: str, settings: Dict[str, Any], mode: str,
             _SESSIONS[key] = entry
         entry["requests"] = int(entry.get("requests") or 0) + 1
         entry["mode"] = mode
+        entry["api_mode"] = api_mode
         entry["updated_at"] = time.time()
         _SESSIONS.move_to_end(key)
         while len(_SESSIONS) > max(1, int(settings["max_turns"])):
@@ -550,11 +551,11 @@ def run_probe(prompt: str,
 
 # ── request inspection ──────────────────────────────────────────────────────
 
-def _first_user_text(messages: Any) -> Optional[str]:
-    """First user message of the session — the plan's classification target."""
+def _latest_user_text(messages: Any) -> Optional[str]:
+    """Latest user message: history and trailing tool results are not the new task."""
     if not isinstance(messages, list):
         return None
-    for message in messages:
+    for message in reversed(messages):
         if not isinstance(message, dict) or message.get("role") != "user":
             continue
         content = message.get("content")
@@ -569,19 +570,19 @@ def _first_user_text(messages: Any) -> Optional[str]:
     return None
 
 
-def _first_responses_text(input_items: Any) -> Optional[str]:
-    """First user text of a *preflighted* ``codex_responses`` payload.
+def _latest_responses_text(input_items: Any) -> Optional[str]:
+    """Latest user text of a *preflighted* ``codex_responses`` payload.
 
     On that route the middleware sees the payload AFTER
     ``agent._get_transport().preflight_kwargs()`` has replaced ``messages`` with
     ``input`` (``codex_responses_adapter._preflight_codex_api_kwargs``), so
-    ``_first_user_text(request["messages"])`` is always ``None`` and every normal
+    ``_latest_user_text(request["messages"])`` is always ``None`` and every normal
     Codex session was a silent no-op — only subagents, classified from the goal
     their parent wrote, ever worked.
     """
     if not isinstance(input_items, list):
         return None
-    for item in input_items:
+    for item in reversed(input_items):
         if not isinstance(item, dict) or item.get("role") != "user":
             continue
         content = item.get("content")
@@ -596,16 +597,16 @@ def _first_responses_text(input_items: Any) -> Optional[str]:
     return None
 
 
-def _first_user_prompt(request: Dict[str, Any]) -> Optional[str]:
+def _latest_user_prompt(request: Dict[str, Any]) -> Optional[str]:
     """Classification target of a request in any of the shapes we can see.
 
     Chat Completions carries ``messages``; a preflighted Codex payload carries
     ``input`` instead. Read both so the decision does not depend on the api_mode.
     """
-    prompt = _first_user_text(request.get("messages"))
+    prompt = _latest_user_text(request.get("messages"))
     if prompt:
         return prompt
-    return _first_responses_text(request.get("input"))
+    return _latest_responses_text(request.get("input"))
 
 
 def _effort_slot(request: Dict[str, Any]) -> Optional[Tuple[Dict[str, Any], str, str]]:
@@ -762,10 +763,10 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if child_goal is not None:
         mode = settings["subagent_mode"]
 
-    entry = _touch(key, settings, mode, provider, model)
+    entry = _touch(key, settings, mode, provider, model, kwargs.get("api_mode"))
     if entry.get("state") in ("failed", "unsupported"):
         # A failed attempt, or a request with nothing writable: stay silent and
-        # do not re-classify within this session (bounded Jev usage).
+        # do not re-classify within this decision's scope (bounded Jev usage).
         return None
     slot = _effort_slot(request)
     if slot is None:
@@ -777,8 +778,8 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     if entry.get("state") != "decided":
         # A subagent classifies the terse goal its parent wrote; a normal session
-        # classifies its own first user message.
-        prompt = child_goal if child_goal is not None else _first_user_prompt(request)
+        # classifies its current user message, not the oldest one in its history.
+        prompt = child_goal if child_goal is not None else _latest_user_prompt(request)
         if not prompt:
             entry["state"] = "unsupported"
             return None

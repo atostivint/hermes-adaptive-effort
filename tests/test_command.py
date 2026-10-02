@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from conftest import import_plugin
 
 init_module = import_plugin("__init__")
@@ -99,6 +101,25 @@ def test_status_json_returns_the_documented_payload():
     assert payload["mode"] in ("off", "recommend", "auto")
     for key in ("settings", "credential", "counts", "sessions", "last"):
         assert key in payload
+
+
+@pytest.mark.parametrize("api_mode, expected", [
+    ("chat_completions", "cache-safe on chat_completions"),
+    ("codex_responses", "cache-safe on codex_responses"),
+    ("anthropic_messages", "cache-hostile on anthropic_messages"),
+    (None, "unknown route (no api_mode)"),
+])
+def test_status_cache_safety_uses_last_observed_route(monkeypatch, api_mode, expected):
+    monkeypatch.setattr(middleware, "_settings_provider",
+                        lambda key, default=None: {"mode": "auto"}.get(key, default))
+    # No effort field: even unsupported requests must report the actual route.
+    middleware.on_llm_request(
+        request={"messages": [{"role": "user", "content": "hey"}]},
+        session_id="MAIN", turn_id="turn", provider="example", model="model", api_mode=api_mode)
+    payload = json.loads(command.handle("status json"))
+    assert payload["last"]["api_mode"] == api_mode
+    assert payload["cache_safety"].startswith(expected)
+    assert f"cache safety: {expected}" in command.handle("status")
 
 
 def test_status_json_reports_last_score_target_timing_and_failure(monkeypatch):
