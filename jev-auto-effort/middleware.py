@@ -27,7 +27,8 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections import OrderedDict
+import uuid
+from collections import OrderedDict, deque
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from . import cache_safety as _cache_safety
@@ -62,6 +63,14 @@ _MODE_OVERRIDE: Optional[str] = None
 
 _lock = threading.Lock()
 _SESSIONS: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+# Recent effort rewrites are kept in memory for the Desktop event poller. The
+# private decision key deduplicates repeated tool-loop rewrites without ever
+# leaving this module.
+_CHANGE_HISTORY_LIMIT = 64
+_CHANGE_STREAM_ID = uuid.uuid4().hex
+_CHANGE_SEQUENCE = 0
+_EFFORT_CHANGES: "deque[Dict[str, Any]]" = deque(maxlen=_CHANGE_HISTORY_LIMIT)
+_CLI_STATUS_HANDLE: Any = None
 #: Sessions with a classification running right now — at most one probe per
 #: session, claimed atomically so two concurrent requests cannot both call Jev.
 _IN_FLIGHT: set = set()
@@ -80,11 +89,15 @@ def reset_state() -> None:
     Also drops a runtime mode override: a reset means "back to the configured
     mode", so no test can leak a mode into the next one.
     """
-    global _MODE_OVERRIDE
+    global _MODE_OVERRIDE, _CHANGE_SEQUENCE, _CHANGE_STREAM_ID, _CLI_STATUS_HANDLE
     with _lock:
         _SESSIONS.clear()
         _IN_FLIGHT.clear()
         _CHILD_GOALS.clear()
+        _EFFORT_CHANGES.clear()
+        _CHANGE_SEQUENCE = 0
+        _CHANGE_STREAM_ID = uuid.uuid4().hex
+        _CLI_STATUS_HANDLE = None
         _MODE_OVERRIDE = None
 
 
@@ -141,6 +154,68 @@ def session_state() -> Dict[str, Dict[str, Any]]:
     """Snapshot of stored decisions: effort metadata only, never prompt text."""
     with _lock:
         return {k: dict(v) for k, v in _SESSIONS.items()}
+
+
+def effort_change_state() -> Dict[str, Any]:
+    """A bounded, prompt-free snapshot for CLI/desktop effort indicators."""
+    with _lock:
+        events = [
+            {key: event[key] for key in ("id", "from", "to", "at")}
+            for event in _EFFORT_CHANGES
+        ]
+        return {
+            "stream_id": _CHANGE_STREAM_ID,
+            "events": events,
+            "latest": dict(events[-1]) if events else None,
+        }
+
+
+def set_cli_status_handle(handle: Any) -> None:
+    """Attach the optional host-provided CLI status item update handle."""
+    global _CLI_STATUS_HANDLE
+    _CLI_STATUS_HANDLE = handle
+
+
+def _record_effort_change(decision_key: str, before: Any, after: Any) -> Optional[Dict[str, Any]]:
+    """Record one distinct rewrite per decision and value pair; return its public event."""
+    global _CHANGE_SEQUENCE
+    old_value, new_value = str(before), str(after)
+    with _lock:
+        for event in reversed(_EFFORT_CHANGES):
+            if (event.get("_decision_key") == decision_key
+                    and event.get("from") == old_value
+                    and event.get("to") == new_value):
+                return None
+        _CHANGE_SEQUENCE += 1
+        event = {
+            "id": _CHANGE_SEQUENCE,
+            "from": old_value,
+            "to": new_value,
+            "at": time.time(),
+            "_decision_key": decision_key,
+        }
+        _EFFORT_CHANGES.append(event)
+        return {key: event[key] for key in ("id", "from", "to", "at")}
+
+
+def _update_cli_status(value: str) -> None:
+    try:
+        handle = _CLI_STATUS_HANDLE
+        update = getattr(handle, "update", None)
+        if not callable(update):
+            return
+        update(value)
+    except Exception:
+        logger.debug("jev-auto-effort: CLI status item update failed", exc_info=True)
+
+
+def _notify_cli(text: str) -> None:
+    try:
+        notify = getattr(_CLI_STATUS_HANDLE, "notify", None)
+        if callable(notify):
+            notify(text)
+    except Exception:
+        logger.debug("jev-auto-effort: CLI notice failed", exc_info=True)
 
 
 def child_goals() -> Dict[str, str]:
@@ -767,6 +842,15 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     new_request = _apply(request, slot, target)
     if new_request is request:
         return None
+    event = _record_effort_change(key, slot[2], target)
+    if event is not None:
+        try:
+            logger.info("Effort changed: %s -> %s", event["from"], event["to"])
+        except Exception:
+            # A logging handler must never turn an optional rewrite into a failure.
+            pass
+        _update_cli_status(f"Effort: {event['to']}")
+        _notify_cli(f"Effort changed: {event['from']} -> {event['to']}")
     return {
         "request": new_request,
         "source": PLUGIN_ID,

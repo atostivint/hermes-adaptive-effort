@@ -20,6 +20,16 @@ def register(ctx: Any) -> None:
     if hasattr(ctx, "get_config"):
         _middleware._settings_provider = ctx.get_config
 
+    # Newer Hermes hosts expose a thread-safe TUI status item. Older hosts keep
+    # working with the CLI log and /status command until that API is available.
+    register_cli_status_item = getattr(ctx, "register_cli_status_item", None)
+    if callable(register_cli_status_item):
+        try:
+            status_handle = register_cli_status_item("effort", "Effort: —", priority=30)
+            _middleware.set_cli_status_handle(status_handle)
+        except Exception:
+            _middleware.set_cli_status_handle(None)
+
     ctx.register_middleware("llm_request", _middleware.on_llm_request)
     # Verified hook name: `on_session_end(session_id=...)` clears in-memory state.
     ctx.register_hook("on_session_end", _middleware.on_session_end)

@@ -214,6 +214,10 @@ def _status_text() -> str:
     lines.extend(_render_entry(entry) for entry in payload["sessions"])
     last = payload["last"]
     lines.append(f"last: {_render_entry(last).strip()}" if last else "last: none")
+    change = _middleware.effort_change_state()["latest"]
+    lines.append(
+        f"last applied effort: {change['from']} -> {change['to']}" if change
+        else "last applied effort: —")
     return "\n".join(lines)
 
 
