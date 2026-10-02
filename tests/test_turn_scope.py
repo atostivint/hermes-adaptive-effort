@@ -113,6 +113,52 @@ def test_second_turn_is_reclassified(monkeypatch):
     assert out2["request"]["extra_body"]["reasoning"]["effort"] == "high"
 
 
+@pytest.mark.parametrize("mode", ["auto", "cache_safe"])
+@pytest.mark.parametrize("shape", ["extra_body", "reasoning_effort", "codex_input"])
+def test_full_history_classifies_current_turn_and_reuses_it_in_tool_loop(monkeypatch, mode, shape):
+    use_settings(monkeypatch, mode=mode)
+    prompts = ["hey", "Redesign multi-region failover with quorum consensus", "thanks"]
+    calls = []
+
+    class PromptClassifier:
+        def classify_detail(self, prompt):
+            calls.append(prompt)
+            return (1.9 if prompt == prompts[1] else 0.1), None
+
+    monkeypatch.setattr(middleware, "_classifier_factory", lambda **kw: PromptClassifier())
+    history = []
+    for index, prompt in enumerate(prompts):
+        # Include content blocks, prior answers, and trailing tool results.
+        history.append({"role": "user", "content": [{"type": "input_text", "text": prompt}]})
+        for call_count in (1, 2):
+            req = {"messages": list(history), "extra_body": {"reasoning": {"effort": "medium"}}}
+            provider, model, api_mode = "openrouter", "openrouter/x/y", "chat_completions"
+            if shape == "reasoning_effort":
+                req.pop("extra_body")
+                req["reasoning_effort"] = "medium"
+                provider, model = "opencode-go", "deepseek-v4-pro"
+            elif shape == "codex_input":
+                req["input"] = req.pop("messages")
+                req.pop("extra_body")
+                req["reasoning"] = {"effort": "medium", "summary": "auto"}
+                provider, model, api_mode = "openai-codex", "gpt-6.1-sol", "codex_responses"
+            out = middleware.on_llm_request(
+                request=req, session_id="MAIN", turn_id=f"t{index}",
+                provider=provider, model=model, api_mode=api_mode, api_call_count=call_count)
+            expected = "high" if index == 1 else "low"
+            assert out is not None
+            assert middleware._effort_slot(out["request"])[2] == expected
+            assert middleware._effort_slot(req)[2] == "medium"
+            if call_count == 1:
+                history.extend([
+                    {"role": "assistant", "content": "Checking", "tool_calls": [{"id": "call"}]},
+                    {"role": "tool", "content": "tool output", "tool_call_id": "call"},
+                ])
+    assert calls == prompts
+    assert [entry["probes"] for entry in middleware.session_state().values()] == [1, 1, 1]
+    assert [event["to"] for event in middleware.effort_change_state()["events"]] == ["low", "high", "low"]
+
+
 def test_same_turn_tool_loop_keeps_one_decision(monkeypatch):
     """api_call_count>1 within a turn = tool loop: one probe, not one per call."""
     use_settings(monkeypatch, mode="auto")
