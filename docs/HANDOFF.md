@@ -61,10 +61,14 @@ real discovery rather than through the test harness.
 
 ## 3. Git state
 
-`master` matches `origin/master`; working tree clean. `AGENTS.md` is tracked
-(committed at Elektro's request — it is the agent contract, read it first).
+Work is on branch `codex/windows-desktop-dev-loop` (the GUI half was being finished
+there); `master` is still `870aed8` and matches `origin/master`. Working tree clean as of
+the two commits below. `AGENTS.md` is tracked (committed at Elektro's request — it is the
+agent contract, read it first).
 
 ```text
+00bcdb1  chore: make the suite runnable on Windows (PowerShell scripts, normcase fix)
+8d76a95  feat: serve the applied-effort change feed the desktop chip polls
 870aed8  Manifest/code parity + HANDOFF entry point
 ff6067a  Track AGENTS.md contributor instructions
 7d1f066  Add Desktop GUI: config_schema settings form + unified desktop plugin
@@ -82,6 +86,19 @@ whose only delta is this very line, so it is not reachable from any branch. Trus
 
 Stale branch `wip/kanban-t_cb5d47d0-run22` (`82d201a`) still exists locally; it predates
 the endpoint fix and the rename. Nothing depends on it.
+
+**The live install now lags these two commits.** `~/.hermes/plugins/jev-auto-effort` still
+holds `870aed8`, so the deployed backend has no `GET /changes` and the deployed
+`desktop/plugin.js` has no effort chip. Nothing is broken by that — the old chip renders
+`Jev <mode>` — but the feature only exists once you pull:
+
+```bash
+hermes plugins update jev-auto-effort
+```
+
+The desktop half is a separate app-level copy (`~/.hermes/desktop-plugins/`, §3b) that
+`hermes plugins update` does not touch; re-copy it, or let Capabilities → Plugins
+re-materialize it from the updated package.
 
 ## 3b. ✅ The live install is a managed git install (was a hand-copy)
 
