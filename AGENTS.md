@@ -9,7 +9,7 @@ of a request. Fail-open by contract: any error leaves the request untouched.
 jev-auto-effort/          payload installed as ~/.hermes/plugins/jev-auto-effort (NOT pip-installable)
   plugin.yaml             manifest: id, commands, hooks, settings defaults
   __init__.py             register(): llm_request middleware + on_session_end/subagent hooks + /jev-auto-effort
-  middleware.py           settings, mode, decision cache, request rewrite, session state
+  middleware.py           settings, mode, decision cache, request rewrite, applied-change feed, session state
   effort.py               pure score -> label -> wire-effort mapping (no I/O, no Hermes import at top level)
   jev_client.py           HTTP client for scorer + credential probe (lazy core import)
   cache_safety.py         is an effort change cache-neutral on this route?
@@ -24,9 +24,17 @@ docs/                     reviews + handoff for card t_cb5d47d0
 ## Commands (use these exactly)
 
 ```bash
-./scripts/run_tests.sh   # .venv/bin/python -m pytest tests (~127 tests, ~8s, network-free)
+./scripts/run_tests.sh   # .venv/bin/python -m pytest tests (~156 tests, ~1s, network-free)
 ./scripts/run_lint.sh    # .venv/bin/ruff check . (ruff 0.16.9)
 ./scripts/bootstrap_test_env.sh  # fresh machine: python3 -m venv --system-site-packages .venv + install + test
+```
+
+Windows PowerShell equivalents:
+
+```powershell
+.\scripts\bootstrap_test_env.ps1
+.\scripts\run_tests.ps1
+.\scripts\run_lint.ps1
 ```
 
 - Always use `.venv/bin/python` — it has the Hermes source tree (`agent/`, `hermes_cli/` from `/usr/local/lib/hermes-agent`, `HERMES_SOURCE_ROOT` override) on `sys.path` via `tests/conftest.py`.
@@ -52,13 +60,14 @@ docs/                     reviews + handoff for card t_cb5d47d0
 9. **Never write the operator's config.** `/jev-auto-effort <mode>` sets in-memory `_MODE_OVERRIDE` for future requests in this process only; persist path is `plugins.entries.jev-auto-effort.settings.mode`.
 10. **Endpoint tolerance:** `jev_client.normalize_endpoint` accepts full route, API base, or bare host; `status` shows `endpoint_effective` + raw setting when they differ. Credential `TYPESAFE_API_KEY` via `agent.secret_scope` then env; `credential_present()` never returns the secret.
 11. **Cache safety:** `cache_safety.effort_is_cache_safe(provider, model, api_mode)` — `True` only for `chat_completions` / `codex_responses`; `anthropic_messages` and unknown → `False` (pin, never gamble).
+12. **Applied-change feed.** `middleware.changes()` → `{stream_id, events:[{id,from,to}], latest}`: the rewrites that actually reached a request (bounded ring of 64), effort values only. Recorded at the single point where a rewritten request is returned — so `recommend`, `failed`, `unsupported`, no-op turns and a tool loop re-sending the applied value record nothing. `reset_state()` mints a new `stream_id` (ids restart at 1); that is the consumer's signal to drop its cursor. Served as `GET /changes`.
 
 ## Test conventions
 
 - `tests/conftest.py` loads payload as `hermes_plugin_jev_auto.<stem>` via `import_plugin()`; Hermes core added to `sys.path` once (`ensure_hermes_source_on_path`).
 - `no_network` (session autouse): any `socket.socket` / `create_connection` fails the run. Inject fakes via `_classifier_factory` or `transport=` / `key_reader=`, never real HTTP.
 - `hermetic_plugin_settings` (function autouse): `_config_reader = lambda: {}`, `_settings_provider = None`, `_classifier_factory = None`, `reset_state()` before/after. Never read `~/.hermes/config.yaml` in unit tests.
-- `test_dispatcher_integration.py` boots a throwaway `HERMES_HOME` + real `PluginManager.discover_and_load()` + `apply_llm_request_middleware`; it runs in `run_tests.sh`, never skipped there.
+- `test_dispatcher_integration.py` boots a throwaway `HERMES_HOME` + real `PluginManager.discover_and_load()` + `apply_llm_request_middleware`; it runs in `run_tests.sh` and `run_tests.ps1`, never skipped there. `run_tests.ps1` locates the Hermes source tree (`HERMES_SOURCE_ROOT`, then `$env:HERMES_HOME\hermes-agent`, a sibling `hermes-agent/` checkout, `$env:LOCALAPPDATA\hermes`) and falls back to a scratch `--basetemp` when `%TEMP%\pytest-of-<user>` or `.pytest_cache` has a foreign ACL — without either, ~40 mapping tests and every `tmp_path` test error out for unrelated-looking reasons.
 - Settings under test live in `middleware.DEFAULTS` (`mode=off`, `subagent_mode=off`, `endpoint=https://api.typesafe.ai/v1/systemone`, `timeout_s=3.0`, `max_turns=64`, `prompt_chars=4000`); scorer model is const `jev_client.JEV_MODEL`, not a setting.
 
 ## Hermes plugin development (canonical)

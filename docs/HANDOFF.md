@@ -37,9 +37,9 @@ now follows that path, with the exact command recorded in §3b.
 
 | check | command | result |
 | --- | --- | --- |
-| suite | `./scripts/run_tests.sh` | **`147 passed` in 1.15s** |
-| lint | `./scripts/run_lint.sh` | `All checks passed!` (ruff 0.16.9) |
-| manifest | `hermes plugins doctor jev-auto-effort` | `OK: runtime discovery, manifest parsing, import, and registration passed` — 0 tools, 3 hooks |
+| suite | `./scripts/run_tests.sh` | **`147 passed`** in 1.15s (Linux) |
+| suite | `.\scripts\run_tests.ps1` | **`156 passed`** in 0.89s (Windows, dispatcher integration included) |
+| lint | `./scripts/run_lint.sh` / `.\scripts\run_lint.ps1` | `All checks passed!` (ruff 0.16.9) |
 | network | — | the suite is network-free by fixture (`no_network` autouse, session-scoped) |
 
 Test count by contract (one module per contract, per `AGENTS.md`):
@@ -209,15 +209,26 @@ Three files, two tiers:
   `choices` **must** stay in sync with `middleware.DEFAULTS` / `VALID_MODES`; the
   settings writer refuses mismatches, and `tests/test_config_schema.py` enforces it.
 * **`dashboard/plugin_api.py`** — FastAPI backend mounted at
-  `/api/plugins/jev-auto-effort/`: `GET /status`, `POST /mode`, `POST /probe`. It reuses
-  the already-loaded agent modules (`command._status_payload()`,
-  `middleware.set_mode_override()`), so the chip reports exactly what
-  `/jev-auto-effort status` prints. `probe` returns score/label/failure and a
+  `/api/plugins/jev-auto-effort/`: `GET /status`, `POST /mode`, `POST /probe`,
+  `GET /changes`. It reuses the already-loaded agent modules
+  (`command._status_payload()`, `middleware.set_mode_override()`), so the chip reports
+  exactly what `/jev-auto-effort status` prints. `probe` returns score/label/failure and a
   `text_chars` count only — **never the text**. It degrades to an `error: status_failed`
   payload rather than raising.
+* **`GET /changes`** — the bounded feed of rewrites that actually reached a request:
+  `{stream_id, events: [{id, from, to}], latest}`, effort values only, never prompt
+  text. `middleware._record_change()` is called at the single point where a
+  rewritten request is returned, so `recommend` / `failed` / `unsupported` / no-op
+  turns and a tool loop re-sending the applied value record nothing. Ids are
+  monotonic within one `stream_id`; `reset_state()` mints a new `stream_id`, which
+  is the chip's signal to drop its cursor (it must — ids restart at 1). Degrades to
+  a `503 agent_plugin_not_loaded` / `changes_failed` payload like `/status`.
 * **`desktop/plugin.js`** — opt-in desktop plugin (`defaultEnabled: false`): a status-bar
-  chip `Jev <mode>`, a `Jev Effort` pane, and one palette command per mode plus a status
-  command. Polls every 15 s. Shows `Jev —` when the backend is absent.
+  chip showing the mode and the effort now in force, a `Jev Effort` pane, and one palette
+  command per mode plus a status command. It polls `/status` and `/changes` every 2 s and
+  notifies once per applied change (`from → to`), which is why the backend must keep
+  serving `/changes`: without it the chip degrades to `Effort: —` and never notifies.
+  Shows `Jev —` when the backend is absent.
 
 **Security boundary, not a bug:** the Python backend only mounts for plugins listed in
 `plugins.enabled`. If the backend is genuinely absent or unreachable (for example the

@@ -16,8 +16,33 @@ Verified on this machine:
 
 | check | command | result |
 | --- | --- | --- |
-| suite | `./scripts/run_tests.sh` | `147 passed` in ~1 s |
-| lint | `./scripts/run_lint.sh` | `All checks passed!` (ruff 0.16.9) |
+| suite | `./scripts/run_tests.sh` | `147 passed` in ~1 s (Linux) |
+| suite | `.\scripts\run_tests.ps1` | `156 passed` in ~1 s (Windows, incl. the dispatcher integration test) |
+| lint | `./scripts/run_lint.sh` / `.\scripts\run_lint.ps1` | `All checks passed!` (ruff 0.16.9) |
+
+### Windows / PowerShell
+
+Create the local test environment and run the suite:
+
+```powershell
+.\scripts\bootstrap_test_env.ps1
+```
+
+After setup, run the suite and lint independently:
+
+```powershell
+.\scripts\run_tests.ps1
+.\scripts\run_lint.ps1
+```
+
+`run_tests.ps1` uses `HERMES_SOURCE_ROOT` when set, and otherwise discovers the Hermes source
+tree the way `tests/conftest.py` does: `$env:HERMES_HOME\hermes-agent`, a `hermes-agent`
+checkout next to this repo, then `$env:LOCALAPPDATA\hermes`. Without that tree
+`agent.reasoning_effort` is missing, effort mapping refuses by design, and ~40 mapping
+tests fail for an unrelated-looking reason — the script warns when it finds nothing.
+It also falls back to a scratch `--basetemp` (and disables the pytest cache) when
+`%TEMP%\pytest-of-<user>` or `.pytest_cache` was left behind with a foreign ACL, which
+otherwise errors every `tmp_path` test on Windows.
 
 ## What it does
 
@@ -111,9 +136,14 @@ Two tiers, both fail-open:
 2. **Live toggle (unified desktop plugin, opt-in).** `desktop/plugin.js`
    contributes a status-bar chip (`Jev <mode>`), a `Jev Effort` pane and
    `Jev Effort: …` palette commands, backed by `dashboard/plugin_api.py`
-   (`GET /status`, `POST /mode`, `POST /probe` under
+   (`GET /status`, `POST /mode`, `POST /probe`, `GET /changes` under
    `/api/plugins/jev-auto-effort/`). Switching persists
    `settings.mode` and applies to future requests of the running process.
+   `GET /changes` is the bounded feed of rewrites that actually reached a request
+   (`{stream_id, events: [{id, from, to}], latest}`), polled by the chip to show the
+   effort now in force and to notify on each applied change. It carries effort values
+   only — never prompt text — and a new `stream_id` after a plugin reload tells a
+   consumer to drop its cursor.
    The desktop half ships `defaultEnabled: false` and degrades to `Jev —`
    when the agent half is not in `plugins.enabled` (the Python backend only
    mounts for enabled plugins — a security boundary, not a bug).
@@ -219,16 +249,16 @@ entry, keyed by its own session and turn.
 jev-auto-effort/                 the payload installed as ~/.hermes/plugins/jev-auto-effort
   plugin.yaml             manifest: id, commands, hooks, settings defaults + config_schema (Desktop form)
   __init__.py             register(): commands + the llm_request middleware
-  middleware.py           settings, mode, decision cache, request rewrite, session state
+  middleware.py           settings, mode, decision cache, request rewrite, applied-change feed, session state
   effort.py               pure score -> label -> wire-effort mapping (no I/O)
   jev_client.py           HTTP client for the scorer + credential probe (lazy core import)
   cache_safety.py         is an effort change cache-neutral on this route?
   command.py              /jev-auto-effort: help, status, status json, probe, mode verbs
   dashboard/manifest.json + plugin_api.py
-                          desktop backend: GET /status, POST /mode, POST /probe
+                          desktop backend: GET /status, POST /mode, POST /probe, GET /changes
   desktop/plugin.js       desktop half: status-bar chip, pane, palette commands (opt-in)
-tests/                    147 tests, one module per contract
-scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh
+tests/                    156 tests, one module per contract
+scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh (+ .ps1 for Windows)
 pyproject.toml            pytest + ruff configuration
 requirements-dev.txt      test/lint pins (pytest 9.1.1, ruamel.yaml 0.19.1, ruff 0.16.9)
 docs/                     review reports and the handoff for card t_cb5d47d0
@@ -238,7 +268,7 @@ Test modules, by contract:
 
 | module | tests | contract |
 | --- | --- | --- |
-| `test_middleware.py` | 24 | settings, gating, the rewrite itself |
+| `test_middleware.py` | 30 | settings, gating, the rewrite itself, the applied-change feed |
 | `test_subagent.py` | 17 | child routing, child goals, inheritance |
 | `test_jev_client.py` | 18 | transport, credential probe, failure modes, endpoint normalization |
 | `test_command.py` | 16 | `/jev-auto-effort` rendering, schemas, no prompt leak |
@@ -251,7 +281,7 @@ Test modules, by contract:
 | `test_dispatcher_integration.py` | 6 | through Hermes' own plugin manager + middleware |
 | `test_plugin_registration.py` | 3 | manifest, `register()` contract |
 | `test_config_schema.py` | 4 | `config_schema` keys/types/defaults match `DEFAULTS` + `VALID_MODES` |
-| `test_plugin_api.py` | 8 | dashboard backend (status/mode/probe, no prompt leak) + desktop static contract |
+| `test_plugin_api.py` | 11 | dashboard backend (status/mode/probe/changes, no prompt leak) + desktop static contract |
 
 ## Running the tests
 
@@ -300,10 +330,11 @@ It runs in `./scripts/run_tests.sh`; it is never skipped there.
 ## Not covered / open
 
 * **Cost effect unmeasured** — see "Prompt cache" above.
-* **Deployment** — the copy the live runtime executes, `~/.hermes/plugins/jev-auto-effort`, matches
-  `a81d833` (endpoint fix + rename are live) but does **not** contain the Desktop GUI layer
-  (`dashboard/`, `desktop/`, `config_schema`), i.e. commit `7d1f066`. Reload and rollback are in
-  `docs/HANDOFF.md` §4.
+* **Deployment** — the live runtime's copy, `~/.hermes/plugins/jev-auto-effort`, is a managed
+  git install (`atostivint/jev-auto-effort#jev-auto-effort`) and matches this tree, GUI layer
+  included. `hermes plugins update` has a source to pull from; `plugins list` still reports
+  `Source: user` because a `#subdir` install publishes no `.git`. Provenance and rollback:
+  `docs/HANDOFF.md` §3b and §4.
 * **Activation is the operator's call** — the live `/root/.hermes/config.yaml` enables
   this plugin (`plugins.enabled`) with `settings.mode: auto`. This task deliberately
   changed nothing there: a router that rewrites billable effort is enabled by the operator,
