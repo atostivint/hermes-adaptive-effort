@@ -1,9 +1,11 @@
 """Jev-Auto Effort dashboard/desktop backend, mounted at ``/api/plugins/jev-auto-effort/``.
 
 Thin wrapper around the agent half's :mod:`command` / :mod:`middleware`: the same
-``jev-auto-effort.status.v1`` payload ``/jev-auto-effort status json`` prints, plus a
+``jev-auto-effort.status.v1`` payload ``/jev-auto-effort status json`` prints, a
 runtime mode switch with the same semantics (future requests of this process, never a
-config write unless ``persist`` is set). Fail-open by contract: any error is a 5xx /
+config write unless ``persist`` is set), and ``GET /changes`` — the bounded feed of
+rewrites that actually reached a request, so the desktop chip can say which reasoning
+effort is now in force. Fail-open by contract: any error is a 5xx /
 ``failure`` field, never a broken turn, and no prompt text is ever stored or echoed.
 
 Module-resolution note: the dashboard loader imports this file as a top-level module
@@ -213,6 +215,26 @@ def run_probe(text: Any) -> Dict[str, Any]:
             "at": time.time()}
 
 
+def get_changes() -> Dict[str, Any]:
+    """Applied-effort feed for the desktop chip: recent rewrites, effort values only.
+
+    ``stream_id`` is the cursor's scope: a consumer that sees a different one must
+    forget the ids it already showed (plugin reload). Degrades to an error payload
+    rather than raising, exactly like ``get_status_payload``.
+    """
+    middleware, _ = _agent_modules()
+    if middleware is None:
+        return {"stream_id": "", "events": [], "latest": None, "error": "agent_plugin_not_loaded"}
+    try:
+        payload = middleware.changes()
+    except Exception:
+        logger.debug("jev-auto-effort: changes feed failed", exc_info=True)
+        return {"stream_id": "", "events": [], "latest": None, "error": "changes_failed"}
+    if not isinstance(payload, dict):
+        return {"stream_id": "", "events": [], "latest": None, "error": "changes_failed"}
+    return payload
+
+
 if _HAS_HTTP and router is not None:  # pragma: no cover - needs serve env
 
     class ModeBody(BaseModel):
@@ -244,3 +266,10 @@ if _HAS_HTTP and router is not None:  # pragma: no cover - needs serve env
         if not isinstance(body.text, str) or not body.text.strip():
             raise HTTPException(status_code=400, detail="text is required")
         return run_probe(body.text)
+
+    @router.get("/changes")
+    def changes_feed() -> Dict[str, Any]:
+        payload = get_changes()
+        if payload.get("error"):
+            raise HTTPException(status_code=503, detail=payload["error"])
+        return payload

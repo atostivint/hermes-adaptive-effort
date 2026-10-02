@@ -27,7 +27,8 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections import OrderedDict
+import uuid
+from collections import OrderedDict, deque
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from . import cache_safety as _cache_safety
@@ -70,6 +71,14 @@ _IN_FLIGHT: set = set()
 #: never parses the child's prompt. A child is its own agent with its own
 #: session_id, which is the only reliable way to tell a child's requests apart.
 _CHILD_GOALS: "OrderedDict[str, str]" = OrderedDict()
+#: Bounded feed of applied rewrites, for the desktop chip's "effort changed"
+#: notification. Effort values only — never prompt text, never a request body.
+#: Ids are monotonic within one ``stream_id``; a consumer that sees a new
+#: ``stream_id`` (plugin reload, ``reset_state``) must drop its cursor, since the
+#: ring starts over at id 1.
+_CHANGES: "deque[Dict[str, Any]]" = deque(maxlen=64)
+_CHANGE_NEXT_ID = 1
+_CHANGE_STREAM_ID = uuid.uuid4().hex
 
 
 # ── session state ───────────────────────────────────────────────────────────
@@ -80,11 +89,14 @@ def reset_state() -> None:
     Also drops a runtime mode override: a reset means "back to the configured
     mode", so no test can leak a mode into the next one.
     """
-    global _MODE_OVERRIDE
+    global _MODE_OVERRIDE, _CHANGE_NEXT_ID, _CHANGE_STREAM_ID
     with _lock:
         _SESSIONS.clear()
         _IN_FLIGHT.clear()
         _CHILD_GOALS.clear()
+        _CHANGES.clear()
+        _CHANGE_NEXT_ID = 1
+        _CHANGE_STREAM_ID = uuid.uuid4().hex
         _MODE_OVERRIDE = None
 
 
@@ -153,6 +165,28 @@ def in_flight() -> Tuple[str, ...]:
     """Session ids whose probe is running right now (sorted snapshot)."""
     with _lock:
         return tuple(sorted(_IN_FLIGHT))
+
+
+def _record_change(from_effort: str, to_effort: str) -> None:
+    """Note one rewrite that actually reached the request: the wire level it had, and the one it got.
+
+    Recorded at the single point where a rewritten request is returned, so the feed
+    says what the vendor saw — not what was scored, recommended, or skipped. A tool
+    loop inside one turn re-sends the already-rewritten value, which matches the
+    target and therefore records nothing: one event per applied change, not per request.
+    """
+    global _CHANGE_NEXT_ID
+    with _lock:
+        _CHANGES.append({"id": _CHANGE_NEXT_ID, "from": from_effort, "to": to_effort})
+        _CHANGE_NEXT_ID += 1
+
+
+def changes() -> Dict[str, Any]:
+    """Snapshot of applied rewrites: ``{stream_id, events, latest}`` — effort values only."""
+    with _lock:
+        events = [dict(event) for event in _CHANGES]
+        return {"stream_id": _CHANGE_STREAM_ID, "events": events,
+                "latest": dict(events[-1]) if events else None}
 
 
 def _claim(session_id: str) -> bool:
@@ -767,6 +801,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     new_request = _apply(request, slot, target)
     if new_request is request:
         return None
+    _record_change(slot[2], target)
     return {
         "request": new_request,
         "source": PLUGIN_ID,
