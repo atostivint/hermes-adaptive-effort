@@ -319,7 +319,7 @@ hermes-adaptive-effort/                 the payload installed as ~/.hermes/plugi
   dashboard/manifest.json + plugin_api.py
 desktop backend: GET /status, GET /changes, POST /mode, POST /probe
   desktop/plugin.js       desktop half: effort chip, pane, change toasts, palette (opt-in)
-tests/                    168 tests, one module per contract
+tests/                    193 tests, one module per contract
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh (+ .ps1 for Windows)
 pyproject.toml            pytest + ruff configuration
 requirements-dev.txt      test/lint pins (pytest 9.1.1, ruamel.yaml 0.19.1, ruff 0.16.9)
