@@ -18,7 +18,7 @@ Contract (verified against ``hermes_cli/middleware.py`` and
 Scope rules enforced here: default mode is off; only an *existing* effort field
 is ever rewritten (no field is invented, thinking is never re-enabled); the new
 value is clamped onto the route's declared vocabulary and re-clamped whenever the
-route changes; one Jev call per user TURN (and none at all when the field cannot
+route changes; one selected-scorer call per user TURN (and none when the field cannot
 be rewritten); no prompt text is stored.
 """
 
@@ -34,10 +34,11 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from . import cache_safety as _cache_safety
 from . import effort as _effort
 from . import jev_client as _jev_client
+from . import scorers as _scorers
 
 logger = logging.getLogger(__name__)
 
-PLUGIN_ID = "jev-auto-effort"
+PLUGIN_ID = "hermes-adaptive-effort"
 VALID_MODES: Tuple[str, ...] = ("off", "recommend", "auto", "cache_safe")
 DEFAULTS: Dict[str, Any] = {
     "mode": "off",
@@ -46,6 +47,8 @@ DEFAULTS: Dict[str, Any] = {
     "max_turns": 64,
     "prompt_chars": _jev_client.DEFAULT_MAX_PROMPT_CHARS,
     "endpoint": _jev_client.DEFAULT_ENDPOINT,
+    "scorer_provider": _scorers.JEV,
+    "scorer_model": "",
 }
 
 # Injected by register(ctx); None until a PluginContext exists (and in tests).
@@ -56,7 +59,7 @@ _classifier_factory: Optional[Callable[..., Any]] = None
 # live profile. Tests inject a hermetic reader so a unit run never depends on
 # (and never reads) whatever mode the live profile happens to carry.
 _config_reader: Optional[Callable[[], Dict[str, Any]]] = None
-# Mode chosen at runtime through ``/jev-auto-effort off|recommend|auto|cache_safe``.
+# Mode chosen at runtime through ``/hermes-adaptive-effort off|recommend|auto|cache_safe``.
 # Process-local by design: the plugin never writes the operator's config file,
 # and the command's reply says so. ``None`` means "use the configured mode".
 _MODE_OVERRIDE: Optional[str] = None
@@ -72,7 +75,7 @@ _CHANGE_SEQUENCE = 0
 _EFFORT_CHANGES: "deque[Dict[str, Any]]" = deque(maxlen=_CHANGE_HISTORY_LIMIT)
 _CLI_STATUS_HANDLE: Any = None
 #: Sessions with a classification running right now — at most one probe per
-#: session, claimed atomically so two concurrent requests cannot both call Jev.
+#: session, claimed atomically so two concurrent requests cannot both call the scorer.
 _IN_FLIGHT: set = set()
 #: child_session_id -> the goal its parent wrote. Populated by the verified
 #: ``subagent_start`` hook, which hands over the text verbatim, so the classifier
@@ -101,7 +104,7 @@ def reset_state() -> None:
         _MODE_OVERRIDE = None
 
 
-# ── runtime mode override (``/jev-auto-effort off|recommend|auto|cache_safe``) ──────
+# ── runtime mode override (``/hermes-adaptive-effort off|recommend|auto|cache_safe``) ──────
 
 def set_mode_override(mode: Any) -> Optional[str]:
     """Accept a runtime mode for FUTURE requests; ``None`` when it is not a mode.
@@ -139,7 +142,7 @@ def _decision_key(session_id: str, turn_id: Any) -> str:
     ``turn_id`` is minted fresh per user message (``agent/turn_context.py``,
     ``_bind_turn_identity``) and is constant for every API request of that turn,
     so keying on it re-classifies each user message while a tool loop inside one
-    turn still reuses a single decision — and therefore a single Jev call.
+    turn still reuses a single decision — and therefore a single scorer call.
     """
     turn = str(turn_id or "").strip()
     return f"{session_id}/{turn}" if turn else str(session_id)
@@ -206,7 +209,7 @@ def _update_cli_status(value: str) -> None:
             return
         update(value)
     except Exception:
-        logger.debug("jev-auto-effort: CLI status item update failed", exc_info=True)
+        logger.debug("hermes-adaptive-effort: CLI status item update failed", exc_info=True)
 
 
 def _notify_cli(text: str) -> None:
@@ -215,7 +218,7 @@ def _notify_cli(text: str) -> None:
         if callable(notify):
             notify(text)
     except Exception:
-        logger.debug("jev-auto-effort: CLI notice failed", exc_info=True)
+        logger.debug("hermes-adaptive-effort: CLI notice failed", exc_info=True)
 
 
 def child_goals() -> Dict[str, str]:
@@ -235,7 +238,7 @@ def _claim(session_id: str) -> bool:
 
     ``True`` when this caller owns the probe, ``False`` when another caller is
     already probing the same session — the loser fails open instead of making a
-    second Jev call.
+    second scorer call.
     """
     with _lock:
         if session_id in _IN_FLIGHT:
@@ -265,7 +268,7 @@ def _touch(key: str, settings: Dict[str, Any], mode: str,
 
     Every request that reaches the decision path is counted (``requests``), while
     ``probes`` only ever grows inside the claim — that difference is exactly what
-    ``/jev-auto-effort status`` reports as "one Jev call per turn".
+    ``/hermes-adaptive-effort status`` reports as "one scorer call per turn".
     """
     with _lock:
         entry = _SESSIONS.get(key)
@@ -273,6 +276,8 @@ def _touch(key: str, settings: Dict[str, Any], mode: str,
             entry = {
                 "state": "new", "label": None, "target": None, "score": None,
                 "mode": mode, "provider": provider, "model": model,
+                "scorer_provider": settings.get("scorer_provider", _scorers.JEV),
+                "scorer_model": settings.get("scorer_model_effective", ""),
                 "conversation_id": conversation_id,
                 "requests": 0, "probes": 0, "elapsed_ms": 0.0,
                 "failure": None, "updated_at": 0.0,
@@ -405,7 +410,7 @@ def _live_config() -> Dict[str, Any]:
 
 
 def _read_setting(key: str, default: Any = None) -> Any:
-    """``plugins.entries.jev-auto-effort.settings.<key>``, via ctx when present."""
+    """``plugins.entries.hermes-adaptive-effort.settings.<key>``, via ctx when present."""
     provider = _settings_provider
     if provider is not None:
         try:
@@ -425,7 +430,7 @@ def _settings() -> Dict[str, Any]:
         mode = "off"
     override = mode_override()
     if override is not None:
-        # A runtime choice outranks the file: /jev-auto-effort just told the operator it
+        # A runtime choice outranks the file: /hermes-adaptive-effort just told the operator it
         # applies to future requests, so it must.
         mode, mode_source = override, "override"
     # Independent gate: children are routed only when BOTH the session mode and
@@ -449,7 +454,7 @@ def _settings() -> Dict[str, Any]:
         except Exception:
             return int(fallback)
 
-    return {
+    settings = {
         "mode": mode,
         "mode_source": mode_source,
         "subagent_mode": subagent_mode,
@@ -460,9 +465,19 @@ def _settings() -> Dict[str, Any]:
         # The URL the client will actually POST to: the setting above may name the
         # API base instead of the scoring route, and a mismatch is invisible until
         # every classification fails open. Reported so `status` shows the truth.
-        "endpoint_effective": _jev_client.normalize_endpoint(
-            str(_read_setting("endpoint", DEFAULTS["endpoint"]))),
+        "scorer_provider": str(_read_setting(
+            "scorer_provider", DEFAULTS["scorer_provider"]) or _scorers.JEV).strip().lower(),
+        "scorer_model": str(_read_setting(
+            "scorer_model", DEFAULTS["scorer_model"]) or "").strip(),
     }
+    settings["scorer_model_effective"] = _scorers.model_for(
+        settings["scorer_provider"], settings["scorer_model"])
+    (settings["scorer_endpoint"], settings["scorer_endpoint_effective"]) = \
+        _scorers.endpoint_for(settings["scorer_provider"], settings["endpoint"])
+    # This compatibility key has always meant "where the active scorer posts";
+    # preserve that meaning even when OpenRouter is selected.
+    settings["endpoint_effective"] = settings["scorer_endpoint_effective"]
+    return settings
 
 
 def _classifies(client: Any) -> bool:
@@ -484,11 +499,11 @@ def _call_factory(factory: Any, timeout: Any) -> Any:
         try:
             return factory()
         except Exception:
-            logger.debug("jev-auto-effort: classifier factory raised; failing open",
+            logger.debug("hermes-adaptive-effort: classifier factory raised; failing open",
                          exc_info=True)
             return None
     except Exception:
-        logger.debug("jev-auto-effort: classifier factory raised; failing open", exc_info=True)
+        logger.debug("hermes-adaptive-effort: classifier factory raised; failing open", exc_info=True)
         return None
 
 
@@ -523,13 +538,9 @@ def _classify(prompt: str, settings: Dict[str, Any]) -> "Tuple[Optional[float], 
     """
     factory = _classifier_factory
     if factory is None:
-        try:
-            client = _jev_client.JevClient(timeout=settings["timeout_s"],
-                                           endpoint=settings["endpoint"],
-                                           max_prompt_chars=settings["prompt_chars"])
-        except Exception:
-            logger.debug("jev-auto-effort: JevClient unavailable; failing open", exc_info=True)
-            return None, "classifier_error"
+        client, build_failure = _scorers.build_client(settings)
+        if client is None:
+            return None, build_failure or "classifier_error"
     else:
         client = _build_client(factory, settings)
         if client is None:
@@ -541,7 +552,7 @@ def _classify(prompt: str, settings: Dict[str, Any]) -> "Tuple[Optional[float], 
         else:
             score, failure = client.classify(prompt), None
     except Exception:
-        logger.debug("jev-auto-effort: classifier raised; failing open", exc_info=True)
+        logger.debug("hermes-adaptive-effort: classifier raised; failing open", exc_info=True)
         return None, "classifier_error"
     if score is None:
         return None, failure or "classifier_error"
@@ -552,7 +563,7 @@ def _classify(prompt: str, settings: Dict[str, Any]) -> "Tuple[Optional[float], 
 
 def run_probe(prompt: str,
               settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Exactly one bounded classification for ``/jev-auto-effort probe``.
+    """Exactly one bounded classification for ``/hermes-adaptive-effort probe``.
 
     Deliberately touches **no** session state and claims no in-flight slot: a
     probe is an operator's question about a text they typed themselves, not a
@@ -747,7 +758,7 @@ def on_llm_request(**kwargs: Any) -> Optional[Dict[str, Any]]:
     try:
         return _handle(kwargs)
     except Exception:
-        logger.debug("jev-auto-effort: middleware error; failing open", exc_info=True)
+        logger.debug("hermes-adaptive-effort: middleware error; failing open", exc_info=True)
         return None
 
 
@@ -763,7 +774,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     session_id = str(kwargs.get("session_id") or "")
     if not session_id:
-        logger.debug("jev-auto-effort: no session id; failing open")
+        logger.debug("hermes-adaptive-effort: no session id; failing open")
         return None
 
     provider = kwargs.get("provider")
@@ -772,7 +783,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     # One decision per USER TURN, not per session: a "hey" opening a long
     # session must not freeze `low` onto every later question. turn_id is minted
     # per user message, so a tool loop inside one turn still reuses its decision
-    # and therefore still costs a single Jev call.
+    # and therefore still costs a single scorer call.
     key = _decision_key(session_id, kwargs.get("turn_id"))
 
     # `cache_safe` is per-turn routing where the route survives an effort change,
@@ -799,14 +810,14 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     )
     if entry.get("state") in ("failed", "unsupported"):
         # A failed attempt, or a request with nothing writable: stay silent and
-        # do not re-classify within this decision's scope (bounded Jev usage).
+        # do not re-classify within this decision's scope (bounded scorer usage).
         return None
     slot = _effort_slot(request)
     if slot is None:
         # Nothing verifiable to rewrite: remember and stay silent.
         if entry.get("state") != "decided":
             entry["state"] = "unsupported"
-        logger.debug("jev-auto-effort: no writable effort field; no change")
+        logger.debug("hermes-adaptive-effort: no writable effort field; no change")
         return None
 
     if entry.get("state") != "decided":
@@ -818,8 +829,8 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             return None
         if not _claim(key):
             # Another request of this same session is classifying right now:
-            # never a second Jev call, and its entry stays untouched.
-            logger.debug("jev-auto-effort: probe already in flight; failing open")
+            # never a second scorer call, and its entry stays untouched.
+            logger.debug("hermes-adaptive-effort: probe already in flight; failing open")
             return None
         try:
             entry["state"] = "probing"
@@ -862,7 +873,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             entry["state"] = "unsupported"
         return None
     if target == slot[2]:
-        # The route already sits at the level Jev picked: nothing to send, so we
+        # The route already sits at the level the scorer picked: nothing to send, so we
         # report no decision at all rather than a rewrite identical to the input.
         return None
     if mode == "recommend":

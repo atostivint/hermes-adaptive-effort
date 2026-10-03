@@ -1,4 +1,4 @@
-"""/jev-auto-effort — explain, inspect and steer the plugin.
+"""/hermes-adaptive-effort — explain, inspect and steer the plugin.
 
 ``status`` and ``probe`` never classify a conversation, never rewrite a request
 and never store anything: they only render what the middleware already holds.
@@ -7,7 +7,7 @@ process — the plugin never edits the operator's config file, and the reply say
 so. Every command runs through the plugin dispatcher's argument split, so
 `handle()` receives a string, not a list.
 
-Schemas below are part of the documented contract (`jev-auto-effort.*.v1`): the keys
+Schemas below are part of the documented contract (`hermes-adaptive-effort.*.v1`): the keys
 are stable, and no prompt text ever leaves this module beyond the text the
 operator typed themselves for a probe.
 """
@@ -18,18 +18,18 @@ import time
 from typing import Any, Dict, List, Optional
 
 from . import cache_safety as _cache_safety
-from . import jev_client as _jev_client
 from . import middleware as _middleware
+from . import scorers as _scorers
 
 PLUGIN_ID = _middleware.PLUGIN_ID
 MODES = _middleware.VALID_MODES
 USAGE = """Usage:
-  /jev-auto-effort status            Show mode, settings, credential, session counts
-  /jev-auto-effort status json       Machine-readable status payload
-  /jev-auto-effort off|recommend|auto|cache_safe
+  /hermes-adaptive-effort status            Show mode, settings, credential, session counts
+  /hermes-adaptive-effort status json       Machine-readable status payload
+  /hermes-adaptive-effort off|recommend|auto|cache_safe
                               Set the mode used by future requests
-  /jev-auto-effort probe <text>      Classify <text> once (prints score/label, stores nothing)
-  /jev-auto-effort help              Show this help
+  /hermes-adaptive-effort probe <text>      Classify <text> once (prints score/label, stores nothing)
+  /hermes-adaptive-effort help              Show this help
 
 Modes:
   off         do nothing (the default)
@@ -40,17 +40,18 @@ Modes:
 
 A mode set here applies to future requests served by this process. It is not
 written to config.yaml (nothing here edits your files), so it does not survive a
-restart; persist it as plugins.entries.jev-auto-effort.settings.mode instead.
-Probe asks Jev for a rubric score on the text you typed — it does not use or
+restart; persist it as plugins.entries.hermes-adaptive-effort.settings.mode instead.
+Probe asks the configured scorer for a rubric score on the text you typed — it does not use or
 store your session's conversation, and never writes to session state."""
 
-STATUS_SCHEMA = "jev-auto-effort.status.v1"
-PROBE_SCHEMA = "jev-auto-effort.probe.v1"
+STATUS_SCHEMA = "hermes-adaptive-effort.status.v1"
+PROBE_SCHEMA = "hermes-adaptive-effort.probe.v1"
 
 #: The only session fields ever rendered — an entry may hold anything (it is
 #: plugin-author payload), so prompt text and provider junk are filtered out.
 _ENTRY_FIELDS = (
     "conversation_id", "state", "score", "label", "target", "mode", "provider", "model", "api_mode",
+    "scorer_provider", "scorer_model",
     "requests", "probes", "elapsed_ms", "failure", "updated_at",
 )
 
@@ -105,9 +106,9 @@ def _set_mode(target: str) -> str:
     if applied is None:  # unreachable from _dispatch; kept fail-safe
         return USAGE
     if applied == before:
-        return (f"jev-auto-effort mode: {applied} (unchanged; applies to future requests "
+        return (f"hermes-adaptive-effort mode: {applied} (unchanged; applies to future requests "
                 f"in this process, not persisted)")
-    return (f"jev-auto-effort mode: {before} -> {applied} (applies to future requests in "
+    return (f"hermes-adaptive-effort mode: {before} -> {applied} (applies to future requests in "
             f"this process; not persisted, set "
             f"plugins.entries.{PLUGIN_ID}.settings.mode to make it stick)")
 
@@ -158,13 +159,13 @@ def _status_payload() -> Dict[str, Any]:
         "schema": STATUS_SCHEMA,
         "plugin": PLUGIN_ID,
         "mode": settings["mode"],
-        # "config" (the file decides) vs "override" (/jev-auto-effort in this process);
+        # "config" (the file decides) vs "override" (/hermes-adaptive-effort in this process);
         # a runtime override applies to future requests only and is not persisted.
         "mode_source": settings["mode_source"],
         "settings": settings,
         "cache_safety": _cache_safety.explain(
             route.get("provider"), route.get("model"), route.get("api_mode")),
-        "credential": _jev_client.credential_present(),
+        "credential": _scorers.credential_present(settings["scorer_provider"]),
         "counts": counts,
         "sessions": sessions,
         "last": last,
@@ -174,7 +175,8 @@ def _status_payload() -> Dict[str, Any]:
 def _render_entry(entry: Dict[str, Any]) -> str:
     state = entry.get("state")
     parts = [f"session={entry['session_id']}", f"state={state}"]
-    for key in ("score", "label", "target", "provider", "model", "api_mode", "requests",
+    for key in ("score", "label", "target", "provider", "model", "api_mode",
+                "scorer_provider", "scorer_model", "requests",
                 "probes", "elapsed_ms", "failure"):
         value = entry.get(key)
         if value is not None:
@@ -190,7 +192,9 @@ def _endpoint_line(settings: Dict[str, Any]) -> str:
     URL left in the config is never mistaken for the scoring route.
     """
     configured = str(settings.get("endpoint") or "")
-    effective = str(settings.get("endpoint_effective") or configured)
+    effective = str(settings.get("scorer_endpoint_effective") or configured)
+    if settings.get("scorer_provider") == _scorers.OPENROUTER:
+        configured = str(settings.get("scorer_endpoint") or "")
     if configured.strip().rstrip("/") != effective:
         return f"{effective} (configured: {configured})"
     return effective
@@ -201,10 +205,11 @@ def _status_text() -> str:
     settings = payload["settings"]
     counts = payload["counts"]
     lines = [
-        "jev-auto-effort status",
+        "hermes-adaptive-effort status",
         f"mode: {payload['mode']} (from {settings.get('mode_source', 'config')})",
         f"cache safety: {payload['cache_safety']}",
         f"credential: {'present' if payload['credential'] else 'missing'}",
+        f"scorer: {settings['scorer_provider']} model={settings['scorer_model_effective'] or 'unset'}",
         f"settings: timeout_s={settings['timeout_s']} "
         f"max_turns={settings['max_turns']} "
         f"max_prompt_chars={settings['prompt_chars']}",

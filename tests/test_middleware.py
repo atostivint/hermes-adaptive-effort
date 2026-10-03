@@ -1,4 +1,4 @@
-"""`llm_request` middleware: opt-in, fail-open, one Jev call per session."""
+"""`llm_request` middleware: opt-in, fail-open, one scorer call per turn."""
 
 from __future__ import annotations
 
@@ -107,7 +107,7 @@ def test_recommend_records_but_does_not_mutate(monkeypatch):
     out = call(ctx(request=req))
     assert out is not None
     assert out["request"]["extra_body"]["reasoning"]["effort"] == "medium"
-    assert out["source"] == "jev-auto-effort"
+    assert out["source"] == "hermes-adaptive-effort"
     assert "high" in out["reason"] and "not applied" in out["reason"]
     assert factory.instances[0].calls == ["first user prompt"]
 
@@ -122,7 +122,7 @@ def test_auto_rewrites_only_the_effort_value(monkeypatch, no_network):
     before, after = dict(req), dict(out["request"])
     assert after["messages"] == before["messages"]
     assert after["model"] == before["model"]
-    assert out["source"] == "jev-auto-effort"
+    assert out["source"] == "hermes-adaptive-effort"
 
 
 def test_auto_never_adds_an_effort_field(monkeypatch):
@@ -131,7 +131,7 @@ def test_auto_never_adds_an_effort_field(monkeypatch):
     use_classifier(monkeypatch, factory)
     req = request_with(messages=[{"role": "user", "content": "hi"}])
     assert call(ctx(request=req)) is None
-    # Nothing to rewrite -> no Jev call either, and no field is invented.
+    # Nothing to rewrite -> no scorer call either, and no field is invented.
     assert factory.instances == []
     assert "reasoning_effort" not in req and "extra_body" not in req
 
@@ -261,7 +261,7 @@ def test_no_network_during_auto_path(monkeypatch, no_network):
     assert out["request"]["extra_body"]["reasoning"]["effort"] == "high"
 
 
-# ── what /jev-auto-effort status reports ──────────────────────────────────────────
+# ── what /hermes-adaptive-effort status reports ──────────────────────────────────────────
 
 class DetailedClassifier(FakeClassifier):
     """Reports *why* it failed, the way JevClient.classify_detail does.
@@ -335,6 +335,51 @@ def test_missing_credential_is_reported_without_opening_a_socket(monkeypatch, no
     assert entry["failure"] == "credential_missing"
 
 
+def test_openrouter_adapter_uses_the_configured_model_and_common_rewrite(monkeypatch):
+    use_settings(monkeypatch, {
+        "mode": "auto", "scorer_provider": "openrouter", "scorer_model": "openai/gpt-4o-mini",
+    })
+    monkeypatch.setattr(middleware, "_classifier_factory", None)
+    classifier = DetailedClassifier(score=2.0)
+    calls = []
+
+    def build_client(settings):
+        calls.append(settings["scorer_provider"])
+        return classifier, None
+
+    monkeypatch.setattr(middleware._scorers, "build_client", build_client)
+    result = call(ctx(request=supported_request(), session="openrouter"))
+
+    assert calls == ["openrouter"]
+    assert result["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    entry = middleware.session_state()["openrouter/turn"]
+    assert entry["scorer_provider"] == "openrouter"
+    assert entry["scorer_model"] == "openai/gpt-4o-mini"
+    assert entry["probes"] == 1
+
+
+def test_openrouter_without_a_model_is_reported_and_not_retried(monkeypatch):
+    use_settings(monkeypatch, {"mode": "auto", "scorer_provider": "openrouter"})
+    monkeypatch.setattr(middleware, "_classifier_factory", None)
+
+    assert call(ctx(request=supported_request(), session="missing-model")) is None
+    entry = middleware.session_state()["missing-model/turn"]
+    assert entry["state"] == "failed"
+    assert entry["failure"] == "model_missing"
+    assert entry["probes"] == 1
+
+
+def test_unknown_scorer_provider_fails_open_without_fallback(monkeypatch):
+    use_settings(monkeypatch, {"mode": "auto", "scorer_provider": "not-a-provider"})
+    monkeypatch.setattr(middleware, "_classifier_factory", None)
+
+    assert call(ctx(request=supported_request(), session="unknown-scorer")) is None
+    entry = middleware.session_state()["unknown-scorer/turn"]
+    assert entry["state"] == "failed"
+    assert entry["failure"] == "unsupported_provider"
+    assert entry["probes"] == 1
+
+
 # ── criterion: never more than one in-flight probe per session ─────────────
 
 def test_only_one_probe_runs_per_session_at_a_time(monkeypatch):
@@ -363,7 +408,7 @@ def test_only_one_probe_runs_per_session_at_a_time(monkeypatch):
 
     # Same session, second request while the first probe is still running.
     assert call(ctx(request=supported_request(), session="s1")) is None
-    assert len(clients) == 1                      # no second Jev call
+    assert len(clients) == 1                      # no second scorer call
 
     release.set()
     thread.join(10)

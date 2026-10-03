@@ -58,7 +58,7 @@ function Test-ReadableDir([string]$Path) {
 $EnvArgs = @()
 $DefaultBaseTemp = Join-Path $env:TEMP "pytest-of-$env:USERNAME"
 if (-not (Test-ReadableDir $DefaultBaseTemp)) {
-    $Scratch = Join-Path $env:TEMP "jev-auto-effort-pytest"
+    $Scratch = Join-Path $env:TEMP "hermes-adaptive-effort-pytest"
     New-Item -ItemType Directory -Force -Path $Scratch | Out-Null
     $EnvArgs += "--basetemp=$Scratch"
     Write-Warning "$DefaultBaseTemp is not readable; using --basetemp $Scratch."

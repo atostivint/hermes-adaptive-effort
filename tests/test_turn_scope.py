@@ -8,7 +8,7 @@ a multi-region redesign. Verified against the installed source:
   ``turn_id`` per user message, so it is stable for every API request of that
   turn and different for the next one.
 * A subagent is one session AND typically one turn, so per-turn granularity
-  costs the same single Jev call there — it does not multiply the cost.
+  costs the same single scorer call there — it does not multiply the cost.
 
 So the memo key moves from ``session_id`` to ``(session_id, turn_id)``: a
 multi-call turn (a tool loop) reuses the decision its first call made. The turn id
