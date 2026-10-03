@@ -2,7 +2,9 @@
 
 This adapter is selected explicitly with ``scorer_provider=openrouter`` and a
 configured ``scorer_model``. It sends only the bounded text being classified and
-fails open on missing credentials, transport errors, or an invalid score.
+requests ZDR-only routing with data-collecting endpoints denied. The request still
+contains the prompt and OpenRouter processes it. It fails open on missing
+credentials, transport errors, or an invalid score.
 """
 
 from __future__ import annotations
@@ -102,6 +104,7 @@ class OpenRouterClient:
             "max_tokens": MAX_COMPLETION_TOKENS,
             "temperature": 0,
             "stream": False,
+            "provider": {"zdr": True, "data_collection": "deny"},
         }
         request = urllib.request.Request(
             self.endpoint,

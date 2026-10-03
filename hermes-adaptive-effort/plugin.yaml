@@ -31,7 +31,8 @@ config_schema:
   subagent_mode: {type: str, choices: [off, recommend, auto, cache_safe], default: off, label: Subagent mode, description: "Independent gate for child sessions classified from the parent-written goal", required: false}
   timeout_s: {type: float, default: 3.0, label: Timeout (s), description: "Per-classification HTTP timeout; a timeout fails open", required: false}
   max_turns: {type: int, default: 64, label: Max turns, description: "Decision-cache entries kept per process", required: false}
-  prompt_chars: {type: int, default: 4000, label: Prompt chars, description: "Prompt text sent to the scorer, truncated there and never stored", required: false}
+  prompt_chars: {type: int, default: 4000, label: Prompt chars, description: "Maximum prompt characters sent after provider consent; truncation does not guarantee provider non-retention", required: false}
+  prompt_sharing_provider: {type: str, choices: [none, jev, openrouter, cloudflare], default: none, label: Prompt sharing consent, description: "Select the provider you explicitly permit to receive prompt text. This does not control retention. OpenRouter requests require ZDR endpoints; Jev and Cloudflare retention are not guaranteed", required: false}
   endpoint: {type: str, default: "https://api.typesafe.ai/v1/systemone", label: Jev endpoint, description: "Jev scoring route or API base (a base gets /systemone appended); ignored by OpenRouter and Cloudflare", required: false}
 requires:
   - llm_request middleware (capability: registering llm_request and session lifecycle hooks)

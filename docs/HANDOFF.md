@@ -141,13 +141,20 @@ or restart before they import changed Python modules.
 5. **Rubric:** score `0..2` → `low` (<0.5) / `medium` (<1.5) / `high`. Out of range,
    NaN/inf, bool, non-numeric → `None` → fail open.
 6. **Fail-open everywhere.** `on_llm_request` catches all exceptions. Stable reason codes:
-   `invalid_prompt`, `credential_missing`, `http_error`, `timeout`, `transport_error`,
-   `malformed_response`, `unexpected_error`, `classifier_error`, plus scorer-selection codes `model_missing`, `account_missing`, `account_invalid` and `unsupported_provider`.
+   `invalid_prompt`, `prompt_consent_required`, `credential_missing`, `http_error`,
+   `timeout`, `transport_error`, `malformed_response`, `unexpected_error`,
+   `classifier_error`, plus scorer-selection codes `model_missing`, `account_missing`,
+   `account_invalid` and `unsupported_provider`.
 7. **Subagents** are classified from the parent-written goal (`subagent_start`), gated by
    the independent `subagent_mode`. `status` performs no classification; `probe` scores only operator-typed text and stores no decision.
-8. **No prompt storage, no prompt in logs/reasons/traces.** Effort-change notices log
-   only the old and new effort values. Reason strings carry effort values only;
-   `command._ENTRY_FIELDS` is the only rendered session allowlist.
+8. **Prompt sharing requires provider-specific consent.** `prompt_sharing_provider`
+   must match the selected scorer before any scorer request is made; otherwise the
+   decision fails open with `prompt_consent_required`. `prompt_chars` only caps the
+   excerpt and says nothing about provider retention. OpenRouter requests require
+   ZDR endpoints and deny data-collecting endpoints. This plugin makes no ZDR
+   guarantee for Jev or Cloudflare. The plugin itself does not persist prompts or
+   include them in logs/reasons/traces. Effort-change notices log only old and new
+   effort values; `command._ENTRY_FIELDS` is the only rendered session allowlist.
 9. **Never write the operator's config from a chat command.** `/hermes-adaptive-effort <mode>`
    sets an in-process `_MODE_OVERRIDE` only; the persist path is
    `plugins.entries.hermes-adaptive-effort.settings.mode`.

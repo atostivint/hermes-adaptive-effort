@@ -139,7 +139,7 @@ Mode commands are process-local and do not edit your config. Unknown commands or
 
 A tool loop reuses its turn's decision instead of calling the scorer for every model request. A new user turn gets a new classification in `auto`. A new classification does not necessarily change the effort: the existing value may match, or a route may offer only a narrow set of levels.
 
-The plugin sends up to 4,000 characters by default to the external scorer. It does not persist prompts or include them in logs or status. Provider retention policies are separate. Subagent goals are held transiently in memory and classified only when the independent `subagent_mode` setting permits it and the main mode is enabled.
+Scoring sends prompt text outside the client, so it requires an explicit provider-specific opt-in: set `prompt_sharing_provider` to the selected scorer. With no matching opt-in, the plugin makes no scorer request and fails open with `prompt_consent_required`. The `prompt_chars` setting caps the text sent (4,000 characters by default); truncation does not guarantee provider non-retention. The plugin itself does not persist prompts or include them in logs or status. Provider retention policies are separate. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints; this does not keep the prompt from being processed by OpenRouter. This plugin cannot assure ZDR for Jev or Cloudflare. Subagent goals are held transiently in memory and classified only when the independent `subagent_mode` setting permits it and the main mode is enabled; child scoring follows the same provider opt-in gate.
 
 ## Settings
 
@@ -150,12 +150,13 @@ The plugin sends up to 4,000 characters by default to the external scorer. It do
 | `scorer_provider` | `jev` | `jev`, `openrouter` or `cloudflare`; no automatic fallback |
 | `scorer_model` | empty | Required OpenRouter model slug; ignored by Jev and Cloudflare |
 | `cloudflare_account_id` | empty | Required 32-character hexadecimal account ID for Cloudflare |
+| `prompt_sharing_provider` | `none` | Explicitly permit sending prompt text to this scorer (`none`, `jev`, `openrouter` or `cloudflare`); must match `scorer_provider` |
 | `endpoint` | `https://api.typesafe.ai/v1/systemone` | Jev endpoint; ignored by OpenRouter and Cloudflare |
 | `timeout_s` | `3.0` | HTTP timeout for classification |
 | `max_turns` | `64` | Bounded decision-cache capacity per process |
-| `prompt_chars` | `4000` | Maximum task characters sent to the scorer |
+| `prompt_chars` | `4000` | Maximum task characters sent after matching provider consent; not a retention control |
 
-Jev accepts a full route, API base or bare host; `status` shows the effective URL. OpenRouter uses its fixed chat-completions endpoint. Cloudflare uses Workers AI's account-scoped `@cf/cloudflare/clef` REST route and fixed `clef` model; it requires `CLOUDFLARE_AUTH_TOKEN` and a valid account ID. Status reports token presence and account readiness without exposing the token. Configured scorer failures leave requests unchanged and appear in status.
+Jev accepts a full route, API base or bare host; `status` shows the effective URL. OpenRouter uses its fixed chat-completions endpoint and requests `provider.zdr=true` plus `data_collection=deny`; if no eligible route is available the request fails open rather than using a non-ZDR endpoint. Cloudflare uses Workers AI's account-scoped `@cf/cloudflare/clef` REST route and fixed `clef` model; it requires `CLOUDFLARE_AUTH_TOKEN` and a valid account ID. Status reports token presence and account readiness without exposing the token. Configured scorer failures leave requests unchanged and appear in status.
 
 Cloudflare Clef receives the same bounded `state.prompt` and score question as Jev. Its REST response must have `success: true` and a finite numeric `result.answers.effort.score` from 0 through 2. See the [Clef model documentation](https://developers.cloudflare.com/workers-ai/models/clef/) and [Workers AI REST API guide](https://developers.cloudflare.com/workers-ai/get-started/rest-api/).
 

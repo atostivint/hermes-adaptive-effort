@@ -213,6 +213,7 @@ def _status_text() -> str:
         f"cache safety: {payload['cache_safety']}",
         f"credential: {'present' if payload['credential'] else 'missing'}",
         f"scorer: {settings['scorer_provider']} model={settings['scorer_model_effective'] or 'unset'}",
+        f"prompt sharing: {'opted in for ' + settings['scorer_provider'] if settings['prompt_sharing_provider'] == settings['scorer_provider'] else 'not opted in; set prompt_sharing_provider=' + settings['scorer_provider']}",
         f"settings: timeout_s={settings['timeout_s']} "
         f"max_turns={settings['max_turns']} "
         f"max_prompt_chars={settings['prompt_chars']}",
@@ -224,6 +225,8 @@ def _status_text() -> str:
     ]
     if settings.get("scorer_provider") == _scorers.CLOUDFLARE:
         lines.insert(4, f"Cloudflare account: {'ready' if payload['cloudflare_account_ready'] else 'missing or invalid'}")
+    elif settings.get("scorer_provider") == _scorers.OPENROUTER:
+        lines.insert(5, "OpenRouter routing: ZDR-only endpoints; data_collection=deny")
     lines.extend(_render_entry(entry) for entry in payload["sessions"])
     last = payload["last"]
     lines.append(f"last: {_render_entry(last).strip()}" if last else "last: none")
