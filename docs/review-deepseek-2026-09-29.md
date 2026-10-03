@@ -1,3 +1,5 @@
+> Historical report: names, paths, defects and deployment facts below describe the original evaluation. The current plugin is **hermes-adaptive-effort**. Use the [README](../README.md), [runtime contracts](CONTRACTS.md) and [current handoff](HANDOFF.md) for current guidance.
+
 Voici la revue. Elle est le fruit d'une lecture croisée du code du plugin contre la source réellement installée (`/usr/local/lib/hermes-agent`, version annoncée `0.21.5+4540.gaf26aca`) et contre le plugin voisin installé `jev-approvals`. Toute ligne citée a été lue.
 
 ---

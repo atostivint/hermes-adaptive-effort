@@ -1,11 +1,9 @@
 # Handoff — `hermes-adaptive-effort`
 
-**Read this first, then `README.md`** (contract + user-facing behaviour) and the three
-documents listed at the bottom (provenance and review history).
+**Operator snapshot, recorded 2026-10-03.** Start with [README](../README.md) for user guidance, [runtime contracts](CONTRACTS.md) for behavior, [design choices](DESIGN.md) for rationale and [development](DEVELOPMENT.md) for contributor setup. Historical evidence is indexed in [docs/README.md](README.md).
 
 This file is the single entry point for an agent picking the work up cold. It states
-what the project is, what is verified today, what is *not* finished, and the one
-operational gap that is easy to miss.
+what the project is, what is verified today, what is *not* finished, and recorded operational gaps. Host state below is dated evidence, not a fresh health check.
 
 ---
 
@@ -112,14 +110,12 @@ The Iris gateway is `hermes-gateway.service` in root's user systemd manager. Exi
 isolated Desktop serve processes are separate long-lived processes and may need to reconnect
 or restart before they import changed Python modules.
 
-## 5. Open items
+## 5. Operational follow-up
 
-- No real OpenRouter scoring request or cost/latency comparison has been run.
-- A full SQLite integrity check for Iris's default `state.db` remains unverified after the
-  Hermes updater warning; do not repair or replace that database as part of plugin work.
-- The checkout directory on this Windows machine still has the historical `jev-auto-effort`
-  folder name because the active workspace is rooted there; the GitHub slug and payload code
-  identity are already renamed.
+- Full SQLite integrity for Iris's default `state.db` remains unverified after the Hermes updater warning. This is separate from plugin correctness; no database repair or replacement has been authorized here.
+- The Windows checkout retains its historical folder name because the active workspace is rooted there. The GitHub slug and payload identity are renamed.
+- Existing Windows/isolated Desktop agent processes need a restart or reconnect to load the renamed plugin.
+
 ## 6. Architecture invariants — do not break these
 
 1. **Default mode is `off`.** `off` / `recommend` (classify, rewrite nothing) / `auto`
@@ -140,10 +136,9 @@ or restart before they import changed Python modules.
    NaN/inf, bool, non-numeric → `None` → fail open.
 6. **Fail-open everywhere.** `on_llm_request` catches all exceptions. Stable reason codes:
    `invalid_prompt`, `credential_missing`, `http_error`, `timeout`, `transport_error`,
-   `malformed_response`, `unexpected_error`, `classifier_error`.
+   `malformed_response`, `unexpected_error`, `classifier_error`, plus scorer-selection codes `model_missing` and `unsupported_provider`.
 7. **Subagents** are classified from the parent-written goal (`subagent_start`), gated by
-   the independent `subagent_mode`. `probe`/`status` classify and store nothing; `probe`
-   only ever scores operator-typed text.
+   the independent `subagent_mode`. `status` performs no classification; `probe` scores only operator-typed text and stores no decision.
 8. **No prompt storage, no prompt in logs/reasons/traces.** Effort-change notices log
    only the old and new effort values. Reason strings carry effort values only;
    `command._ENTRY_FIELDS` is the only rendered session allowlist.
@@ -190,8 +185,7 @@ The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separ
   like `/status`.
 * **`desktop/plugin.js`** — opt-in desktop plugin (`defaultEnabled: false`): a status-bar
   chip `Effort: <focused conversation's latest decided effort>`, a `Adaptive Effort` pane with
-  the global latest transition, and one toast per newly observed applied change. Toasts
-  identify the change as belonging to a conversation because the feed has no session id.
+  the global latest transition, and one toast per newly observed applied change. Toasts apply across conversations because the feed has no session id.
   The changes feed and chip status poll every 2 s;
   the chip reads `host.state.focusedSessionId` and matches `conversation_id` exactly, so
   another chat's activity cannot change its effort. A focused chat with no decision,
@@ -209,18 +203,20 @@ The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separ
 **Security boundary, not a bug:** the Python backend only mounts for plugins listed in
 `plugins.enabled`. If the backend is genuinely absent or unreachable (for example the
 plugin is disabled, or the dashboard half is not deployed), the chip correctly shows
-`Effort: —` rather than failing loudly.
+`Effort: N/A` rather than failing loudly.
 
-## 8. Open items, in the order I would take them
+## 8. Product limitations and next evaluations
 
 1. **Ox Alpha / `x-preview-f-free`:** `medium` returns HTTP 400. This is a **known gap,
    deliberately not worked around** — silently remapping it would hide a real vendor
    rejection. Either document it further or make it fail open loudly.
 2. **Cost effect is unmeasured.** No live A/B has been run, so every cost or cache claim
    in the README is an expectation, not a measurement. Do not restate them as results.
-3. **Pre-install backups** sit in `~/.hermes/cache/scratch/` (`jev-backup-20260930-080501`,
+3. **Cloudflare Clef:** concurrent adapter work is in progress and excluded from this documentation-only delivery; update provider/config/test documentation when it ships.
+4. **OpenRouter evaluation:** the adapter is covered by network-free tests, but no live scorer request or model comparison has been run.
+5. **Pre-install backups** sit in `~/.hermes/cache/scratch/` (`jev-backup-20260930-080501`,
    `jev-backup-20260930-082258`). Harmless, and they are the rollback path if the managed
-   install ever needs undoing. Clear them once you are satisfied (§3b).
+   install ever needs undoing. Retain or remove them only under the operator's backup policy.
 
 ## 9. Working on this repo
 
@@ -241,7 +237,7 @@ plugin is disabled, or the dashboard half is not deployed), the chip correctly s
   `_classifier_factory` is `None`, `reset_state()` runs before and after. No unit test may
   read `~/.hermes/config.yaml`.
 * Keep `effort.py` pure (stdlib only, lazy `agent.*` imports inside functions).
-* Behaviour change ⇒ update the `README.md` contract tables **and** this file.
+* Behaviour change ⇒ update `README.md`, `docs/CONTRACTS.md` **and** this file.
 * Never read or print `.env` / credentials. `credential_present()` returns a bool and
   must stay that way.
 

@@ -1,3 +1,5 @@
+> Historical report: names, paths, defects and deployment facts below describe the original evaluation. The current plugin is **hermes-adaptive-effort**. Use the [README](../README.md), [runtime contracts](CONTRACTS.md) and [current handoff](HANDOFF.md) for current guidance.
+
 # Passation — carte `t_cb5d47d0` (plugin `jev-auto-effort`)
 
 Document de référence du README : preuves, commandes, matrice de routes, rechargement et rollback.
