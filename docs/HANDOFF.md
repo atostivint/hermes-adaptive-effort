@@ -218,7 +218,7 @@ plugin is disabled, or the dashboard half is not deployed), the chip correctly s
    rejection. Either document it further or make it fail open loudly.
 2. **Cost effect is unmeasured.** No live A/B has been run, so every cost or cache claim
    in the README is an expectation, not a measurement. Do not restate them as results.
-3. **Cloudflare Clef:** concurrent adapter work is in progress and excluded from this documentation-only delivery; update provider/config/test documentation when it ships.
+3. **Cloudflare Clef:** the adapter is implemented and covered by network-free tests. Live latency, scoring quality and cost evaluation remain pending; no Cloudflare configuration or deployment was performed.
 4. **OpenRouter evaluation:** the adapter is covered by network-free tests, but no live scorer request or model comparison has been run.
 5. **Pre-install backups** sit in `~/.hermes/cache/scratch/` (`jev-backup-20260930-080501`,
    `jev-backup-20260930-082258`). Harmless, and they are the rollback path if the managed

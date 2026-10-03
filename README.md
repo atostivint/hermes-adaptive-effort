@@ -148,7 +148,6 @@ The plugin sends up to 4,000 characters by default to the external scorer. It do
 | `scorer_provider` | `jev` | `jev`, `openrouter` or `cloudflare`; no automatic fallback |
 | `scorer_model` | empty | Required OpenRouter model slug; ignored by Jev and Cloudflare |
 | `cloudflare_account_id` | empty | Required 32-character hexadecimal account ID for Cloudflare |
-| `cloudflare_account_id` | empty | Required 32-character hexadecimal account ID for Cloudflare |
 | `endpoint` | `https://api.typesafe.ai/v1/systemone` | Jev endpoint; ignored by OpenRouter and Cloudflare |
 | `timeout_s` | `3.0` | HTTP timeout for classification |
 | `max_turns` | `64` | Bounded decision-cache capacity per process |
@@ -176,7 +175,7 @@ The route vocabulary comes from Hermes plus narrow mappings for Kimi K3 and GLM-
 
 `cache_safe` treats `chat_completions` and `codex_responses` as cache-neutral, and Anthropic/unknown API modes as cache-hostile. These are routing rules, not measured cache-hit guarantees. Session decisions can be evicted from the bounded cache or lost on reload/reset.
 
-Cloudflare Clef support is being developed separately and is not part of this documented release.
+Cloudflare Clef is available through `scorer_provider: cloudflare`; its latency and scoring quality have not been evaluated live.
 
 No cost saving, cache benefit or answer-quality improvement is claimed as measured. Scoring adds latency and can add cost. OpenRouter and Cloudflare adapters are covered by network-free tests; no live provider scorer evaluation has been run.
 
@@ -207,4 +206,4 @@ If you used `jev-auto-effort`, install the new payload, move your old settings f
 - [Documentation index](docs/README.md): current references and dated review history.
 - [Operator handoff](docs/HANDOFF.md): the recorded Iris/Windows rollout and unresolved operational items.
 
-The Windows suite last verified for this implementation has 193 passing tests, including real Hermes plugin discovery/dispatcher integration. Tests use fake scorer transports and block network access. See the development guide to reproduce them.
+The Windows suite last verified for this implementation has 216 passing tests, including real Hermes plugin discovery/dispatcher integration. Tests use fake scorer transports and block network access. See the development guide to reproduce them.

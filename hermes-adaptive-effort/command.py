@@ -166,6 +166,7 @@ def _status_payload() -> Dict[str, Any]:
         "cache_safety": _cache_safety.explain(
             route.get("provider"), route.get("model"), route.get("api_mode")),
         "credential": _scorers.credential_present(settings["scorer_provider"]),
+        "cloudflare_account_ready": settings["cloudflare_account_ready"],
         "counts": counts,
         "sessions": sessions,
         "last": last,
@@ -195,6 +196,8 @@ def _endpoint_line(settings: Dict[str, Any]) -> str:
     effective = str(settings.get("scorer_endpoint_effective") or configured)
     if settings.get("scorer_provider") == _scorers.OPENROUTER:
         configured = str(settings.get("scorer_endpoint") or "")
+    elif settings.get("scorer_provider") == _scorers.CLOUDFLARE:
+        configured = effective
     if configured.strip().rstrip("/") != effective:
         return f"{effective} (configured: {configured})"
     return effective
@@ -219,6 +222,8 @@ def _status_text() -> str:
         f"decided={counts['decided']} failed={counts['failed']} "
         f"unsupported={counts['unsupported']}",
     ]
+    if settings.get("scorer_provider") == _scorers.CLOUDFLARE:
+        lines.insert(4, f"Cloudflare account: {'ready' if payload['cloudflare_account_ready'] else 'missing or invalid'}")
     lines.extend(_render_entry(entry) for entry in payload["sessions"])
     last = payload["last"]
     lines.append(f"last: {_render_entry(last).strip()}" if last else "last: none")

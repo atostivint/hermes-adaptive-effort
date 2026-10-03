@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
 
-from . import jev_client, openrouter_client
+from . import cloudflare_client, jev_client, openrouter_client
 
 JEV = "jev"
 OPENROUTER = "openrouter"
-PROVIDERS = (JEV, OPENROUTER)
+CLOUDFLARE = "cloudflare"
+PROVIDERS = (JEV, OPENROUTER, CLOUDFLARE)
 
 
 def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]]:
@@ -39,6 +40,18 @@ def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]
             ), None
         except Exception:
             return None, "classifier_error"
+    if provider == CLOUDFLARE:
+        account_id = str(settings.get("cloudflare_account_id") or "").strip()
+        if not cloudflare_client.valid_account_id(account_id):
+            return None, "account_missing" if not account_id else "account_invalid"
+        try:
+            return cloudflare_client.CloudflareClient(
+                account_id=account_id,
+                timeout=settings["timeout_s"],
+                max_prompt_chars=settings["prompt_chars"],
+            ), None
+        except Exception:
+            return None, "classifier_error"
     return None, "unsupported_provider"
 
 
@@ -49,14 +62,19 @@ def credential_present(provider: Any = JEV) -> bool:
         return jev_client.credential_present()
     if selected == OPENROUTER:
         return openrouter_client.credential_present()
+    if selected == CLOUDFLARE:
+        return cloudflare_client.credential_present()
     return False
 
 
-def endpoint_for(provider: Any, jev_endpoint: Any) -> Tuple[str, str]:
+def endpoint_for(provider: Any, jev_endpoint: Any, cloudflare_account_id: Any = "") -> Tuple[str, str]:
     """Return the raw and effective endpoint for the selected scorer."""
     selected = str(provider or JEV).strip().lower()
     if selected == OPENROUTER:
         endpoint = openrouter_client.DEFAULT_ENDPOINT
+        return endpoint, endpoint
+    if selected == CLOUDFLARE:
+        endpoint = cloudflare_client.endpoint_for(cloudflare_account_id)
         return endpoint, endpoint
     raw = str(jev_endpoint or jev_client.DEFAULT_ENDPOINT)
     return raw, jev_client.normalize_endpoint(raw)
@@ -67,4 +85,6 @@ def model_for(provider: Any, configured_model: Any) -> str:
     selected = str(provider or JEV).strip().lower()
     if selected == JEV:
         return jev_client.JEV_MODEL
+    if selected == CLOUDFLARE:
+        return cloudflare_client.MODEL
     return str(configured_model or "").strip()

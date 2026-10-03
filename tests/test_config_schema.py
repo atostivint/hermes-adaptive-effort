@@ -33,7 +33,7 @@ def test_config_schema_modes_match_valid_modes():
 
 def test_scorer_schema_keeps_jev_default_and_requires_model_for_openrouter():
     schema = _load_manifest()["config_schema"]
-    assert set(schema["scorer_provider"].get("choices") or []) == {"jev", "openrouter"}
+    assert set(schema["scorer_provider"].get("choices") or []) == {"jev", "openrouter", "cloudflare"}
     assert schema["scorer_provider"].get("default") == middleware.DEFAULTS["scorer_provider"]
     assert schema["scorer_model"].get("default") == middleware.DEFAULTS["scorer_model"]
     assert "OPENROUTER_API_KEY" in schema["scorer_provider"].get("description", "")
@@ -49,6 +49,7 @@ def test_config_schema_types_and_defaults_match_middleware():
     assert schema["prompt_chars"]["type"] == "int"
     assert int(schema["prompt_chars"]["default"]) == int(middleware.DEFAULTS["prompt_chars"])
     assert schema["endpoint"]["type"] == "str"
+    assert schema["cloudflare_account_id"]["type"] == "str"
     assert str(schema["endpoint"]["default"]) == str(middleware.DEFAULTS["endpoint"])
 
 

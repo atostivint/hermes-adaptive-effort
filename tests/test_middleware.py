@@ -369,6 +369,45 @@ def test_openrouter_without_a_model_is_reported_and_not_retried(monkeypatch):
     assert entry["probes"] == 1
 
 
+def test_cloudflare_failure_is_memoized_for_turn_without_jev_fallback(monkeypatch):
+    use_settings(monkeypatch, {"mode": "auto", "scorer_provider": "cloudflare",
+        "cloudflare_account_id": "0123456789abcdef0123456789abcdef"})
+    monkeypatch.setattr(middleware._scorers.cloudflare_client, "_default_key_reader", lambda: "")
+    monkeypatch.setattr(middleware._jev_client, "_default_key_reader",
+                        lambda: (_ for _ in ()).throw(AssertionError("Jev fallback")))
+    request = supported_request()
+    assert call(ctx(request=request, session="cloudflare-fail")) is None
+    assert call(ctx(request=request, session="cloudflare-fail")) is None
+    entry = middleware.session_state()["cloudflare-fail/turn"]
+    assert entry["state"] == "failed"
+    assert entry["failure"] == "credential_missing"
+    assert entry["probes"] == 1
+
+
+def test_cloudflare_adapter_success_rewrites_the_existing_field(monkeypatch):
+    use_settings(monkeypatch, {"mode": "auto", "scorer_provider": "cloudflare",
+        "cloudflare_account_id": "0123456789abcdef0123456789abcdef"})
+    monkeypatch.setattr(middleware, "_classifier_factory", None)
+    monkeypatch.setattr(middleware._scorers.cloudflare_client, "_default_key_reader",
+                        lambda: "test-token")
+    calls = []
+
+    def transport(request, _timeout):
+        calls.append(request.full_url)
+        return {"success": True, "errors": [], "result": {"answers": {
+            "effort": {"score": 0.1}}}}
+
+    monkeypatch.setattr(middleware._scorers.cloudflare_client, "_default_transport", transport)
+    result = call(ctx(request=supported_request(), session="cloudflare-success"))
+    assert result["request"]["extra_body"]["reasoning"]["effort"] == "low"
+    assert calls == ["https://api.cloudflare.com/client/v4/accounts/"
+                     "0123456789abcdef0123456789abcdef/ai/run/@cf/cloudflare/clef"]
+    entry = middleware.session_state()["cloudflare-success/turn"]
+    assert entry["scorer_provider"] == "cloudflare"
+    assert entry["scorer_model"] == "@cf/cloudflare/clef"
+    assert entry["probes"] == 1
+
+
 def test_unknown_scorer_provider_fails_open_without_fallback(monkeypatch):
     use_settings(monkeypatch, {"mode": "auto", "scorer_provider": "not-a-provider"})
     monkeypatch.setattr(middleware, "_classifier_factory", None)

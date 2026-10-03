@@ -118,6 +118,25 @@ def test_status_reports_selected_scorer_and_active_endpoint(monkeypatch):
         "https://openrouter.ai/api/v1/chat/completions"
 
 
+def test_cloudflare_status_and_probe_show_only_safe_provider_details(monkeypatch):
+    account_id = "0123456789abcdef0123456789abcdef"
+    configured = {"scorer_provider": "cloudflare", "cloudflare_account_id": account_id}
+    monkeypatch.setattr(middleware, "_settings_provider",
+                        lambda key, default=None: configured.get(key, default))
+    monkeypatch.setattr(middleware, "_classifier_factory",
+                        lambda **_kwargs: type("Scorer", (), {
+                            "classify_detail": lambda _self, text: (1.0, None)})())
+    payload = json.loads(command.handle("status json"))
+    endpoint = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/cloudflare/clef"
+    assert payload["settings"]["scorer_model_effective"] == "@cf/cloudflare/clef"
+    assert payload["settings"]["endpoint_effective"] == endpoint
+    assert payload["cloudflare_account_ready"] is True
+    result = json.loads(command.handle("probe operator typed text"))
+    assert result["score"] == 1.0
+    assert "operator typed text" not in json.dumps(result)
+    assert middleware.session_state() == {}
+
+
 @pytest.mark.parametrize("api_mode, expected", [
     ("chat_completions", "cache-safe on chat_completions"),
     ("codex_responses", "cache-safe on codex_responses"),

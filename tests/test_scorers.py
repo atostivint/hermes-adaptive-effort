@@ -6,6 +6,7 @@ from conftest import import_plugin
 
 jev_client = import_plugin("jev_client")
 openrouter_client = import_plugin("openrouter_client")
+cloudflare_client = import_plugin("cloudflare_client")
 scorers = import_plugin("scorers")
 middleware = import_plugin("middleware")
 
@@ -36,6 +37,19 @@ def test_openrouter_missing_model_fails_open_without_jev_fallback():
     assert failure == "model_missing"
 
 
+def test_cloudflare_uses_fixed_model_and_requires_a_valid_account():
+    configured = settings(scorer_provider="cloudflare",
+                          cloudflare_account_id="0123456789abcdef0123456789abcdef")
+    client, failure = scorers.build_client(configured)
+    assert failure is None
+    assert isinstance(client, cloudflare_client.CloudflareClient)
+    assert scorers.model_for("cloudflare", "ignored") == cloudflare_client.MODEL
+    assert client.endpoint.endswith("/0123456789abcdef0123456789abcdef/ai/run/@cf/cloudflare/clef")
+    assert scorers.build_client(settings(scorer_provider="cloudflare")) == (None, "account_missing")
+    assert scorers.build_client(settings(scorer_provider="cloudflare",
+        cloudflare_account_id="bad/path")) == (None, "account_invalid")
+
+
 def test_unknown_provider_fails_open_without_jev_fallback():
     client, failure = scorers.build_client(settings(scorer_provider="another-provider"))
     assert client is None
@@ -50,3 +64,6 @@ def test_status_endpoint_and_model_follow_selected_scorer():
     assert endpoint == effective == openrouter_client.DEFAULT_ENDPOINT
     assert scorers.model_for("jev", "ignored") == jev_client.JEV_MODEL
     assert scorers.model_for("openrouter", "openai/gpt-4o-mini") == "openai/gpt-4o-mini"
+    account_id = "0123456789abcdef0123456789abcdef"
+    endpoint, effective = scorers.endpoint_for("cloudflare", "jev-endpoint", account_id)
+    assert endpoint == effective == cloudflare_client.endpoint_for(account_id)

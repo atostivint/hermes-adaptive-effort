@@ -49,6 +49,7 @@ DEFAULTS: Dict[str, Any] = {
     "endpoint": _jev_client.DEFAULT_ENDPOINT,
     "scorer_provider": _scorers.JEV,
     "scorer_model": "",
+    "cloudflare_account_id": "",
 }
 
 # Injected by register(ctx); None until a PluginContext exists (and in tests).
@@ -469,11 +470,16 @@ def _settings() -> Dict[str, Any]:
             "scorer_provider", DEFAULTS["scorer_provider"]) or _scorers.JEV).strip().lower(),
         "scorer_model": str(_read_setting(
             "scorer_model", DEFAULTS["scorer_model"]) or "").strip(),
+        "cloudflare_account_id": str(_read_setting(
+            "cloudflare_account_id", DEFAULTS["cloudflare_account_id"]) or "").strip(),
     }
     settings["scorer_model_effective"] = _scorers.model_for(
         settings["scorer_provider"], settings["scorer_model"])
     (settings["scorer_endpoint"], settings["scorer_endpoint_effective"]) = \
-        _scorers.endpoint_for(settings["scorer_provider"], settings["endpoint"])
+        _scorers.endpoint_for(settings["scorer_provider"], settings["endpoint"],
+                              settings["cloudflare_account_id"])
+    settings["cloudflare_account_ready"] = _scorers.cloudflare_client.valid_account_id(
+        settings["cloudflare_account_id"])
     # This compatibility key has always meant "where the active scorer posts";
     # preserve that meaning even when OpenRouter is selected.
     settings["endpoint_effective"] = settings["scorer_endpoint_effective"]

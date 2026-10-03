@@ -13,6 +13,7 @@ hermes-adaptive-effort/          payload installed as ~/.hermes/plugins/hermes-a
   effort.py               pure score -> label -> wire-effort mapping (no I/O, no Hermes import at top level)
   jev_client.py           Jev adapter + credential probe (lazy core import)
   openrouter_client.py    OpenRouter adapter; requires explicit model + OPENROUTER_API_KEY
+  cloudflare_client.py   Cloudflare Clef adapter; requires account ID + CLOUDFLARE_AUTH_TOKEN
   scorers.py              explicit provider registry, credentials and endpoint display
   cache_safety.py         is an effort change cache-neutral on this route?
   command.py              /hermes-adaptive-effort: help, status, status json, probe, mode verbs
@@ -26,7 +27,7 @@ docs/                     design, contracts, development, dated reviews + operat
 ## Commands (use these exactly)
 
 ```bash
-./scripts/run_tests.sh   # .venv/bin/python -m pytest tests (~193 tests, ~1s, network-free)
+./scripts/run_tests.sh   # .venv/bin/python -m pytest tests (~216 tests, ~1s, network-free)
 ./scripts/run_lint.sh    # .venv/bin/ruff check . (ruff 0.16.9)
 ./scripts/bootstrap_test_env.sh  # fresh machine: python3 -m venv --system-site-packages .venv + install + test
 ```
@@ -55,12 +56,12 @@ Windows PowerShell equivalents:
 2. **Rewrite only an existing effort field.** Shapes in `middleware._effort_slot`: `extra_body.reasoning.effort`, top-level `reasoning_effort`, top-level `reasoning.effort` (codex_responses). Never invent a field, never re-enable thinking, never touch `"none"` / `enabled: false`.
 3. **Clamp onto the route vocabulary.** `effort.map_effort` → `agent.reasoning_effort.clamp_effort` + narrow `wire_efforts`/`wire_overrides` for Kimi K3 / GLM-5.2 / GLM-5.3. `openai-codex` skips the narrow table. Unknown routes fall back to the widest OpenAI-compatible set. Known gap: Ox Alpha `medium` → 400 (do NOT silently work around; see README "Residual risk").
 4. **One selected-scorer call per turn.** Memo key `(session_id, turn_id)`; `failed`/`unsupported` not retried in-turn; concurrent probes claimed via `_IN_FLIGHT`; re-clamp stored target on route change (`_target_for_route`).
-5. **Shared score rubric:** finite numeric score `0..2` → `low (<0.5)` / `medium (<1.5)` / `high`. Out-of-range, NaN/inf, bool, non-numeric → `None` → fail open. Jev is the default; OpenRouter requires an explicit model and never falls back to Jev.
+5. **Shared score rubric:** finite numeric score `0..2` → `low (<0.5)` / `medium (<1.5)` / `high`. Out-of-range, NaN/inf, bool, non-numeric → `None` → fail open. Jev is the default; OpenRouter requires an explicit model and Cloudflare requires a 32-hex account ID. Neither falls back to Jev.
 6. **Fail-open everywhere.** `on_llm_request` catches all; missing credential/model / timeout / transport / malformed → unchanged request + `failed` entry. Missing writable field → `unsupported`, 0 scorer calls.
 7. **Subagents:** child classified from parent-written goal (`subagent_start` hook), gated by independent `subagent_mode`. `status` does not classify; `probe` scores only operator-typed text and stores no decision.
 8. **No prompt storage, no prompt in logs/reasons/traces.** Reason strings carry effort values only. `command._ENTRY_FIELDS` is the only rendered session allowlist.
 9. **Never write the operator's config.** `/hermes-adaptive-effort <mode>` sets in-memory `_MODE_OVERRIDE` for future requests in this process only; persist path is `plugins.entries.hermes-adaptive-effort.settings.mode`.
-10. **Provider settings:** Jev uses `endpoint`, `TYPESAFE_API_KEY`, and fixed `jev_client.JEV_MODEL`; OpenRouter uses `scorer_model`, the fixed chat-completions endpoint, and `OPENROUTER_API_KEY`. Both resolve keys through `agent.secret_scope` then env; `credential_present()` never returns a secret. Jev endpoint tolerance remains full route/API base/bare host.
+10. **Provider settings:** Jev uses `endpoint`, `TYPESAFE_API_KEY`, and fixed `jev_client.JEV_MODEL`; OpenRouter uses `scorer_model`, the fixed chat-completions endpoint, and `OPENROUTER_API_KEY`; Cloudflare uses `cloudflare_account_id`, the fixed Clef route/model, and `CLOUDFLARE_AUTH_TOKEN`. Each resolves keys through `agent.secret_scope` then env; `credential_present()` never returns a secret. Jev endpoint tolerance remains full route/API base/bare host.
 11. **Cache safety:** `cache_safety.effort_is_cache_safe(provider, model, api_mode)` — `True` only for `chat_completions` / `codex_responses`; `anthropic_messages` and unknown → `False` (pin, never gamble).
 12. **Applied-change feed.** `middleware.effort_change_state()` → `{stream_id, events:[{id,from,to,at}], latest}` under schema `hermes-adaptive-effort.changes.v1`: the rewrites that actually reached a request (bounded ring of 64), effort values only, no session ids, no prompt text. Recorded at the single point where a rewritten request is returned — so `recommend`, `failed`, `unsupported`, no-op turns and a tool loop re-sending the applied value record nothing — and deduplicated on `(decision_key, from, to)` so a route change re-sending the original level does not replay. `reset_state()` mints a new `stream_id` (the sequence restarts); that is the consumer's signal to drop its cursor. Served as `GET /changes`.
 
@@ -70,7 +71,7 @@ Windows PowerShell equivalents:
 - `no_network` (session autouse): any `socket.socket` / `create_connection` fails the run. Inject fakes via `_classifier_factory` or `transport=` / `key_reader=`, never real HTTP.
 - `hermetic_plugin_settings` (function autouse): `_config_reader = lambda: {}`, `_settings_provider = None`, `_classifier_factory = None`, `reset_state()` before/after. Never read `~/.hermes/config.yaml` in unit tests.
 - `test_dispatcher_integration.py` boots a throwaway `HERMES_HOME` + real `PluginManager.discover_and_load()` + `apply_llm_request_middleware`; it runs in `run_tests.sh` and `run_tests.ps1`, never skipped there. `run_tests.ps1` locates the Hermes source tree (`HERMES_SOURCE_ROOT`, then `$env:HERMES_HOME\hermes-agent`, a sibling `hermes-agent/` checkout, `$env:LOCALAPPDATA\hermes`) and falls back to a scratch `--basetemp` when `%TEMP%\pytest-of-<user>` or `.pytest_cache` has a foreign ACL — without either, ~40 mapping tests and every `tmp_path` test error out for unrelated-looking reasons.
-- Settings under test live in `middleware.DEFAULTS` (`mode=off`, `subagent_mode=off`, `endpoint=https://api.typesafe.ai/v1/systemone`, `scorer_provider=jev`, `scorer_model=""`, `timeout_s=3.0`, `max_turns=64`, `prompt_chars=4000`); Jev model is const `jev_client.JEV_MODEL`, while OpenRouter's model is configured.
+- Settings under test live in `middleware.DEFAULTS` (`mode=off`, `subagent_mode=off`, `endpoint=https://api.typesafe.ai/v1/systemone`, `scorer_provider=jev`, `scorer_model=""`, `cloudflare_account_id=""`, `timeout_s=3.0`, `max_turns=64`, `prompt_chars=4000`); Jev and Cloudflare models are fixed, while OpenRouter's model is configured.
 
 ## Hermes plugin development (canonical)
 
@@ -84,6 +85,6 @@ Windows PowerShell equivalents:
 ## When editing
 
 - Keep `effort.py` pure (stdlib only; lazy `agent.*` imports inside functions).
-- Keep existing failure reason codes stable; additive scorer codes are `model_missing` and `unsupported_provider` — `status`/`status json` schemas (`hermes-adaptive-effort.status.v1`, `hermes-adaptive-effort.probe.v1`) are a documented contract.
+- Keep existing failure reason codes stable; additive scorer codes include `model_missing`, `account_missing`, `account_invalid` and `unsupported_provider` — `status`/`status json` schemas (`hermes-adaptive-effort.status.v1`, `hermes-adaptive-effort.probe.v1`) are a documented contract.
 - Unknown `/hermes-adaptive-effort` verb or stray arg → return `USAGE`, change nothing.
 - Update `README.md`, `docs/CONTRACTS.md` + `docs/HANDOFF.md` if behavior changes; note cost/cache claims as unmeasured unless you run a live A/B.
