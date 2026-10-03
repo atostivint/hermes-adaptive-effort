@@ -11,7 +11,7 @@ what the project is, what is verified today, what is *not* finished, and recorde
 
 A Hermes plugin that lets a selected external rubric scorer choose the
 **reasoning effort** of each LLM request. Jev (TypeSafe) remains the default;
-OpenRouter is explicit opt-in and requires a configured model.
+OpenRouter and Cloudflare Clef are explicit opt-in providers.
 
 Pipeline: read the outgoing request → score the prompt (`0 = low`, `1 = medium`,
 `2 = high`) → clamp the label onto **the route's own wire vocabulary** → write it into
@@ -26,7 +26,7 @@ There is deliberately **no `[project]` table** — nothing here is pip-installab
 `pip install` is never the install path. The managed path is:
 
 ```bash
-hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort'
+hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort' --enable
 ```
 
 (the `#subdir` fragment points at the renamed payload directory inside the repository).
@@ -35,10 +35,11 @@ hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort
 
 The payload directory, plugin ID, slash command, dashboard route and Desktop identity are
 `hermes-adaptive-effort`. Jev remains the default scorer. OpenRouter is explicit opt-in,
-requires a configured model and `OPENROUTER_API_KEY`, and has no silent fallback to Jev.
-No live OpenRouter request was made.
+requires a configured model and `OPENROUTER_API_KEY`; Cloudflare requires a valid account ID
+and `CLOUDFLARE_AUTH_TOKEN`. Neither has a silent fallback to Jev. No live provider request
+was made.
 
-The Windows test suite passed **193 tests**, and Ruff passed. The current master commit
+The Windows test suite passed **216 tests**, and Ruff passed. The current master commit
 contains the implementation merge and the GitHub repository is now
 `atostivint/hermes-adaptive-effort`.
 
@@ -87,15 +88,16 @@ The repo was previously `atostivint/jev-auto-effort`; Iris metadata and this han
 the new repository slug. For future installs, use:
 
 ```bash
-hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort'
+hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort' --enable
 ```
 
 ## 3. Live configuration
 
 Windows uses the default `mode: off`. Iris remains `mode: auto` with
 `endpoint: https://api.typesafe.ai/v1/systemone`; do not change either setting without
-the operator's direction. OpenRouter is selected only by explicitly setting
-`scorer_provider: openrouter` and `scorer_model`; this deployment did not do that.
+the operator's direction. OpenRouter is selected by `scorer_provider: openrouter` and
+`scorer_model`; Cloudflare is selected by `scorer_provider: cloudflare` and
+`cloudflare_account_id`. This deployment did not enable either provider.
 
 The endpoint is the full scoring route, retained from the prior install. Do not simplify it
 to `https://api.typesafe.ai/v1`; `jev_client.normalize_endpoint()` handles base URLs, but
@@ -140,7 +142,7 @@ or restart before they import changed Python modules.
    NaN/inf, bool, non-numeric → `None` → fail open.
 6. **Fail-open everywhere.** `on_llm_request` catches all exceptions. Stable reason codes:
    `invalid_prompt`, `credential_missing`, `http_error`, `timeout`, `transport_error`,
-   `malformed_response`, `unexpected_error`, `classifier_error`, plus scorer-selection codes `model_missing` and `unsupported_provider`.
+   `malformed_response`, `unexpected_error`, `classifier_error`, plus scorer-selection codes `model_missing`, `account_missing`, `account_invalid` and `unsupported_provider`.
 7. **Subagents** are classified from the parent-written goal (`subagent_start`), gated by
    the independent `subagent_mode`. `status` performs no classification; `probe` scores only operator-typed text and stores no decision.
 8. **No prompt storage, no prompt in logs/reasons/traces.** Effort-change notices log
