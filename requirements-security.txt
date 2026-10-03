@@ -1,0 +1,2 @@
+# CI tooling only; not installed into the plugin or used for scoring.
+pip-audit==2.10.1
