@@ -96,4 +96,3 @@ real path:
 6. `off` exercises nothing (no rewrite, no scorer call).
 
 It runs in `./scripts/run_tests.sh`; it is never skipped there.
-
