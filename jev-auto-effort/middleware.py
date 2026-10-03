@@ -290,8 +290,8 @@ def _touch(key: str, settings: Dict[str, Any], mode: str,
     return entry
 
 
-def on_session_end(session_id: Optional[str] = None, **kwargs: Any) -> None:
-    """Verified hook: clears the session's decision (in-memory only)."""
+def _clear_session_state(session_id: Optional[str]) -> None:
+    """Drop one conversation's in-memory decisions and child registration."""
     if not session_id:
         return
     session = str(session_id)
@@ -303,6 +303,32 @@ def on_session_end(session_id: Optional[str] = None, **kwargs: Any) -> None:
             _IN_FLIGHT.discard(key)
         _IN_FLIGHT.discard(session)
         _CHILD_GOALS.pop(session, None)
+
+
+def on_session_end(session_id: Optional[str] = None, **kwargs: Any) -> None:
+    """Handle Hermes' per-turn completion hook without erasing conversation status.
+
+    Hermes supplies ``turn_id`` after each completed ``run_conversation`` call. Keep
+    the bounded decision entries so status surfaces can still report this
+    conversation's latest effort. Older/session-wide calls without a turn id retain
+    their cleanup behavior; actual session boundaries use the hooks below.
+    """
+    turn_id = kwargs.get("turn_id")
+    if turn_id is not None and str(turn_id).strip():
+        return
+    _clear_session_state(session_id)
+
+
+def on_session_finalize(session_id: Optional[str] = None, **kwargs: Any) -> None:
+    """Clear state when Hermes closes a conversation at a real session boundary."""
+    _clear_session_state(session_id)
+
+
+def on_session_reset(session_id: Optional[str] = None,
+                     old_session_id: Optional[str] = None,
+                     **kwargs: Any) -> None:
+    """Clear the conversation replaced by a Hermes reset/session rotation."""
+    _clear_session_state(old_session_id or session_id)
 
 
 # ── subagent registry ────────────────────────────────────────────────────────

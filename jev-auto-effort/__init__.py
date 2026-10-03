@@ -1,6 +1,6 @@
 """Jev-Auto Effort — opt-in per-request reasoning-effort router.
 
-Registered capabilities: ``llm_request`` middleware + ``on_session_end`` hook.
+Registered capabilities: ``llm_request`` middleware + session lifecycle hooks.
 Everything else (effort mapping, the Jev adapter, session state) lives in
 sibling modules so it can be unit-tested without booting Hermes.
 """
@@ -14,7 +14,7 @@ from . import middleware as _middleware
 
 
 def register(ctx: Any) -> None:
-    """Attach the middleware, the session cleanup hook and ``/jev-auto-effort`` to a real PluginContext."""
+    """Attach middleware, lifecycle hooks and ``/jev-auto-effort`` to a real PluginContext."""
     # Read settings through the context facade when it offers one, so a config
     # edit is picked up per call rather than frozen at import time.
     if hasattr(ctx, "get_config"):
@@ -35,8 +35,11 @@ def register(ctx: Any) -> None:
             _middleware.set_cli_status_handle(None)
 
     ctx.register_middleware("llm_request", _middleware.on_llm_request)
-    # Verified hook name: `on_session_end(session_id=...)` clears in-memory state.
+    # Hermes fires on_session_end after each turn with turn_id; preserve the bounded
+    # per-turn status until the actual on_session_finalize / on_session_reset boundary.
     ctx.register_hook("on_session_end", _middleware.on_session_end)
+    ctx.register_hook("on_session_finalize", _middleware.on_session_finalize)
+    ctx.register_hook("on_session_reset", _middleware.on_session_reset)
     # Verified hook names (tools/delegate_tool.py emits them with these kwargs):
     #   subagent_start(parent_session_id=…, child_session_id=…, child_goal=…)
     #   subagent_stop(parent_session_id=…, child_session_id=…)

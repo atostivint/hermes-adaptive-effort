@@ -63,14 +63,15 @@ def test_register_registers_exactly_one_command_named_jev_auto():
 def test_register_registers_nothing_beyond_the_declared_surface():
     """Opt-in plugin: register() attaches exactly the documented registrations.
 
-    The two subagent hooks are part of that declared surface: they only record
-    which session is a child and the goal its parent wrote, and they are inert
-    until subagent_mode is explicitly enabled.
+    Session lifecycle hooks retain turn status between turns and clear it at
+    conversation boundaries. The subagent hooks only record which session is a
+    child and the goal its parent wrote, and are inert until subagent_mode is enabled.
     """
     ctx = registered()
     assert [k for k, _ in ctx.middleware] == ["llm_request"]
     assert [k for k, _ in ctx.hooks] == [
-        "on_session_end", "subagent_start", "subagent_stop"]
+        "on_session_end", "on_session_finalize", "on_session_reset",
+        "subagent_start", "subagent_stop"]
     assert [c["name"] for c in ctx.commands] == ["jev-auto-effort"]
 
 

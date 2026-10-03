@@ -45,6 +45,12 @@ and allowlisted, and the cache-safety line describes the latest recorded route r
 than always claiming an unknown route. `.\scripts\run_tests.ps1`: **167 passed**;
 `.\scripts\run_lint.ps1`: **All checks passed**.
 
+Lifecycle follow-up, 2026-10-03: live Iris runs showed Hermes calls
+`on_session_end` after each completed turn with a `turn_id`. The plugin now keeps
+the bounded effort entries for the focused-conversation chip and clears them at
+`on_session_finalize` / `on_session_reset`; this targeted change has not been run
+through the test suite yet.
+
 A network-free check using the actual CLI source tree selected by `hermes.cmd`
 (`hermes-agent-project-picker`), its OpenCode Go profile and ChatCompletionsTransport
 confirmed: `space-bunny-free` emits no effort field (unsupported, zero probes);
