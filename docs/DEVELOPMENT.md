@@ -2,6 +2,8 @@
 
 Read [AGENTS.md](../AGENTS.md) for contributor rules, [runtime contracts](CONTRACTS.md) for behavior, and [HANDOFF.md](HANDOFF.md) for the dated operator rollout.
 
+[GitHub Actions](CI.md) runs the suite on Linux and Windows, requires integration with a pinned Hermes host, and adds security checks.
+
 ## Windows setup
 
 ```powershell
@@ -27,7 +29,7 @@ hermes-adaptive-effort/                 the payload installed as ~/.hermes/plugi
   dashboard/manifest.json + plugin_api.py
                             desktop backend: GET /status, GET /changes, POST /mode, POST /probe
   desktop/plugin.js       desktop half: effort chip, pane, change toasts, palette (opt-in)
-tests/                    193 tests, one module per contract
+tests/                    194 tests, one module per contract
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh (+ .ps1 for Windows)
 pyproject.toml            pytest + ruff configuration
 requirements-dev.txt      test/lint pins (pytest 9.1.1, ruamel.yaml 0.19.1, ruff 0.16.9)
@@ -51,7 +53,7 @@ Test modules, by contract:
 | `test_dispatcher_integration.py` | 6 | through Hermes' own plugin manager + middleware |
 | `test_plugin_registration.py` | 4 | manifest, `register()` contract |
 | `test_config_schema.py` | 5 | `config_schema` keys/types/defaults and scorer selection match middleware |
-| `test_plugin_api.py` | 11 | dashboard backend (status/mode/probe/changes, no prompt leak) + desktop static contract |
+| `test_plugin_api.py` | 12 | dashboard backend (status/mode/probe/changes, no prompt leak) + desktop static contract |
 | `test_openrouter_client.py` | 15 | bounded OpenRouter request, strict scores, credentials, and fail-open errors |
 | `test_scorers.py` | 5 | Jev default and explicit provider selection without cross-provider fallback |
 
@@ -75,7 +77,7 @@ which is the interpreter where the plugin's tests and the Hermes core are both i
 The whole suite is **network-free by contract**: `tests/conftest.py` patches
 `socket.socket` and `socket.create_connection` for the entire session (`autouse`), so a
 test that opens a socket fails instead of silently calling a provider. The same file
-makes plugin settings hermetic — tests never read `~/.hermes/config.yaml`, so a live
+makes plugin settings hermetic â€” tests never read `~/.hermes/config.yaml`, so a live
 profile with `mode: auto` cannot turn a "default is off" test red.
 
 ### The integration test is real, and it runs
@@ -83,7 +85,7 @@ profile with `mode: auto` cannot turn a "default is off" test red.
 `tests/test_dispatcher_integration.py` does not call the plugin's callback directly: it
 boots a throwaway `HERMES_HOME`, copies the payload into `<home>/plugins/hermes-adaptive-effort`, lets
 Hermes' own `PluginManager.discover_and_load()` find and register it, and then enters
-through `hermes_cli.middleware.apply_llm_request_middleware` — the function
+through `hermes_cli.middleware.apply_llm_request_middleware` â€” the function
 `agent/turn_api_request.py` calls before building a provider request. It covers, in that
 real path:
 

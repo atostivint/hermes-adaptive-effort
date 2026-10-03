@@ -90,6 +90,24 @@ def test_set_mode_runtime_only_by_default():
     assert middleware.mode_override() is None
 
 
+def test_persist_failure_never_exposes_exception_text(monkeypatch):
+    from hermes_cli import plugins_state
+
+    canary = "private-operator-prompt-and-config-path"
+
+    def fail_write(*args, **kwargs):
+        raise PermissionError(canary)
+
+    monkeypatch.setattr(plugins_state, "save_plugin_setting", fail_write)
+    result = api.set_mode("auto", persist=True)
+    assert result["persisted"] is False
+    assert result["persist_error"] == "persist_failed"
+    assert result["mode"] == "auto"  # runtime change still applies
+    assert middleware.mode_override() == "auto"
+    assert canary not in json.dumps(result)
+    assert "PermissionError" not in json.dumps(result)
+
+
 def test_probe_scores_nothing_and_stores_nothing():
     result = api.run_probe("   ")
     assert result["schema"] == "hermes-adaptive-effort.probe.v1"
