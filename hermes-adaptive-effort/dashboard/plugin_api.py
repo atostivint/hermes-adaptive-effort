@@ -202,9 +202,11 @@ def set_mode(mode: Any, *, persist: bool = False) -> Dict[str, Any]:
             from hermes_cli.plugins_state import _plugin_relative_segments, save_plugin_setting
             save_plugin_setting(PLUGIN_ID, _plugin_relative_segments("mode"), applied)
             persisted = True
-        except Exception as exc:
+        except Exception:
             persisted = False
-            persist_error = f"{type(exc).__name__}: {exc}"
+            # Exception text can contain config paths, prompt text or secrets.
+            # Keep the public API response bounded to a stable failure code.
+            persist_error = "persist_failed"
     out: Dict[str, Any] = {"ok": True, "before": before, "mode": applied,
                            "scope": "future requests in this process"}
     if persisted is not None:

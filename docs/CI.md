@@ -27,7 +27,7 @@ Pushes to master and `codex/**`, pull requests, a weekly schedule and manual dis
 
 Dependabot proposes weekly updates for GitHub Actions and Python requirements. Updates are reviewed and tested rather than automatically merged. The manually pinned Hermes source revision is not updated by Dependabot.
 
-GitHub secret scanning and push protection complement the history scan. These repository settings depend on GitHub account permissions and should be checked in Settings → Code security.
+GitHub secret scanning and push protection complement the history scan. These repository settings depend on GitHub account permissions and should be checked in Settings â†’ Code security.
 
 ## Workflow permissions and cost
 
@@ -40,3 +40,11 @@ Standard hosted runner compute is free for public repositories; larger runners a
 Open the failing Actions run and inspect its named job. Test failures include a JUnit artifact. A host import failure is a compatibility/dependency problem, not a reason to disable integration tests. Security findings require a patch or a documented, narrow false-positive determination; do not suppress the whole check to get a green run.
 
 These checks make regressions and known security issues visible. They do not certify model-answer quality, live scorer availability, vendor effort acceptance or cost/cache savings. The known Ox Alpha limitation and live provider evaluations remain documented separately.
+
+## First-run finding
+
+The initial hosted test matrix passed, while CodeQL reported `py/stack-trace-exposure` in the mode API. A failed persistent mode write previously returned raw exception class/text. The API now returns only `persist_failed`, preserving the failure status and the existing process-local mode change. A regression test injects sensitive exception text and verifies it is absent from the public result.
+
+## First-run finding
+
+The initial hosted test matrix passed, while CodeQL reported `py/stack-trace-exposure` in the mode API. A failed persistent mode write previously returned raw exception class/text. The API now returns only `persist_failed`, preserving the failure status and the existing process-local mode change. A regression test injects sensitive exception text and verifies it is absent from the public result.
