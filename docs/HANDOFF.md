@@ -48,8 +48,13 @@ than always claiming an unknown route. `.\scripts\run_tests.ps1`: **167 passed**
 Lifecycle follow-up, 2026-10-03: live Iris runs showed Hermes calls
 `on_session_end` after each completed turn with a `turn_id`. The plugin now keeps
 the bounded effort entries for the focused-conversation chip and clears them at
-`on_session_finalize` / `on_session_reset`; this targeted change has not been run
-through the test suite yet.
+`on_session_finalize` / `on_session_reset`. Commit `7412e4b` passed the Windows
+suite (**168 passed**) and lint. It is deployed on Iris: plugin validation and
+doctor pass, and the running gateway hot-reload reports all five expected hooks.
+The local plugin junction resolves to the same checkout, and local Plugin Doctor
+also reports all five hooks. Iris had no registered live Desktop serve backend
+for activation at deploy time; a long-lived isolated serve process must reconnect
+or restart to reload Python modules already held in memory.
 
 A network-free check using the actual CLI source tree selected by `hermes.cmd`
 (`hermes-agent-project-picker`), its OpenCode Go profile and ChatCompletionsTransport
