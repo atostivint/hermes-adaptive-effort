@@ -27,7 +27,7 @@ docs/                     design, contracts, development, dated reviews + operat
 ## Commands (use these exactly)
 
 ```bash
-./scripts/run_tests.sh   # .venv/bin/python -m pytest tests (~216 tests, ~1s, network-free)
+./scripts/run_tests.sh   # .venv/bin/python -m pytest tests (~217 tests, ~1s, network-free)
 ./scripts/run_lint.sh    # .venv/bin/ruff check . (ruff 0.16.9)
 ./scripts/bootstrap_test_env.sh  # fresh machine: python3 -m venv --system-site-packages .venv + install + test
 ```

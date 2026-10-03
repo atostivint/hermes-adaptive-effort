@@ -39,7 +39,7 @@ requires a configured model and `OPENROUTER_API_KEY`; Cloudflare requires a vali
 and `CLOUDFLARE_AUTH_TOKEN`. Neither has a silent fallback to Jev. No live provider request
 was made.
 
-The Windows test suite passed **216 tests**, and Ruff passed. The current master commit
+The Windows test suite passed **217 tests**, and Ruff passed. The current master commit
 contains the implementation merge and the GitHub repository is now
 `atostivint/hermes-adaptive-effort`.
 
@@ -257,3 +257,11 @@ plugin is disabled, or the dashboard half is not deployed), the chip correctly s
 
 `AGENTS.md` in the repo root is the agent-facing contract (layout, invariants, test
 conventions) — read it before touching anything.
+
+## 11. Automated-check rollout (2026-10-03)
+
+[PR #1](https://github.com/atostivint/hermes-adaptive-effort/pull/1) added CI/security workflows and fixed the first CodeQL finding: the mode API now exposes only `persist_failed` on a persistent write failure, rather than exception details. The sensitive-exception regression test passes. Combined source revision `860793d` passed all 217 tests on Ubuntu/Python 3.11, 3.12 and 3.14 and Windows/Python 3.12, plus lint/workflow/syntax and security jobs. CodeQL had no open findings for master after analysis.
+
+Secret scanning, push protection, Dependabot security updates and weekly update PRs are enabled. The full-history scan and declared-dependency audit passed. See [CI documentation](CI.md) for scope and limits.
+
+Iris's deployed `dashboard/plugin_api.py` was replaced atomically from the master source checkout, with its prior file backed up under `/root/.hermes/cache/scratch/adaptive-effort-ci-20261003/`. Its deployed SHA-256 is `34407390bbea75cbb78ef1d8cd39fb7c34e29de068a66821fee7fa0255ba11f1`. The gateway was restarted and is active. Windows's installed plugin junction resolves to the updated local source; already-running isolated Desktop agent processes may need to reconnect/restart to reload this backend module. No database repair or live scorer call was performed.

@@ -1,5 +1,7 @@
 # Hermes Adaptive Effort
 
+[![CI](https://github.com/atostivint/hermes-adaptive-effort/actions/workflows/ci.yml/badge.svg)](https://github.com/atostivint/hermes-adaptive-effort/actions/workflows/ci.yml) [![Security](https://github.com/atostivint/hermes-adaptive-effort/actions/workflows/security.yml/badge.svg)](https://github.com/atostivint/hermes-adaptive-effort/actions/workflows/security.yml)
+
 A small Hermes plugin that chooses reasoning effort for each user turn, using an external scorer. It changes an existing effort setting on the model request and lets Hermes handle the rest.
 
 Built for everyday use: one focused job, a quiet interface, and a scorer you can choose. In the committed release, Jev (TypeSafe) is the default; OpenRouter is an explicit alternative with a model you configure. The scorer and the model answering your conversation are separate choices.
@@ -202,8 +204,9 @@ If you used `jev-auto-effort`, install the new payload, move your old settings f
 
 - [Design choices](docs/DESIGN.md): purpose, scope and trade-offs.
 - [Runtime contracts](docs/CONTRACTS.md): route mappings, cache scope, failure states and public APIs.
+- [Automated checks](docs/CI.md): Linux/Windows tests, required Hermes integration, security scans and their limits.
 - [Development](docs/DEVELOPMENT.md): repository layout, network-free tests and lint commands.
 - [Documentation index](docs/README.md): current references and dated review history.
 - [Operator handoff](docs/HANDOFF.md): the recorded Iris/Windows rollout and unresolved operational items.
 
-The Windows suite last verified for this implementation has 216 passing tests, including real Hermes plugin discovery/dispatcher integration. Tests use fake scorer transports and block network access. See the development guide to reproduce them.
+The Windows suite last verified for this implementation has 217 passing tests, including real Hermes plugin discovery/dispatcher integration. Tests use fake scorer transports and block network access. See the development guide to reproduce them.

@@ -29,7 +29,7 @@ hermes-adaptive-effort/                 the payload installed as ~/.hermes/plugi
   dashboard/manifest.json + plugin_api.py
                             desktop backend: GET /status, GET /changes, POST /mode, POST /probe
   desktop/plugin.js       desktop half: effort chip, pane, change toasts, palette (opt-in)
-tests/                    194 tests, one module per contract
+tests/                    217 tests, one module per contract
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh (+ .ps1 for Windows)
 pyproject.toml            pytest + ruff configuration
 requirements-dev.txt      test/lint pins (pytest 9.1.1, ruamel.yaml 0.19.1, ruff 0.16.9)
@@ -40,10 +40,10 @@ Test modules, by contract:
 
 | module | tests | contract |
 | --- | --- | --- |
-| `test_middleware.py` | 34 | settings, scorer selection, gating, rewrites, applied-change feed |
+| `test_middleware.py` | 36 | settings, scorer selection, gating, rewrites, applied-change feed |
 | `test_subagent.py` | 17 | child routing, child goals, inheritance |
 | `test_jev_client.py` | 18 | transport, credential probe, failure modes, endpoint normalization |
-| `test_command.py` | 22 | `/hermes-adaptive-effort` rendering, schemas, scorer/route identity, no prompt leak |
+| `test_command.py` | 23 | `/hermes-adaptive-effort` rendering, schemas, scorer/route identity, no prompt leak |
 | `test_cache_safety.py` | 11 | cache-neutral vs cache-hostile routes |
 | `test_command_modes.py` | 10 | the `off`/`recommend`/`auto`/`cache_safe` verbs |
 | `test_turn_scope.py` | 14 | the `(session_id, turn_id)` decision key, current prompt selection with full history |
@@ -55,7 +55,7 @@ Test modules, by contract:
 | `test_config_schema.py` | 5 | `config_schema` keys/types/defaults and scorer selection match middleware |
 | `test_plugin_api.py` | 12 | dashboard backend (status/mode/probe/changes, no prompt leak) + desktop static contract |
 | `test_openrouter_client.py` | 15 | bounded OpenRouter request, strict scores, credentials, and fail-open errors |
-| `test_scorers.py` | 5 | Jev default and explicit provider selection without cross-provider fallback |
+| `test_scorers.py` | 6 | Jev default and explicit provider selection without cross-provider fallback |
 
 ## Running the tests
 
@@ -98,3 +98,5 @@ real path:
 6. `off` exercises nothing (no rewrite, no scorer call).
 
 It runs in `./scripts/run_tests.sh`; it is never skipped there.
+
+Cloudflare adds `test_cloudflare_client.py` (19 tests): fixed REST construction, account validation, strict scores, credentials and fail-open errors.
