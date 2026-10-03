@@ -16,11 +16,11 @@ hermes-adaptive-effort/          payload installed as ~/.hermes/plugins/hermes-a
   scorers.py              explicit provider registry, credentials and endpoint display
   cache_safety.py         is an effort change cache-neutral on this route?
   command.py              /hermes-adaptive-effort: help, status, status json, probe, mode verbs
-tests/                    one module per contract (see README.md table)
+tests/                    one module per contract (see docs/DEVELOPMENT.md table)
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh
 pyproject.toml            pytest + ruff config only — no [project] table on purpose
 requirements-dev.txt      pytest==9.1.1, ruamel.yaml==0.19.1, ruff==0.16.9
-docs/                     reviews + handoff for card t_cb5d47d0
+docs/                     design, contracts, development, dated reviews + operator handoff
 ```
 
 ## Commands (use these exactly)
@@ -57,7 +57,7 @@ Windows PowerShell equivalents:
 4. **One selected-scorer call per turn.** Memo key `(session_id, turn_id)`; `failed`/`unsupported` not retried in-turn; concurrent probes claimed via `_IN_FLIGHT`; re-clamp stored target on route change (`_target_for_route`).
 5. **Shared score rubric:** finite numeric score `0..2` → `low (<0.5)` / `medium (<1.5)` / `high`. Out-of-range, NaN/inf, bool, non-numeric → `None` → fail open. Jev is the default; OpenRouter requires an explicit model and never falls back to Jev.
 6. **Fail-open everywhere.** `on_llm_request` catches all; missing credential/model / timeout / transport / malformed → unchanged request + `failed` entry. Missing writable field → `unsupported`, 0 scorer calls.
-7. **Subagents:** child classified from parent-written goal (`subagent_start` hook), gated by independent `subagent_mode`. `probe`/`status` classify/store nothing; `probe` only scores operator-typed text.
+7. **Subagents:** child classified from parent-written goal (`subagent_start` hook), gated by independent `subagent_mode`. `status` does not classify; `probe` scores only operator-typed text and stores no decision.
 8. **No prompt storage, no prompt in logs/reasons/traces.** Reason strings carry effort values only. `command._ENTRY_FIELDS` is the only rendered session allowlist.
 9. **Never write the operator's config.** `/hermes-adaptive-effort <mode>` sets in-memory `_MODE_OVERRIDE` for future requests in this process only; persist path is `plugins.entries.hermes-adaptive-effort.settings.mode`.
 10. **Provider settings:** Jev uses `endpoint`, `TYPESAFE_API_KEY`, and fixed `jev_client.JEV_MODEL`; OpenRouter uses `scorer_model`, the fixed chat-completions endpoint, and `OPENROUTER_API_KEY`. Both resolve keys through `agent.secret_scope` then env; `credential_present()` never returns a secret. Jev endpoint tolerance remains full route/API base/bare host.
@@ -86,4 +86,4 @@ Windows PowerShell equivalents:
 - Keep `effort.py` pure (stdlib only; lazy `agent.*` imports inside functions).
 - Keep existing failure reason codes stable; additive scorer codes are `model_missing` and `unsupported_provider` — `status`/`status json` schemas (`hermes-adaptive-effort.status.v1`, `hermes-adaptive-effort.probe.v1`) are a documented contract.
 - Unknown `/hermes-adaptive-effort` verb or stray arg → return `USAGE`, change nothing.
-- Update `README.md` contract tables + `docs/` handoff if behavior changes; note cost/cache claims as unmeasured unless you run a live A/B.
+- Update `README.md`, `docs/CONTRACTS.md` + `docs/HANDOFF.md` if behavior changes; note cost/cache claims as unmeasured unless you run a live A/B.

@@ -1,3 +1,5 @@
+> Historical report: names, paths, defects and deployment facts below describe the original evaluation. The current plugin is **hermes-adaptive-effort**. Use the [README](../README.md), [runtime contracts](CONTRACTS.md) and [current handoff](HANDOFF.md) for current guidance.
+
 # Jev-Auto Effort — suivi de la revue DeepSeek (2026-09-29)
 
 Revue complète : [`review-deepseek-2026-09-29.md`](review-deepseek-2026-09-29.md)
