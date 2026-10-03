@@ -14,6 +14,8 @@ provides_middleware:
   - llm_request
 provides_hooks:
   - on_session_end
+  - on_session_finalize
+  - on_session_reset
   - subagent_start
   - subagent_stop
 # Every key here renders as a field in Desktop Capabilities → Plugins (gear row);
@@ -28,4 +30,4 @@ config_schema:
   prompt_chars: {type: int, default: 4000, label: Prompt chars, description: "Prompt text sent to the scorer, truncated there and never stored", required: false}
   endpoint: {type: str, default: "https://api.typesafe.ai/v1/systemone", label: Endpoint, description: "Scoring route or API base (a base gets /systemone appended)", required: false}
 requires:
-  - llm_request middleware (capability: registering llm_request and on_session_end)
+  - llm_request middleware (capability: registering llm_request and session lifecycle hooks)

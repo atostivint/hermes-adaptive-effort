@@ -155,7 +155,10 @@ Persistent settings and runtime status surfaces, all fail-open:
    `settings.mode` and applies to future requests of the running process.
    The status entry allowlist includes `conversation_id`, the request's exact
    runtime session id, so the chip follows the currently focused chat and shows
-   `N/A` when that chat has no decided effort. The pane's latest transition and
+   the latest decided effort for that chat. Hermes emits `on_session_end` after
+   each completed turn, so those bounded per-turn entries remain available until
+   the actual `on_session_finalize` / `on_session_reset` boundary clears them.
+   The pane's latest transition and
    change toasts are labeled as applying across conversations.
    This requires the Desktop SDK's `focusedSessionId` and `focusedSessionOwner`
    atoms and the updated agent status schema. If the focused conversation belongs
