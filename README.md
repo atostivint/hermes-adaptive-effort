@@ -6,98 +6,108 @@ Built for everyday use: one focused job, a quiet interface, and a scorer you can
 
 The plugin is opt-in and starts **off**. If scoring fails, your original request continues unchanged. It does not switch your conversation model, add tools, or invent a reasoning setting that your route does not expose.
 
-## Install
+## Quick install
 
-You need a Hermes version with plugin `llm_request` middleware and session lifecycle hooks. Effort mapping also uses Hermes internals, so compatibility depends on the installed host version. The optional Desktop interface requires Hermes Desktop with the plugin SDK and focused-conversation state support.
-
-Install the payload from this repository, then enable it:
+Already have Hermes? Install and enable the plugin with one command, in a shell or PowerShell:
 
 ```bash
-hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort'
-hermes plugins enable hermes-adaptive-effort
+hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort' --enable
 ```
 
-These commands work in a shell or PowerShell. The `#hermes-adaptive-effort` fragment selects the payload directory, not the repository root. This is a Hermes plugin, not a pip package.
+Hermes handles installation; you do not need to clone this repo or install a Python package. Enabling the plugin makes it available, but its reasoning mode still starts **off**.
 
-Restart the Hermes agent process that serves your conversations. For an existing gateway installation:
+### 1. Make your scorer key available
 
-```bash
-hermes gateway restart
-```
+Jev is the default. If `TYPESAFE_API_KEY` is already available to Hermes, skip this step. Otherwise, for a local session:
 
-For a local interactive session, exit and launch Hermes again. Desktop connections may use separate agent processes; reconnect or restart the process behind that connection as well.
-
-### Configure the scorer
-
-Provide the selected scorer's key through Hermes' secret scope or the environment available to its agent process:
-
-| Scorer | Credential | Model |
-| --- | --- | --- |
-| Jev (default) | `TYPESAFE_API_KEY` | Fixed `jev-latest` scoring model |
-| OpenRouter | `OPENROUTER_API_KEY` | An explicit `scorer_model` slug |
-
-For a local Jev session, an environment variable can be set before launching Hermes:
+**Linux / macOS**
 
 ```bash
 export TYPESAFE_API_KEY="YOUR_KEY"
 ```
 
+**Windows PowerShell**
+
 ```powershell
 $env:TYPESAFE_API_KEY = "YOUR_KEY"
 ```
 
-For OpenRouter, use `OPENROUTER_API_KEY` instead. These examples are session-local; use your host's secret setup for persistent or service credentials.
+Set the key before launching Hermes. These variables last for the terminal session. For a gateway service, use its environment or Hermes' secret scope. Keep keys out of `config.yaml`.
 
-Keep credentials out of `config.yaml`. A key in your terminal environment is available only to processes that inherit it; a gateway service needs its own environment or Hermes secret scope.
+### 2. Restart your Hermes session
 
-Settings live in your Hermes home's `config.yaml`. Add them to the existing `plugins` section rather than replacing your other plugin entries:
+Exit and launch your local Hermes agent again. If you use a gateway:
 
-```yaml
-plugins:
-  enabled:
-    - hermes-adaptive-effort
-  entries:
-    hermes-adaptive-effort:
-      settings:
-        mode: recommend
-        scorer_provider: jev
+```bash
+hermes gateway restart
 ```
 
-For OpenRouter, use:
+Desktop connections can have separate agent processes; reconnect or restart the one behind your connection.
 
-```yaml
-plugins:
-  enabled:
-    - hermes-adaptive-effort
-  entries:
-    hermes-adaptive-effort:
-      settings:
-        mode: recommend
-        scorer_provider: openrouter
-        scorer_model: "YOUR_OPENROUTER_MODEL_SLUG"
-```
+### 3. Choose a mode in chat
 
-Replace the placeholder with the model you want to pay for and use as the scorer. The adapter requests JSON output and caps completion output at 32 tokens. A model must return a valid numeric score within the timeout; an invalid answer fails open. No model is silently selected, and OpenRouter never falls back to Jev.
-
-### Check it, then turn it on
-
-In a Hermes conversation:
+Start by inspecting decisions without changing effort:
 
 ```text
-/hermes-adaptive-effort status
-/hermes-adaptive-effort probe What is 2 + 2?
 /hermes-adaptive-effort recommend
+/hermes-adaptive-effort status
 ```
 
-`status` checks settings and reports whether a key is available. `probe` makes one scorer request using only the text you type; it does not classify your conversation or store a decision. Both a probe and normal classification can incur provider charges.
-
-Send a normal message with reasoning enabled on a compatible route, then check `status` again. A `decided` entry shows the score and mapped target. When you want the plugin to apply its decisions:
+Send a normal message with reasoning enabled on a compatible route, then check `status` again. A `decided` entry shows the score and target. When you want decisions applied:
 
 ```text
 /hermes-adaptive-effort auto
 ```
 
-That command applies to future requests in the current process. To keep it after a restart, set `settings.mode: auto` in config or save it through the Desktop settings form.
+To keep that mode after a restart, save it in **Desktop → Capabilities → Plugins → Hermes Adaptive Effort → Mode**, or use the optional configuration below. Chat mode commands apply only to the current process.
+
+You can check the scorer independently with `/hermes-adaptive-effort probe What is 2 + 2?`. It scores only that typed text and stores no decision. Scoring can incur provider charges.
+
+### Prefer OpenRouter?
+
+In the plugin's Desktop settings, select `openrouter` and enter your scorer model slug. Make `OPENROUTER_API_KEY` available to the serving Hermes process, then use the same chat commands above. No YAML editing is needed when your Desktop host exposes the settings form.
+
+The scorer is separate from your conversation model. You choose which OpenRouter model to pay for; no model is silently selected and no failure falls back to Jev. The adapter requests JSON and caps completion output at 32 tokens; invalid answers or timeouts preserve the original request.
+
+<details>
+<summary>Optional: persistent configuration, credentials and host compatibility</summary>
+
+Settings live in your Hermes home's `config.yaml`. Merge the following into your existing `plugins` section, preserving your other entries:
+
+```yaml
+plugins:
+  enabled:
+    - hermes-adaptive-effort
+  entries:
+    hermes-adaptive-effort:
+      settings:
+        mode: auto
+        scorer_provider: jev
+```
+
+For OpenRouter, change the settings to:
+
+```yaml
+settings:
+  mode: auto
+  scorer_provider: openrouter
+  scorer_model: "YOUR_OPENROUTER_MODEL_SLUG"
+```
+
+Replace the model placeholder before using it. Start with `mode: recommend` instead of `auto` if you want to observe decisions first.
+
+| Scorer | Credential | Model |
+| --- | --- | --- |
+| Jev (default) | `TYPESAFE_API_KEY` | Fixed `jev-latest` |
+| OpenRouter | `OPENROUTER_API_KEY` | Explicit `scorer_model` slug |
+
+Credentials resolve through Hermes' secret scope, then the environment. A key set in a terminal reaches only processes that inherit that environment.
+
+Hermes must support plugin `llm_request` middleware and session lifecycle hooks. Effort mapping also uses host internals. The optional Desktop interface needs the plugin SDK and focused-conversation state support. If your older Hermes CLI does not recognize `--enable`, run the install command without that flag, then `hermes plugins enable hermes-adaptive-effort`.
+
+The `#hermes-adaptive-effort` URL fragment selects the payload directory inside this repository. This is a Hermes plugin, not a pip package.
+
+</details>
 
 ## Modes and commands
 
@@ -135,14 +145,20 @@ The plugin sends up to 4,000 characters by default to the external scorer. It do
 | --- | --- | --- |
 | `mode` | `off` | Main routing mode |
 | `subagent_mode` | `off` | Independent child-agent mode |
-| `scorer_provider` | `jev` | `jev` or `openrouter`; no automatic fallback |
-| `scorer_model` | empty | Required OpenRouter model slug; ignored by Jev |
-| `endpoint` | `https://api.typesafe.ai/v1/systemone` | Jev endpoint; ignored by OpenRouter |
+| `scorer_provider` | `jev` | `jev`, `openrouter` or `cloudflare`; no automatic fallback |
+| `scorer_model` | empty | Required OpenRouter model slug; ignored by Jev and Cloudflare |
+| `cloudflare_account_id` | empty | Required 32-character hexadecimal account ID for Cloudflare |
+| `cloudflare_account_id` | empty | Required 32-character hexadecimal account ID for Cloudflare |
+| `endpoint` | `https://api.typesafe.ai/v1/systemone` | Jev endpoint; ignored by OpenRouter and Cloudflare |
 | `timeout_s` | `3.0` | HTTP timeout for classification |
 | `max_turns` | `64` | Bounded decision-cache capacity per process |
 | `prompt_chars` | `4000` | Maximum task characters sent to the scorer |
 
-Jev accepts a full route, API base or bare host; `status` shows the effective URL. OpenRouter uses its fixed chat-completions endpoint. Configured scorer failures leave requests unchanged and appear in status.
+Jev accepts a full route, API base or bare host; `status` shows the effective URL. OpenRouter uses its fixed chat-completions endpoint. Cloudflare uses Workers AI's account-scoped `@cf/cloudflare/clef` REST route and fixed `clef` model; it requires `CLOUDFLARE_AUTH_TOKEN` and a valid account ID. Status reports token presence and account readiness without exposing the token. Configured scorer failures leave requests unchanged and appear in status.
+
+Cloudflare Clef receives the same bounded `state.prompt` and score question as Jev. Its REST response must have `success: true` and a finite numeric `result.answers.effort.score` from 0 through 2. See the [Clef model documentation](https://developers.cloudflare.com/workers-ai/models/clef/) and [Workers AI REST API guide](https://developers.cloudflare.com/workers-ai/get-started/rest-api/).
+
+Cloudflare configuration failures use `account_missing` or `account_invalid`; transport and malformed response failures use the shared fail-open reason codes.
 
 ## A quiet interface
 
@@ -162,13 +178,13 @@ The route vocabulary comes from Hermes plus narrow mappings for Kimi K3 and GLM-
 
 Cloudflare Clef support is being developed separately and is not part of this documented release.
 
-No cost saving, cache benefit or answer-quality improvement is claimed as measured. Scoring adds latency and can add cost. OpenRouter's adapter is covered by network-free tests; a live OpenRouter scorer evaluation has not yet been run.
+No cost saving, cache benefit or answer-quality improvement is claimed as measured. Scoring adds latency and can add cost. OpenRouter and Cloudflare adapters are covered by network-free tests; no live provider scorer evaluation has been run.
 
 ## Why this plugin exists
 
 I wanted a small, unobtrusive plugin that does one job well: choose an appropriate reasoning effort without adding a large layer of features around the agent. I built it for my own daily use and intend to maintain it as I use it.
 
-It started with Jev, but the job should not be tied to one scoring service. The neutral name and explicit scorer selection let the same routing rules work with Jev or a configured OpenRouter model. The interface stays quiet, the controls remain explicit, and a scoring failure lets the conversation continue.
+It started with Jev, but the job should not be tied to one scoring service. The neutral name and explicit scorer selection let the same routing rules work with Jev, a configured OpenRouter model, or Cloudflare Clef. The interface stays quiet, the controls remain explicit, and a scoring failure lets the conversation continue.
 
 See [design choices](docs/DESIGN.md) for the trade-offs and their history.
 
