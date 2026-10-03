@@ -44,7 +44,7 @@ _VERSION_ROOT = re.compile(r"^v\d+(?:\.\d+)*$")
 def normalize_endpoint(value: Any) -> str:
     """Return the URL to POST to, tolerating a base URL in ``endpoint``.
 
-    ``plugins.entries.jev-auto-effort.settings.endpoint`` is written by hand, so both of
+    ``plugins.entries.hermes-adaptive-effort.settings.endpoint`` is written by hand, so both of
     these must land on the scoring route:
 
     * the full path — ``https://api.typesafe.ai/v1/systemone`` (used verbatim)
@@ -160,7 +160,7 @@ class JevClient:
         """``(score, failure)`` — the same call as :meth:`classify`, plus the reason.
 
         ``failure`` is ``None`` when a score came back, otherwise one of the
-        documented codes below. That is what ``/jev-auto-effort status`` reports, and
+        documented codes below. That is what ``/hermes-adaptive-effort status`` reports, and
         it is a *reason code* only: prompt text never reaches it.
 
         ================  =======================================================
@@ -180,7 +180,7 @@ class JevClient:
         key = self._key()
         if not key:
             # No credential: never open a connection at all.
-            logger.debug("jev-auto-effort: no %s credential; skipping classification", SENTINEL_ENV)
+            logger.debug("hermes-adaptive-effort: no %s credential; skipping classification", SENTINEL_ENV)
             return None, "credential_missing"
         body = {
             "state": {"prompt": truncate_prompt(prompt, self.max_prompt_chars)},
@@ -194,7 +194,7 @@ class JevClient:
                 "Accept": "application/json",
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {key}",
-                "User-Agent": "hermes-jev-auto-effort/0.1",
+                "User-Agent": "hermes-hermes-adaptive-effort/0.1",
             },
             method="POST",
         )
@@ -203,31 +203,31 @@ class JevClient:
         try:
             payload = transport(request, self.timeout)
         except urllib.error.HTTPError:
-            logger.debug("jev-auto-effort: classification failed after %.0fms",
+            logger.debug("hermes-adaptive-effort: classification failed after %.0fms",
                          (time.monotonic() - started) * 1000)
             return None, "http_error"
         except urllib.error.URLError as exc:
             reason = "timeout" if isinstance(getattr(exc, "reason", None), TimeoutError) \
                 else "transport_error"
-            logger.debug("jev-auto-effort: classification failed after %.0fms",
+            logger.debug("hermes-adaptive-effort: classification failed after %.0fms",
                          (time.monotonic() - started) * 1000)
             return None, reason
         except TimeoutError:
-            logger.debug("jev-auto-effort: classification failed after %.0fms",
+            logger.debug("hermes-adaptive-effort: classification failed after %.0fms",
                          (time.monotonic() - started) * 1000)
             return None, "timeout"
         except OSError:
-            logger.debug("jev-auto-effort: classification failed after %.0fms",
+            logger.debug("hermes-adaptive-effort: classification failed after %.0fms",
                          (time.monotonic() - started) * 1000)
             return None, "transport_error"
         except Exception:
-            logger.debug("jev-auto-effort: classification failed after %.0fms",
+            logger.debug("hermes-adaptive-effort: classification failed after %.0fms",
                          (time.monotonic() - started) * 1000)
             return None, "unexpected_error"
 
         status = getattr(payload, "status", None)
         if isinstance(status, int) and not 200 <= status < 300:
-            logger.debug("jev-auto-effort: endpoint returned HTTP %d", status)
+            logger.debug("hermes-adaptive-effort: endpoint returned HTTP %d", status)
             return None, "http_error"
 
         try:
@@ -239,12 +239,12 @@ class JevClient:
             else:
                 data = payload
         except Exception:
-            logger.debug("jev-auto-effort: answer was not JSON (%.0fms)",
+            logger.debug("hermes-adaptive-effort: answer was not JSON (%.0fms)",
                          (time.monotonic() - started) * 1000)
             return None, "malformed_response"
 
         score, failure = _extract_score_detail(data)
-        logger.debug("jev-auto-effort: classified in %.0fms (valid=%s, failure=%s)",
+        logger.debug("hermes-adaptive-effort: classified in %.0fms (valid=%s, failure=%s)",
                      (time.monotonic() - started) * 1000, score is not None, failure)
         return score, failure
 
@@ -253,7 +253,7 @@ def credential_present(key_reader: Optional[Callable[[], str]] = None) -> bool:
     """True when a Jev credential resolves.
 
     Opens nothing, sends nothing and never returns the secret itself — it only
-    answers "would a request be built at all?", for ``/jev-auto-effort status``.
+    answers "would a request be built at all?", for ``/hermes-adaptive-effort status``.
     """
     try:
         reader = key_reader or _default_key_reader

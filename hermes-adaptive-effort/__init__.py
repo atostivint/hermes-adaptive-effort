@@ -1,7 +1,7 @@
-"""Jev-Auto Effort — opt-in per-request reasoning-effort router.
+"""Hermes Adaptive Effort — opt-in per-request reasoning-effort router.
 
 Registered capabilities: ``llm_request`` middleware + session lifecycle hooks.
-Everything else (effort mapping, the Jev adapter, session state) lives in
+Everything else (effort mapping, scorer adapters, session state) lives in
 sibling modules so it can be unit-tested without booting Hermes.
 """
 
@@ -14,7 +14,7 @@ from . import middleware as _middleware
 
 
 def register(ctx: Any) -> None:
-    """Attach middleware, lifecycle hooks and ``/jev-auto-effort`` to a real PluginContext."""
+    """Attach middleware, lifecycle hooks and ``/hermes-adaptive-effort`` to a real PluginContext."""
     # Read settings through the context facade when it offers one, so a config
     # edit is picked up per call rather than frozen at import time.
     if hasattr(ctx, "get_config"):
@@ -47,12 +47,12 @@ def register(ctx: Any) -> None:
     # the goal its parent wrote.
     ctx.register_hook("subagent_start", _middleware.on_subagent_start)
     ctx.register_hook("subagent_stop", _middleware.on_subagent_stop)
-    # Verified API: PluginContext.register_command (hermes_cli/plugins.py) -> `/jev-auto-effort`.
+    # Verified API: PluginContext.register_command (hermes_cli/plugins.py) -> `/hermes-adaptive-effort`.
     ctx.register_command(
-        "jev-auto-effort",
+        "hermes-adaptive-effort",
         handler=_command.handle,
         description=(
-            "Jev-Auto Effort reasoning-effort router: status, bounded probe, and "
+            "Hermes Adaptive Effort reasoning-effort router: status, bounded probe, and "
             "off|recommend|auto|cache_safe for future requests"
         ),
         args_hint="<status|status json|probe <text>|off|recommend|auto|cache_safe>",

@@ -1,14 +1,15 @@
-# Jev-Auto Effort: per-request reasoning-effort routing.
-# Task 1 scope: architecture verification. See README.md for the verified
+# Hermes Adaptive Effort: per-request reasoning-effort routing.
+# See README.md for the verified
 # access paths and fail-open rules; enable only via plugins.entries settings.
-name: jev-auto-effort
-id: jev-auto-effort
+name: hermes-adaptive-effort
+id: hermes-adaptive-effort
 kind: standalone
 version: 0.1.0
 description: >
   Opt-in per-request reasoning-effort router. Reads the LLM request in the
-  llm_request middleware, asks Jev for an effort level, and rewrites only an
-  existing, provider-verified effort field. Default mode is off.
+  llm_request middleware, asks the selected scorer (Jev or OpenRouter) for an
+  effort level, and rewrites only an existing, provider-verified effort field.
+  Default mode is off and Jev remains the default scorer.
 provides: []
 provides_middleware:
   - llm_request
@@ -19,15 +20,17 @@ provides_hooks:
   - subagent_start
   - subagent_stop
 # Every key here renders as a field in Desktop Capabilities → Plugins (gear row);
-# saving writes plugins.entries.jev-auto-effort.settings.<key>, which middleware
+# saving writes plugins.entries.hermes-adaptive-effort.settings.<key>, which middleware
 # reads back via _read_setting. Types/choices must stay in sync with
 # middleware.DEFAULTS / VALID_MODES: the settings writer refuses mismatches.
 config_schema:
+  scorer_provider: {type: str, choices: [jev, openrouter], default: jev, label: Scorer provider, description: "Jev is the compatibility default; OpenRouter requires OPENROUTER_API_KEY and a configured scorer_model", required: false}
+  scorer_model: {type: str, default: "", label: Scorer model, description: "OpenRouter model slug (required when scorer_provider is openrouter)", required: false}
   mode: {type: str, choices: [off, recommend, auto, cache_safe], default: off, label: Mode, description: "off=no-op (default), recommend=classify only, auto=rewrite existing field, cache_safe=per-turn where cache-neutral else session-pinned", required: false}
   subagent_mode: {type: str, choices: [off, recommend, auto, cache_safe], default: off, label: Subagent mode, description: "Independent gate for child sessions classified from the parent-written goal", required: false}
   timeout_s: {type: float, default: 3.0, label: Timeout (s), description: "Per-classification HTTP timeout; a timeout fails open", required: false}
   max_turns: {type: int, default: 64, label: Max turns, description: "Decision-cache entries kept per process", required: false}
   prompt_chars: {type: int, default: 4000, label: Prompt chars, description: "Prompt text sent to the scorer, truncated there and never stored", required: false}
-  endpoint: {type: str, default: "https://api.typesafe.ai/v1/systemone", label: Endpoint, description: "Scoring route or API base (a base gets /systemone appended)", required: false}
+  endpoint: {type: str, default: "https://api.typesafe.ai/v1/systemone", label: Jev endpoint, description: "Jev scoring route or API base (a base gets /systemone appended); ignored by OpenRouter", required: false}
 requires:
   - llm_request middleware (capability: registering llm_request and session lifecycle hooks)

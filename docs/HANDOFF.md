@@ -1,4 +1,4 @@
-# Handoff — `jev-auto-effort`
+# Handoff — `hermes-adaptive-effort`
 
 **Read this first, then `README.md`** (contract + user-facing behaviour) and the three
 documents listed at the bottom (provenance and review history).
@@ -11,8 +11,9 @@ operational gap that is easy to miss.
 
 ## 1. What this is
 
-A Hermes plugin that lets an external rubric scorer (**Jev**, TypeSafe) choose the
-**reasoning effort** of each LLM request instead of leaving it at a fixed default.
+A Hermes plugin that lets a selected external rubric scorer choose the
+**reasoning effort** of each LLM request. Jev (TypeSafe) remains the default;
+OpenRouter is explicit opt-in and requires a configured model.
 
 Pipeline: read the outgoing request → score the prompt (`0 = low`, `1 = medium`,
 `2 = high`) → clamp the label onto **the route's own wire vocabulary** → write it into
@@ -21,19 +22,28 @@ the effort field **that already exists** in the request.
 It is fail-open by contract: any error, timeout, missing credential or unusable request
 shape leaves the request **byte-for-byte untouched**.
 
-`jev-auto-effort/` is the **payload**; Hermes installs it at
-`~/.hermes/plugins/jev-auto-effort`. This repo is the payload's source plus its tests.
+`hermes-adaptive-effort/` is the **payload**; Hermes installs it at
+`~/.hermes/plugins/hermes-adaptive-effort`. This repo is the payload's source plus its tests.
 There is deliberately **no `[project]` table** — nothing here is pip-installable, so
 `pip install` is never the install path. The managed path is:
 
 ```bash
-hermes plugins install 'atostivint/jev-auto-effort#jev-auto-effort'
+hermes plugins install 'atostivint/jev-auto-effort#hermes-adaptive-effort'
 ```
 
-(the `#subdir` fragment points at the payload dir inside this repo). The live install
-now follows that path, with the exact command recorded in §3b.
+(the `#subdir` fragment points at the new payload dir inside the still-legacy-named
+GitHub repository; that repository rename is tracked separately below).
 
 ## 2. Verified state (re-checked on this machine, 2026-09-30)
+
+Provider generalization and code identity, 2026-10-03: the payload, plugin ID, command,
+dashboard route and desktop identity now use `hermes-adaptive-effort`. The Jev adapter
+remains the default; an OpenRouter adapter uses `OPENROUTER_API_KEY`, a configured
+`scorer_model`, strict JSON numeric scoring, and a bounded 32-token completion. Provider
+selection is explicit with no cross-provider fallback. No live OpenRouter request was
+sent. The Windows suite is **193 passed** and lint is clean. The Sol plan recommended an
+explicit adapter boundary and a staged identity migration that preserves old settings
+while never enabling both middleware IDs together.
 
 Update, 2026-10-03: reproduced and fixed a per-turn bug where new turn ids still
 classified the oldest user message from full conversation history. Normal turns now
@@ -64,8 +74,8 @@ with one fake-scoring call per turn; GLM-5.2 is classified each turn but all rub
 labels clamp to `high`. No vendor requests, cost measurements or cache A/B were run.
 The installed plugin's middleware matched the source baseline before this fix;
 source test success alone does not prove a running Hermes process has loaded the fix.
-Verified installation detail: `%LOCALAPPDATA%\hermes\plugins\jev-auto-effort` is a
-Windows junction targeting this repository's `jev-auto-effort/` payload. Both changed
+Verified installation detail: `%LOCALAPPDATA%\hermes\plugins\hermes-adaptive-effort` is a
+Windows junction targeting this repository's `hermes-adaptive-effort/` payload. Both changed
 installed files have the same hashes as the fixed source, so no copy is needed.
 Restart the Hermes process to reload Python modules; editing the linked files does
 not replace modules already held in memory.
@@ -73,7 +83,7 @@ not replace modules already held in memory.
 Conversation-aware chip update, 2026-10-03: **168 tests passed**, lint clean.
 An independent Node rendering check covered switching A/B, unsupported B,
 concurrent activity in C, an unknown conversation, and a different backend owner.
-The local `%USERPROFILE%\.hermes\desktop-plugins\jev-auto-effort\plugin.js` copy
+The local `%USERPROFILE%\.hermes\desktop-plugins\hermes-adaptive-effort\plugin.js` copy
 was backed up and updated, with its hash verified against the tested source.
 The chip requires the current Desktop SDK focus atoms and the updated Python
 status entries; deploy both halves together. A focused owner that differs from
@@ -122,7 +132,7 @@ a880e82  Merge codex/jev-effort-visibility: one change feed, the stronger implem
 870aed8  Manifest/code parity + HANDOFF entry point
 ff6067a  Track AGENTS.md contributor instructions
 7d1f066  Add Desktop GUI: config_schema settings form + unified desktop plugin
-a81d833  refactor: rename the plugin to jev-auto-effort
+a81d833  refactor: rename the plugin to hermes-adaptive-effort
 8a73601  fix: reach the scoring route when settings.endpoint names the API base
 67429e3  docs: add the handoff for card t_cb5d47d0
 82d201a  wip(kanban t_cb5d47d0 run22): parked at 60/60 iterations
@@ -141,22 +151,22 @@ the endpoint fix and the rename. Nothing depends on it.
 
 Two hosts, two mechanisms, both on `a880e82` (the merge) as of 2026-10-02.
 
-**This machine (Windows).** `~/AppData/Local/hermes/plugins/jev-auto-effort` is a
-**symlink to `%USERPROFILE%\Projets\jev-auto-effort\jev-auto-effort`** — the repo working
+**This machine (Windows).** `~/AppData/Local/hermes/plugins/hermes-adaptive-effort` is a
+**symlink to `%USERPROFILE%\Projets\hermes-adaptive-effort\hermes-adaptive-effort`** — the repo working
 tree itself. There is nothing to deploy: any commit is live on the next agent start. Run
-`hermes plugins doctor jev-auto-effort` if you want to see it resolve. The desktop half is
-the separate copy `~/.hermes/desktop-plugins/jev-auto-effort/plugin.js` and does need a
+`hermes plugins doctor hermes-adaptive-effort` if you want to see it resolve. The desktop half is
+the separate copy `~/.hermes/desktop-plugins/hermes-adaptive-effort/plugin.js` and does need a
 re-copy when `desktop/plugin.js` changes.
 
-**Iris.** `/root/.hermes/plugins/jev-auto-effort` is a managed `#subdir` install of
-`atostivint/jev-auto-effort`, deployed by copying the payload over it (its
+**Iris.** `/root/.hermes/plugins/hermes-adaptive-effort` is a managed `#subdir` install of
+`atostivint/hermes-adaptive-effort`, deployed by copying the payload over it (its
 `.install-metadata.json` `revision` is maintained by hand to match). Iris's payload was
 already running a `/changes` feed — the `codex/jev-effort-visibility` implementation —
 because it had been copied there by hand; that branch has now been **merged** into
 `codex/windows-desktop-dev-loop`, so there is one implementation, not two.
 
-Deploying to iris means: copy `jev-auto-effort/` over the payload dir, `scp`
-`desktop/plugin.js` to `/root/.hermes/desktop-plugins/jev-auto-effort/plugin.js`, clear
+Deploying to iris means: copy `hermes-adaptive-effort/` over the payload dir, `scp`
+`desktop/plugin.js` to `/root/.hermes/desktop-plugins/hermes-adaptive-effort/plugin.js`, clear
 `__pycache__`, and set `.install-metadata.json` `revision` to the deployed SHA. Rollback:
 `/root/.hermes/cache/scratch/jev-backup-<stamp>/` holds both trees as they were.
 
@@ -168,13 +178,13 @@ there — only these backups are.
 
 Done 2026-09-30. Hermes used to report this plugin as `Source: user` with **no entry** in
 `~/.hermes/plugins/.install-metadata.json`, unlike every other git-installed plugin here.
-That is why `hermes plugins update jev-auto-effort` failed with *"not installed from git"*.
+That is why `hermes plugins update hermes-adaptive-effort` failed with *"not installed from git"*.
 
 ```bash
-hermes plugins install 'atostivint/jev-auto-effort#jev-auto-effort' --force --enable
+hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort' --force --enable
 ```
 
-The `#subdir` fragment points the installer at the `jev-auto-effort/` payload directory.
+The `#subdir` fragment points the installer at the `hermes-adaptive-effort/` payload directory.
 It clones via the `gh`-authenticated credential helper (the repo is **private**, scope
 `repo`) and records `revision: 870aed81…` plus `source` in `.install-metadata.json`.
 Verified after the fact: payload byte-identical to the repo, `plugins.entries` settings
@@ -203,14 +213,14 @@ live install sat at `a81d833` and was missing the whole GUI layer. **That is no 
 true — re-verify before believing any version of this claim.** Re-checked 2026-09-30:
 
 ```text
-~/.hermes/plugins/jev-auto-effort/  ==  master (870aed8)
+~/.hermes/plugins/hermes-adaptive-effort/  ==  master (870aed8)
 ```
 
 * `diff -r` (excluding `__pycache__` / `*.pyc`) reports **no differences** against
-  `jev-auto-effort/` in the repo.
+  `hermes-adaptive-effort/` in the repo.
 * `plugin.yaml`, `dashboard/plugin_api.py` and `desktop/plugin.js` are all **present**.
 * The `config_schema:` block **is** in the live `plugin.yaml`.
-* `~/.hermes/desktop-plugins/jev-auto-effort/plugin.js` is **present and byte-identical**
+* `~/.hermes/desktop-plugins/hermes-adaptive-effort/plugin.js` is **present and byte-identical**
   to the package's `desktop/plugin.js`.
 
 So the Desktop GUI layer from `7d1f066` *is* deployed on both tiers. Do not re-copy
@@ -227,9 +237,9 @@ hand-copy to a managed git install does not change any file content; it only add
 ```yaml
 plugins:
   enabled:
-    - jev-auto-effort
+    - hermes-adaptive-effort
   entries:
-    jev-auto-effort:
+    hermes-adaptive-effort:
       settings:
         mode: auto
         endpoint: https://api.typesafe.ai/v1/systemone
@@ -254,11 +264,11 @@ agent. Do not change `mode` in his config.
    `extra_body.reasoning.effort`, top-level `reasoning_effort`, and top-level
    `reasoning.effort` (codex_responses). Never invent a field; never re-enable thinking;
    never touch `"none"` or `enabled: false`. No writable field ⇒ `unsupported`, **zero**
-   Jev calls.
+   scorer calls.
 3. **Clamp onto the route vocabulary.** `effort.map_effort` → `clamp_effort` plus narrow
    tables for Kimi K3 / GLM-5.2 / GLM-5.3; `openai-codex` skips the narrow table;
    unknown routes fall back to the widest OpenAI-compatible set.
-4. **One Jev call per turn.** Memo key `(session_id, turn_id)`; `failed`/`unsupported` are
+4. **One selected-scorer call per turn.** Memo key `(session_id, turn_id)`; `failed`/`unsupported` are
    never retried in-turn; concurrent probes are claimed via `_IN_FLIGHT`; a stored target
    is re-clamped when the route changes (`_target_for_route`).
 5. **Rubric:** score `0..2` → `low` (<0.5) / `medium` (<1.5) / `high`. Out of range,
@@ -272,11 +282,11 @@ agent. Do not change `mode` in his config.
 8. **No prompt storage, no prompt in logs/reasons/traces.** Effort-change notices log
    only the old and new effort values. Reason strings carry effort values only;
    `command._ENTRY_FIELDS` is the only rendered session allowlist.
-9. **Never write the operator's config from a chat command.** `/jev-auto-effort <mode>`
+9. **Never write the operator's config from a chat command.** `/hermes-adaptive-effort <mode>`
    sets an in-process `_MODE_OVERRIDE` only; the persist path is
-   `plugins.entries.jev-auto-effort.settings.mode`.
-10. **Schemas are a public contract:** `jev-auto-effort.status.v1`,
-    `jev-auto-effort.probe.v1`, and `jev-auto-effort.changes.v1`. Field names and reason
+   `plugins.entries.hermes-adaptive-effort.settings.mode`.
+10. **Schemas are a public contract:** `hermes-adaptive-effort.status.v1`,
+    `hermes-adaptive-effort.probe.v1`, and `hermes-adaptive-effort.changes.v1`. Field names and reason
     codes are not free to rename.
 11. **Cache safety:** `cache_safety.effort_is_cache_safe()` returns `True` only for
     `chat_completions` / `codex_responses`; `anthropic_messages` and anything unknown →
@@ -287,16 +297,16 @@ agent. Do not change `mode` in his config.
 The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separate layers:
 
 * **`plugin.yaml` → `config_schema`** — renders a settings form in Desktop
-  Capabilities → Plugins. Saving writes `plugins.entries.jev-auto-effort.settings.<key>`,
+  Capabilities → Plugins. Saving writes `plugins.entries.hermes-adaptive-effort.settings.<key>`,
   which `middleware._read_setting` reads back per call (not frozen at import). Types and
   `choices` **must** stay in sync with `middleware.DEFAULTS` / `VALID_MODES`; the
   settings writer refuses mismatches, and `tests/test_config_schema.py` enforces it.
 * **`dashboard/plugin_api.py`** — FastAPI backend mounted at
-`/api/plugins/jev-auto-effort/`: `GET /status`, `GET /changes`, `POST /mode`,
+`/api/plugins/hermes-adaptive-effort/`: `GET /status`, `GET /changes`, `POST /mode`,
   `POST /probe`. It reuses
   the already-loaded agent modules (`command._status_payload()`,
   `middleware.set_mode_override()`), so the chip reports exactly what
-  `/jev-auto-effort status` prints. `probe` returns score/label/failure and a
+  `/hermes-adaptive-effort status` prints. `probe` returns score/label/failure and a
   `text_chars` count only — **never the text**. It degrades to an `error: status_failed`
   payload rather than raising. Each status entry carries an allowlisted
   `conversation_id` alongside its decision-key `session_id`; this is the exact
@@ -304,7 +314,7 @@ The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separ
   prompt-free applied transitions in memory and does not contain session identifiers.
 * **`GET /changes`** — the feed of rewrites that actually reached a request:
   `{stream_id, events: [{id, from, to, at}], latest}` under
-  `jev-auto-effort.changes.v1`, effort values only, never prompt text.
+  `hermes-adaptive-effort.changes.v1`, effort values only, never prompt text.
   `middleware._record_effort_change()` is called at the single point where a rewritten
   request is returned, so `recommend` / `failed` / `unsupported` / no-op turns and a
   tool loop re-sending the applied value record nothing; it also deduplicates on
@@ -314,7 +324,7 @@ The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separ
   restarts). Degrades to a `503 agent_plugin_not_loaded` / `changes_failed` payload
   like `/status`.
 * **`desktop/plugin.js`** — opt-in desktop plugin (`defaultEnabled: false`): a status-bar
-  chip `Effort: <focused conversation's latest decided effort>`, a `Jev Effort` pane with
+  chip `Effort: <focused conversation's latest decided effort>`, a `Adaptive Effort` pane with
   the global latest transition, and one toast per newly observed applied change. Toasts
   identify the change as belonging to a conversation because the feed has no session id.
   The changes feed and chip status poll every 2 s;
@@ -328,7 +338,7 @@ The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separ
   Hermes `PluginContext.register_cli_status_item()` host API and updates it after each
   distinct applied rewrite. The status handle also prints one bounded notice above the
   prompt for each distinct applied change; the plugin logs the same prompt-free `from -> to` notice and
-  `/jev-auto-effort status` prints the last applied transition. Older Hermes hosts without
+  `/hermes-adaptive-effort status` prints the last applied transition. Older Hermes hosts without
   the status-item API still get the log notice and command output.
 
 **Security boundary, not a bug:** the Python backend only mounts for plugins listed in
@@ -360,7 +370,7 @@ plugin is disabled, or the dashboard half is not deployed), the chip correctly s
 * `pyproject.toml`: `target-version = "py310"`, `line-length = 100`,
   `select = ["E","F","W","B"]`, `ignore = ["E501"]`. Import sorting (`I`) is
   intentionally **off** — do not reorder imports.
-* Tests import the payload as `hermes_plugin_jev_auto.<stem>`; inject fakes through
+* Tests import the payload as `hermes_plugin_adaptive_effort.<stem>`; inject fakes through
   `_classifier_factory` or the client's `transport=` / `key_reader=`, never real HTTP.
 * `hermetic_plugin_settings` is autouse: `_config_reader` returns `{}`,
   `_classifier_factory` is `None`, `reset_state()` runs before and after. No unit test may

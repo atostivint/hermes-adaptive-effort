@@ -130,7 +130,7 @@ def test_prompt_is_truncated_before_send():
 
 
 # ── classify_detail: the same call, with the *reason* on failure ────────────
-# /jev-auto-effort status reports a failure reason; classify() alone cannot say
+# /hermes-adaptive-effort status reports a failure reason; classify() alone cannot say
 # whether a None meant "no key", "timed out" or "the answer was garbage".
 
 def test_classify_detail_reports_the_score_and_no_reason():
@@ -191,7 +191,7 @@ def test_credential_present_reports_the_key_without_calling_the_transport(monkey
 
 
 # ── endpoint normalization ──────────────────────────────────────────────────
-# `plugins.entries.jev-auto-effort.settings.endpoint` is hand-written, so a base URL
+# `plugins.entries.hermes-adaptive-effort.settings.endpoint` is hand-written, so a base URL
 # there reaches the API root, which answers 404. Every classification then fails
 # open as `http_error` and the plugin looks enabled while doing nothing at all.
 

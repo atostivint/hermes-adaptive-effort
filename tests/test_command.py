@@ -1,4 +1,4 @@
-"""``/jev-auto-effort`` slash command: registered through Hermes' verified plugin API.
+"""``/hermes-adaptive-effort`` slash command: registered through Hermes' verified plugin API.
 
 The command is the operator-facing surface for the plugin: ``status`` renders the
 documented status payload, ``probe`` runs exactly one bounded classification.
@@ -53,9 +53,9 @@ def registered():
     return ctx
 
 
-def test_register_registers_exactly_one_command_named_jev_auto():
+def test_register_registers_exactly_one_command_named_hermes_adaptive_effort():
     ctx = registered()
-    assert [c["name"] for c in ctx.commands] == ["jev-auto-effort"]
+    assert [c["name"] for c in ctx.commands] == ["hermes-adaptive-effort"]
     assert callable(ctx.commands[0]["handler"])
     assert ctx.commands[0]["description"].strip()
 
@@ -72,7 +72,7 @@ def test_register_registers_nothing_beyond_the_declared_surface():
     assert [k for k, _ in ctx.hooks] == [
         "on_session_end", "on_session_finalize", "on_session_reset",
         "subagent_start", "subagent_stop"]
-    assert [c["name"] for c in ctx.commands] == ["jev-auto-effort"]
+    assert [c["name"] for c in ctx.commands] == ["hermes-adaptive-effort"]
 
 
 def test_registered_handler_is_the_command_module_entry_point():
@@ -97,11 +97,25 @@ def test_status_renders_the_configured_mode(monkeypatch):
 
 def test_status_json_returns_the_documented_payload():
     payload = json.loads(command.handle("status json"))
-    assert payload["schema"] == "jev-auto-effort.status.v1"
-    assert payload["plugin"] == "jev-auto-effort"
+    assert payload["schema"] == "hermes-adaptive-effort.status.v1"
+    assert payload["plugin"] == "hermes-adaptive-effort"
     assert payload["mode"] in ("off", "recommend", "auto")
     for key in ("settings", "credential", "counts", "sessions", "last"):
         assert key in payload
+
+
+def test_status_reports_selected_scorer_and_active_endpoint(monkeypatch):
+    configured = {
+        "scorer_provider": "openrouter",
+        "scorer_model": "openai/gpt-4o-mini",
+    }
+    monkeypatch.setattr(middleware, "_settings_provider",
+                        lambda key, default=None: configured.get(key, default))
+    payload = json.loads(command.handle("status json"))
+    assert payload["settings"]["scorer_provider"] == "openrouter"
+    assert payload["settings"]["scorer_model_effective"] == "openai/gpt-4o-mini"
+    assert payload["settings"]["endpoint_effective"] == \
+        "https://openrouter.ai/api/v1/chat/completions"
 
 
 @pytest.mark.parametrize("api_mode, expected", [

@@ -1,14 +1,14 @@
-"""/jev-auto-effort off|recommend|auto|cache_safe — the mode verbs (acceptance criterion 2).
+"""/hermes-adaptive-effort off|recommend|auto|cache_safe — the mode verbs (acceptance criterion 2).
 
 Two defects are pinned here. First, ``_dispatch`` answered the usage banner for every
 verb except ``help``/``status``/``probe``, so none of the four documented modes could
-be set from a chat at all. Second, that banner pointed at ``/jev-auto-effort setup``, which
+be set from a chat at all. Second, that banner pointed at ``/hermes-adaptive-effort setup``, which
 does not exist anywhere: the host API (``hermes_cli/plugins.py``) exposes
 ``register_command`` and nothing else, so there is no "setup" wizard to delegate to.
 
 The scope of the fix is deliberate: a mode set from the command applies to FUTURE
 requests of THIS process, and is never written to the operator's ``config.yaml``
-(the reply says both). ``plugins.entries.jev-auto-effort.settings.mode`` is the documented
+(the reply says both). ``plugins.entries.hermes-adaptive-effort.settings.mode`` is the documented
 way to make a choice stick across restarts.
 """
 
@@ -82,7 +82,7 @@ def test_mode_verb_is_accepted_and_governs_the_next_request(monkeypatch, mode):
     out, jev = route(monkeypatch)
     if mode == "off":
         assert out is None                      # nothing rewritten...
-        assert jev.calls == []                  # ...and no Jev call spent
+        assert jev.calls == []                  # ...and no scorer call spent
     elif mode == "recommend":
         assert out is not None                  # classified and reported...
         assert out["request"]["extra_body"]["reasoning"]["effort"] == "medium"
@@ -96,7 +96,7 @@ def test_mode_reply_names_its_scope_and_the_persist_path():
     first = command.handle("auto")
     assert "future requests" in first
     assert "not persisted" in first
-    assert "plugins.entries.jev-auto-effort.settings.mode" in first
+    assert "plugins.entries.hermes-adaptive-effort.settings.mode" in first
 
     repeat = command.handle("auto")
     assert "unchanged" in repeat

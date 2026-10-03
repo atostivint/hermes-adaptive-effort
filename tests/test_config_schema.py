@@ -1,4 +1,4 @@
-"""config_schema: the Desktop settings form contract for jev-auto-effort."""
+"""config_schema: the Desktop settings form contract for hermes-adaptive-effort."""
 
 from __future__ import annotations
 
@@ -31,6 +31,15 @@ def test_config_schema_modes_match_valid_modes():
         assert entry.get("type") == "str"
 
 
+def test_scorer_schema_keeps_jev_default_and_requires_model_for_openrouter():
+    schema = _load_manifest()["config_schema"]
+    assert set(schema["scorer_provider"].get("choices") or []) == {"jev", "openrouter"}
+    assert schema["scorer_provider"].get("default") == middleware.DEFAULTS["scorer_provider"]
+    assert schema["scorer_model"].get("default") == middleware.DEFAULTS["scorer_model"]
+    assert "OPENROUTER_API_KEY" in schema["scorer_provider"].get("description", "")
+    assert "required when" in schema["scorer_model"].get("description", "")
+
+
 def test_config_schema_types_and_defaults_match_middleware():
     schema = _load_manifest()["config_schema"]
     assert schema["timeout_s"]["type"] == "float"
@@ -47,4 +56,4 @@ def test_config_schema_declares_no_secret():
     schema = _load_manifest()["config_schema"]
     types = {key: entry.get("type") for key, entry in schema.items()}
     assert "secret" not in set(types.values()), (
-        f"credential stays in TYPESAFE_API_KEY/.env, never config.yaml: {types}")
+        f"credentials stay in TYPESAFE_API_KEY or OPENROUTER_API_KEY/.env, never config.yaml: {types}")

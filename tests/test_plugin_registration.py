@@ -14,7 +14,7 @@ class FakeCtx:
         self.middleware = []
         self.hooks = []
         self.commands = []
-        self.plugin_id = "jev-auto-effort"
+        self.plugin_id = "hermes-adaptive-effort"
 
     def register_middleware(self, kind, callback):
         self.middleware.append((kind, callback))
@@ -48,7 +48,7 @@ def test_manifest_exists_and_declares_the_capability():
                 data[k.strip()] = v.strip()
     else:
         data = fast_safe_load(text) or {}
-    assert data.get("name") == "jev-auto-effort"
+    assert data.get("name") == "hermes-adaptive-effort"
     assert data.get("kind", "standalone") in {"standalone", "general"}
     assert "llm_request" in text
 
