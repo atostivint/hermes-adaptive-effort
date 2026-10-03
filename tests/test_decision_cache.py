@@ -10,7 +10,7 @@ rejects. Moonshot K3 accepts exactly ``low``/``high``/``max`` (a bare ``medium``
 label describes the PROMPT, so on a route change it is re-clamped onto the new
 route's vocabulary; a route that cannot express it at all rewrites nothing.
 
-Criterion 6 — ``/jev-auto-effort status`` names the provider and model behind each decision,
+Criterion 6 — ``/hermes-adaptive-effort status`` names the provider and model behind each decision,
 so an operator can tell what was classified and on which route, while still never
 printing prompt text.
 """
@@ -220,4 +220,4 @@ def test_status_reports_the_route_even_when_nothing_was_rewritten(monkeypatch):
     assert (session["state"], session["provider"], session["model"]) == (
         "unsupported", "openrouter", "openrouter/x/y")
     assert payload["counts"]["unsupported"] == 1
-    assert payload["counts"]["probes"] == 0     # no Jev call without a writable field
+    assert payload["counts"]["probes"] == 0     # no scorer call without a writable field

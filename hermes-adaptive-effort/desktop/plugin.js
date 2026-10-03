@@ -1,13 +1,13 @@
-/** Jev-Auto Effort — desktop toggle + live status for Hermes Desktop.
+/** Hermes Adaptive Effort — desktop toggle + live status for Hermes Desktop.
  *
  * Unified-package half of the agent plugin: install location is
- * `~/.hermes/plugins/jev-auto-effort/desktop/plugin.js` (copied app-level by the
+ * `~/.hermes/plugins/hermes-adaptive-effort/desktop/plugin.js` (copied app-level by the
  * main process). Plain ESM, no build step: only `@hermes/plugin-sdk`, `react`
  * and `react/jsx-runtime` resolve.
  *
- * Backend is the sibling `dashboard/plugin_api.py` (`/api/plugins/jev-auto-effort/`),
+ * Backend is the sibling `dashboard/plugin_api.py` (`/api/plugins/hermes-adaptive-effort/`),
  * itself a thin wrapper around the agent half's command/middleware. Everything
- * fails open: backend disabled or unreachable renders `Jev —`, actions toast.
+ * fails open: backend disabled or unreachable renders `Effort: N/A`, actions toast.
  */
 import {
   Codicon,
@@ -22,9 +22,9 @@ import {
   useValue
 } from '@hermes/plugin-sdk'
 import { jsx, jsxs } from 'react/jsx-runtime'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-const ID = 'jev-auto-effort'
+const ID = 'hermes-adaptive-effort'
 const MODES = ['off', 'recommend', 'auto', 'cache_safe']
 let rest = null
 
@@ -35,13 +35,61 @@ function toneFor(mode, isError) {
   return 'text-(--ui-text-tertiary)'
 }
 
+function useEffortChanges() {
+  return useQuery({
+    queryKey: [ID, 'changes'],
+    queryFn: () => rest('/changes', { timeoutMs: 15000 }),
+    refetchInterval: 2000,
+    staleTime: 1000,
+    retry: 1
+  })
+}
+
+function effortForConversation(data, conversationId) {
+  if (typeof conversationId !== 'string' || !conversationId) return 'N/A'
+  const sessions = Array.isArray(data?.sessions) ? data.sessions : []
+  const latest = sessions
+    .filter(entry => entry?.conversation_id === conversationId)
+    .reduce((best, entry) => {
+      const updatedAt = Number(entry?.updated_at) || 0
+      return !best || updatedAt >= (Number(best.updated_at) || 0) ? entry : best
+    }, null)
+  return latest?.state === 'decided' && typeof latest.target === 'string' ? latest.target : 'N/A'
+}
+
+function ChangeNotifications({ query }) {
+  const cursor = useRef(null)
+
+  useEffect(() => {
+    const data = query.data
+    if (!data || typeof data.stream_id !== 'string' || !Array.isArray(data.events)) return
+    const events = data.events.filter(event => Number.isInteger(event?.id))
+    const latestId = events.reduce((max, event) => Math.max(max, event.id), 0)
+    const current = cursor.current
+    if (!current || current.streamId !== data.stream_id) {
+      cursor.current = { streamId: data.stream_id, lastId: latestId }
+      return
+    }
+    const fresh = events.filter(event => event.id > current.lastId)
+    cursor.current = { streamId: data.stream_id, lastId: Math.max(current.lastId, latestId) }
+    for (const event of fresh) {
+      host.notify({
+        kind: 'info',
+        message: `Reasoning effort changed in a conversation: ${event.from} → ${event.to}`
+      })
+    }
+  }, [query.data])
+
+  return null
+}
+
 async function switchMode(mode, query) {
   try {
     await rest('/mode', { method: 'POST', body: { mode, persist: true }, timeoutMs: 15000 })
     haptic('tap')
-    host.notify({ kind: 'info', message: `Jev-Auto Effort mode: ${mode} (persisted)` })
+    host.notify({ kind: 'info', message: `Hermes Adaptive Effort mode: ${mode} (persisted)` })
   } catch (err) {
-    host.notifyError(err, `Could not set Jev mode to ${mode}`)
+    host.notifyError(err, `Could not set effort mode to ${mode}`)
   } finally {
     if (query && typeof query.refetch === 'function') {
       try { await query.refetch() } catch (_ignored) { /* next poll heals */ }
@@ -67,18 +115,27 @@ function ModeButtons({ mode, query, compact }) {
   })
 }
 
-function JevChip() {
+function AdaptiveEffortChip() {
   const [open, setOpen] = useState(false)
+  const focusedSessionId = useValue(host.state.focusedSessionId)
+  const focusedOwner = useValue(host.state.focusedSessionOwner)
+  const activeConnectionId = useValue(host.state.connectionId)
+  const activeProfile = useValue(host.state.profile)
+  const changesQuery = useEffortChanges()
   const query = useQuery({
-    queryKey: [ID, 'status'],
+    queryKey: [ID, 'status', focusedOwner?.connectionId, focusedOwner?.profile,
+      activeConnectionId, activeProfile],
     queryFn: () => rest('/status', { timeoutMs: 15000 }),
-    refetchInterval: 15000,
-    staleTime: 10000,
+    refetchInterval: 2000,
+    staleTime: 1000,
     retry: 1
   })
   const data = query.data
   const mode = typeof data?.mode === 'string' ? data.mode : null
-  const label = query.isError ? 'Jev —' : mode ? `Jev ${mode}` : 'Jev …'
+  const ownerMatchesBackend = focusedOwner?.connectionId === activeConnectionId &&
+    focusedOwner?.profile === activeProfile
+  const effort = ownerMatchesBackend ? effortForConversation(data, focusedSessionId) : 'N/A'
+  const label = `Effort: ${effort}`
   const tone = toneFor(mode, query.isError)
 
   return jsx(Popover, {
@@ -86,14 +143,15 @@ function JevChip() {
     onOpenChange: setOpen,
     children: jsxs('div', {
       children: [
+        jsx(ChangeNotifications, { query: changesQuery }),
         jsx(PopoverTrigger, {
           asChild: true,
           children: jsxs('button', {
             type: 'button',
             className: `inline-flex h-full items-center gap-1 px-1.5 text-[0.6875rem] ${tone} hover:text-(--ui-text-primary)`,
             title: query.isError
-              ? 'Jev backend unavailable — enable the plugin in config (plugins.enabled) and Desktop'
-              : `Jev-Auto Effort: ${mode || 'loading'} — click to switch`,
+              ? 'Scoring backend unavailable — enable the plugin in config (plugins.enabled) and Desktop'
+              : `Hermes Adaptive Effort: ${mode || 'loading'} · focused conversation effort: ${effort} — click to switch`,
             children: [jsx(Codicon, { name: 'zap', className: 'text-[0.75rem]' }), label]
           })
         }),
@@ -105,10 +163,10 @@ function JevChip() {
             ? jsxs('div', {
               className: 'space-y-1 text-xs',
               children: [
-                jsx('div', { className: 'font-medium text-(--ui-warning)', children: 'Jev backend unavailable' }),
+                jsx('div', { className: 'font-medium text-(--ui-warning)', children: 'Scoring backend unavailable' }),
                 jsx('div', {
                   className: 'text-(--ui-text-tertiary)',
-                  children: 'Enable jev-auto-effort in plugins.enabled and in Capabilities → Plugins.'
+                  children: 'Enable hermes-adaptive-effort in plugins.enabled and in Capabilities → Plugins.'
                 })
               ]
             })
@@ -129,8 +187,9 @@ function JevChip() {
   })
 }
 
-function JevPane() {
+function AdaptiveEffortPane() {
   const gateway = useValue(host.state.gateway)
+  const changesQuery = useEffortChanges()
   const query = useQuery({
     queryKey: [ID, 'status-pane'],
     queryFn: () => rest('/status', { timeoutMs: 15000 }),
@@ -140,7 +199,10 @@ function JevPane() {
   })
   const data = query.data
   const mode = typeof data?.mode === 'string' ? data.mode : '…'
+  const scorerProvider = data?.settings?.scorer_provider || '…'
+  const scorerModel = data?.settings?.scorer_model_effective || 'unset'
   const last = data?.last || null
+  const latestChange = changesQuery.data?.latest || null
 
   return jsxs('div', {
     className: 'flex h-full flex-col gap-3 p-3 text-sm',
@@ -148,7 +210,7 @@ function JevPane() {
       jsxs('div', {
         className: 'space-y-0.5',
         children: [
-          jsx('div', { className: 'font-medium', children: 'Jev-Auto Effort' }),
+          jsx('div', { className: 'font-medium', children: 'Hermes Adaptive Effort' }),
           jsx('div', {
             className: 'text-xs text-(--ui-text-tertiary)',
             children: `gateway: ${gateway} · credential: ${data?.credential ? 'present' : data ? 'missing' : '…'}` 
@@ -164,6 +226,13 @@ function JevPane() {
           className: 'space-y-2',
           children: [
             jsx('div', { className: 'text-xs text-(--ui-text-secondary)', children: `Mode: ${mode} (persisted on switch)` }),
+            jsx('div', { className: 'text-xs text-(--ui-text-secondary)', children: `Scorer: ${scorerProvider} · model: ${scorerModel}` }),
+            jsx('div', {
+              className: 'text-xs text-(--ui-text-secondary)',
+              children: latestChange
+                ? `latest applied effort (all conversations): ${latestChange.from} → ${latestChange.to}`
+                : 'latest applied effort (all conversations): N/A'
+            }),
             jsx(ModeButtons, { mode: typeof data?.mode === 'string' ? data.mode : null, query }),
             jsx('div', {
               className: 'text-xs text-(--ui-text-tertiary)',
@@ -172,12 +241,12 @@ function JevPane() {
             last
               ? jsx('div', {
                 className: 'text-xs text-(--ui-text-tertiary)',
-                children: `last: state=${last.state} label=${last.label ?? '—'} target=${last.target ?? '—'} score=${last.score ?? '—'}`
+                children: `most recent status (all conversations): state=${last.state} label=${last.label ?? 'N/A'} target=${last.target ?? 'N/A'} scorer=${last.scorer_provider ?? 'N/A'} model=${last.scorer_model ?? 'N/A'} score=${last.score ?? 'N/A'}`
               })
               : jsx('div', { className: 'text-xs text-(--ui-text-quaternary)', children: 'last: none' }),
             jsx('div', {
               className: 'text-[0.6875rem] text-(--ui-text-quaternary)',
-              children: 'Fail-open: any error leaves the request untouched. Fine-tune in Capabilities → Plugins (gear) or /jev-auto-effort status.'
+              children: 'Fail-open: any error leaves the request untouched. Fine-tune in Capabilities → Plugins (gear) or /hermes-adaptive-effort status.'
             })
           ]
         })
@@ -187,7 +256,7 @@ function JevPane() {
 
 export default {
   id: ID,
-  name: 'Jev Auto Effort',
+  name: 'Hermes Adaptive Effort',
   defaultEnabled: false,
   register(ctx) {
     rest = ctx.rest
@@ -195,29 +264,29 @@ export default {
       id: 'chip',
       area: STATUSBAR_AREAS.right,
       order: 120,
-      render: () => jsx(JevChip, {})
+      render: () => jsx(AdaptiveEffortChip, {})
     })
     ctx.register({
       id: 'pane',
       area: 'panes',
-      title: 'Jev Effort',
+      title: 'Adaptive Effort',
       data: { placement: 'right', width: '280px' },
-      render: () => jsx(JevPane, {})
+      render: () => jsx(AdaptiveEffortPane, {})
     })
     ctx.registerMany(MODES.map(mode => ({
       id: `mode-${mode.replace('_', '-')}`,
       area: PALETTE_AREA,
       data: {
         id: `${ID}.mode.${mode}`,
-        label: `Jev Effort: ${mode}`,
-        keywords: ['jev', 'effort', 'reasoning', mode],
+        label: `Adaptive Effort: ${mode}`,
+        keywords: ['adaptive effort', 'effort', 'reasoning', mode],
         run: async () => {
           try {
             await rest('/mode', { method: 'POST', body: { mode, persist: true }, timeoutMs: 15000 })
             haptic('tap')
-            host.notify({ kind: 'info', message: `Jev-Auto Effort mode: ${mode} (persisted)` })
+            host.notify({ kind: 'info', message: `Hermes Adaptive Effort mode: ${mode} (persisted)` })
           } catch (err) {
-            host.notifyError(err, `Could not set Jev mode to ${mode}`)
+            host.notifyError(err, `Could not set effort mode to ${mode}`)
           }
         }
       }
@@ -227,9 +296,9 @@ export default {
       area: PALETTE_AREA,
       data: {
         id: `${ID}.status`,
-        label: 'Jev Effort: Status',
-        keywords: ['jev', 'effort', 'status'],
-        run: () => host.navigate('/jev-auto-effort')
+        label: 'Adaptive Effort: Status',
+        keywords: ['adaptive effort', 'effort', 'status'],
+        run: () => host.navigate('/hermes-adaptive-effort')
       }
     })
   }

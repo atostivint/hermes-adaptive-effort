@@ -1,7 +1,7 @@
 """Integration: the plugin driven by the REAL Hermes middleware dispatcher.
 
 This is the one test that does not call our callback directly. It boots a
-throwaway ``HERMES_HOME``, copies the payload into ``<home>/plugins/jev-auto-effort``,
+throwaway ``HERMES_HOME``, copies the payload into ``<home>/plugins/hermes-adaptive-effort``,
 lets Hermes' own ``PluginManager`` discover and register it, then enters through
 ``hermes_cli.middleware.apply_llm_request_middleware`` — the exact function
 ``agent/turn_api_request.py`` calls before building a provider request.
@@ -14,6 +14,7 @@ turn, so the assertions are about wiring, not about a live classifier.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -56,10 +57,12 @@ RECORDED_REQUEST = {
 
 def _payload_module(home: Path, suffix: str):
     """The module Hermes loaded from *this* home's payload (not our test copy)."""
-    prefix = str(home / "plugins")
+    # Hermes canonicalizes HERMES_HOME to lowercase on Windows; compare path
+    # spellings with the platform's case rules instead of raw string equality.
+    prefix = os.path.normcase(str(home / "plugins"))
     for name, mod in list(sys.modules.items()):
         filename = getattr(mod, "__file__", "") or ""
-        if filename.startswith(prefix) and name.endswith(suffix):
+        if os.path.normcase(filename).startswith(prefix) and name.endswith(suffix):
             return mod
     raise AssertionError(f"payload module {suffix!r} was not loaded from {home}")
 
@@ -74,7 +77,7 @@ def dispatched(tmp_path_factory):
     home = tmp_path_factory.mktemp("jev_home")
     (home / "plugins").mkdir()
     shutil.copytree(
-        PLUGIN_DIR, home / "plugins" / "jev-auto-effort",
+        PLUGIN_DIR, home / "plugins" / "hermes-adaptive-effort",
         ignore=shutil.ignore_patterns("__pycache__"),
     )
     bundled = home / "bundled_plugins"
@@ -82,8 +85,8 @@ def dispatched(tmp_path_factory):
     (home / "config.yaml").write_text(
         json.dumps({
             "plugins": {
-                "enabled": ["jev-auto-effort"],
-                "entries": {"jev-auto-effort": {"settings": {"mode": "auto"}}},
+                "enabled": ["hermes-adaptive-effort"],
+                "entries": {"hermes-adaptive-effort": {"settings": {"mode": "auto"}}},
             },
         }),
         encoding="utf-8",
@@ -133,12 +136,12 @@ def test_real_dispatcher_discovers_registers_and_rewrites(dispatched, no_network
     assert result.payload["extra_body"]["reasoning"]["effort"] == "high"
     assert request["extra_body"]["reasoning"]["effort"] == "medium"
     assert result.original_payload["extra_body"]["reasoning"]["effort"] == "medium"
-    assert result.trace and result.trace[0]["source"] == "jev-auto-effort"
+    assert result.trace and result.trace[0]["source"] == "hermes-adaptive-effort"
 
     # Registered through the real PluginContext, nothing more and nothing less.
-    plugin = dispatched["manager"]._plugins["jev-auto-effort"]
+    plugin = dispatched["manager"]._plugins["hermes-adaptive-effort"]
     assert plugin.middleware_registered == ["llm_request"]
-    assert "jev-auto-effort" in plugin.commands_registered
+    assert "hermes-adaptive-effort" in plugin.commands_registered
     assert "on_session_end" in plugin.hooks_registered
     assert not getattr(plugin, "tools_registered", None)
 
@@ -193,7 +196,7 @@ def test_real_dispatcher_leaves_the_request_untouched_when_mode_is_off(dispatche
     assert result.changed is False
     assert result.payload["extra_body"]["reasoning"]["effort"] == "medium"
     assert result.trace == []
-    assert calls["n"] == 0          # off means *no* Jev call, not a silent one
+    assert calls["n"] == 0          # off means *no* scorer call, not a silent one
     assert middleware.session_state() == {}
 
 
@@ -321,7 +324,7 @@ def test_real_dispatcher_fails_open_and_does_not_retry_a_failed_turn(
 
 
 def test_real_dispatcher_marks_an_unwritable_request_unsupported(dispatched, no_network):
-    """Reasoning disabled: there is nothing to rewrite, and no Jev call is spent."""
+    """Reasoning disabled: there is nothing to rewrite, and no scorer call is spent."""
     from hermes_cli.middleware import apply_llm_request_middleware
 
     middleware = dispatched["middleware"]

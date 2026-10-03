@@ -1,6 +1,8 @@
-"""`llm_request` middleware: opt-in, fail-open, one Jev call per session."""
+"""`llm_request` middleware: opt-in, fail-open, one scorer call per turn."""
 
 from __future__ import annotations
+
+import json
 
 import pytest
 
@@ -105,7 +107,7 @@ def test_recommend_records_but_does_not_mutate(monkeypatch):
     out = call(ctx(request=req))
     assert out is not None
     assert out["request"]["extra_body"]["reasoning"]["effort"] == "medium"
-    assert out["source"] == "jev-auto-effort"
+    assert out["source"] == "hermes-adaptive-effort"
     assert "high" in out["reason"] and "not applied" in out["reason"]
     assert factory.instances[0].calls == ["first user prompt"]
 
@@ -120,7 +122,7 @@ def test_auto_rewrites_only_the_effort_value(monkeypatch, no_network):
     before, after = dict(req), dict(out["request"])
     assert after["messages"] == before["messages"]
     assert after["model"] == before["model"]
-    assert out["source"] == "jev-auto-effort"
+    assert out["source"] == "hermes-adaptive-effort"
 
 
 def test_auto_never_adds_an_effort_field(monkeypatch):
@@ -129,7 +131,7 @@ def test_auto_never_adds_an_effort_field(monkeypatch):
     use_classifier(monkeypatch, factory)
     req = request_with(messages=[{"role": "user", "content": "hi"}])
     assert call(ctx(request=req)) is None
-    # Nothing to rewrite -> no Jev call either, and no field is invented.
+    # Nothing to rewrite -> no scorer call either, and no field is invented.
     assert factory.instances == []
     assert "reasoning_effort" not in req and "extra_body" not in req
 
@@ -259,7 +261,7 @@ def test_no_network_during_auto_path(monkeypatch, no_network):
     assert out["request"]["extra_body"]["reasoning"]["effort"] == "high"
 
 
-# ── what /jev-auto-effort status reports ──────────────────────────────────────────
+# ── what /hermes-adaptive-effort status reports ──────────────────────────────────────────
 
 class DetailedClassifier(FakeClassifier):
     """Reports *why* it failed, the way JevClient.classify_detail does.
@@ -333,6 +335,51 @@ def test_missing_credential_is_reported_without_opening_a_socket(monkeypatch, no
     assert entry["failure"] == "credential_missing"
 
 
+def test_openrouter_adapter_uses_the_configured_model_and_common_rewrite(monkeypatch):
+    use_settings(monkeypatch, {
+        "mode": "auto", "scorer_provider": "openrouter", "scorer_model": "openai/gpt-4o-mini",
+    })
+    monkeypatch.setattr(middleware, "_classifier_factory", None)
+    classifier = DetailedClassifier(score=2.0)
+    calls = []
+
+    def build_client(settings):
+        calls.append(settings["scorer_provider"])
+        return classifier, None
+
+    monkeypatch.setattr(middleware._scorers, "build_client", build_client)
+    result = call(ctx(request=supported_request(), session="openrouter"))
+
+    assert calls == ["openrouter"]
+    assert result["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    entry = middleware.session_state()["openrouter/turn"]
+    assert entry["scorer_provider"] == "openrouter"
+    assert entry["scorer_model"] == "openai/gpt-4o-mini"
+    assert entry["probes"] == 1
+
+
+def test_openrouter_without_a_model_is_reported_and_not_retried(monkeypatch):
+    use_settings(monkeypatch, {"mode": "auto", "scorer_provider": "openrouter"})
+    monkeypatch.setattr(middleware, "_classifier_factory", None)
+
+    assert call(ctx(request=supported_request(), session="missing-model")) is None
+    entry = middleware.session_state()["missing-model/turn"]
+    assert entry["state"] == "failed"
+    assert entry["failure"] == "model_missing"
+    assert entry["probes"] == 1
+
+
+def test_unknown_scorer_provider_fails_open_without_fallback(monkeypatch):
+    use_settings(monkeypatch, {"mode": "auto", "scorer_provider": "not-a-provider"})
+    monkeypatch.setattr(middleware, "_classifier_factory", None)
+
+    assert call(ctx(request=supported_request(), session="unknown-scorer")) is None
+    entry = middleware.session_state()["unknown-scorer/turn"]
+    assert entry["state"] == "failed"
+    assert entry["failure"] == "unsupported_provider"
+    assert entry["probes"] == 1
+
+
 # ── criterion: never more than one in-flight probe per session ─────────────
 
 def test_only_one_probe_runs_per_session_at_a_time(monkeypatch):
@@ -361,7 +408,7 @@ def test_only_one_probe_runs_per_session_at_a_time(monkeypatch):
 
     # Same session, second request while the first probe is still running.
     assert call(ctx(request=supported_request(), session="s1")) is None
-    assert len(clients) == 1                      # no second Jev call
+    assert len(clients) == 1                      # no second scorer call
 
     release.set()
     thread.join(10)
@@ -390,3 +437,87 @@ def test_reset_state_also_clears_an_in_flight_probe():
     middleware.reset_state()
     assert middleware.in_flight() == ()
     assert middleware._claim("s1/turn") is True        # claimable again after reset
+
+
+# ── applied-change feed (consumed by the desktop backend's ``GET /changes``) ──
+
+
+def _feed():
+    return middleware.effort_change_state()
+
+
+def test_applied_rewrite_is_recorded(monkeypatch, no_network):
+    use_settings(monkeypatch, {"mode": "auto"})
+    use_classifier(monkeypatch, RecordingClassifierFactory(score=1.9))
+    assert call(ctx(request=supported_request())) is not None
+    feed = _feed()
+    assert [(e["from"], e["to"]) for e in feed["events"]] == [("medium", "high")]
+    assert feed["events"][0]["id"] == 1
+    assert feed["latest"] == feed["events"][0]
+    assert isinstance(feed["stream_id"], str) and feed["stream_id"]
+
+
+def test_re_sending_the_applied_effort_records_nothing(monkeypatch, no_network):
+    """A tool loop inside one turn re-sends the value we already wrote: no new event."""
+    use_settings(monkeypatch, {"mode": "auto"})
+    use_classifier(monkeypatch, RecordingClassifierFactory(score=1.9))
+    first = call(ctx(request=supported_request()))
+    assert call(ctx(request=first["request"])) is None
+    assert len(_feed()["events"]) == 1
+
+
+def test_the_same_rewrite_is_recorded_once_per_decision(monkeypatch, no_network):
+    """A route change re-sends the request at its original level: one event, not two."""
+    use_settings(monkeypatch, {"mode": "auto"})
+    use_classifier(monkeypatch, RecordingClassifierFactory(score=1.9))
+    assert call(ctx(request=supported_request())) is not None
+    again = call(ctx(request=supported_request()))
+    assert again["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    assert len(_feed()["events"]) == 1
+
+
+def test_nothing_that_failed_open_is_recorded(monkeypatch, no_network):
+    use_settings(monkeypatch, {"mode": "auto"})
+    use_classifier(monkeypatch, RecordingClassifierFactory(error=TimeoutError("slow")))
+    assert call(ctx(request=supported_request(), session="s1")) is None
+    use_settings(monkeypatch, {"mode": "recommend"})
+    use_classifier(monkeypatch, RecordingClassifierFactory(score=1.9))
+    assert call(ctx(request=supported_request(), session="s2")) is not None
+    use_settings(monkeypatch, {"mode": "auto"})
+    assert call(ctx(request=request_with(), session="s3")) is None  # nothing writable
+    feed = _feed()
+    assert feed["events"] == [] and feed["latest"] is None
+
+
+def test_feed_carries_effort_values_only(monkeypatch, no_network):
+    use_settings(monkeypatch, {"mode": "auto"})
+    use_classifier(monkeypatch, RecordingClassifierFactory(score=1.9))
+    call(ctx(request=supported_request()))
+    feed = _feed()
+    assert len(feed["events"]) == 1  # a rewrite really happened
+    assert "first user prompt" not in json.dumps(feed)
+    assert set(feed["events"][0]) == {"id", "from", "to", "at"}
+
+
+def test_reset_state_starts_a_new_stream(monkeypatch, no_network):
+    use_settings(monkeypatch, {"mode": "auto"})
+    use_classifier(monkeypatch, RecordingClassifierFactory(score=1.9))
+    call(ctx(request=supported_request()))
+    before = _feed()["stream_id"]
+    middleware.reset_state()
+    after = _feed()
+    assert after["stream_id"] != before  # a consumer must drop its cursor here
+    assert after["events"] == [] and after["latest"] is None
+
+
+def test_feed_is_bounded(monkeypatch, no_network):
+    """A long-lived process must not grow the feed without limit, and ids must keep counting."""
+    use_settings(monkeypatch, {"mode": "auto"})
+    use_classifier(monkeypatch, RecordingClassifierFactory(score=1.9))
+    limit = middleware._CHANGE_HISTORY_LIMIT
+    for index in range(limit + 5):
+        assert call(ctx(request=supported_request(), session=f"s{index}")) is not None
+    feed = _feed()
+    assert len(feed["events"]) == limit
+    assert feed["events"][0]["id"] == 6
+    assert feed["latest"]["id"] == limit + 5

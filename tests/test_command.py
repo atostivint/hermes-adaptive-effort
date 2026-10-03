@@ -1,4 +1,4 @@
-"""``/jev-auto-effort`` slash command: registered through Hermes' verified plugin API.
+"""``/hermes-adaptive-effort`` slash command: registered through Hermes' verified plugin API.
 
 The command is the operator-facing surface for the plugin: ``status`` renders the
 documented status payload, ``probe`` runs exactly one bounded classification.
@@ -8,6 +8,8 @@ Everything the command returns must stay free of prompt text (privacy contract).
 from __future__ import annotations
 
 import json
+
+import pytest
 
 from conftest import import_plugin
 
@@ -51,9 +53,9 @@ def registered():
     return ctx
 
 
-def test_register_registers_exactly_one_command_named_jev_auto():
+def test_register_registers_exactly_one_command_named_hermes_adaptive_effort():
     ctx = registered()
-    assert [c["name"] for c in ctx.commands] == ["jev-auto-effort"]
+    assert [c["name"] for c in ctx.commands] == ["hermes-adaptive-effort"]
     assert callable(ctx.commands[0]["handler"])
     assert ctx.commands[0]["description"].strip()
 
@@ -61,15 +63,16 @@ def test_register_registers_exactly_one_command_named_jev_auto():
 def test_register_registers_nothing_beyond_the_declared_surface():
     """Opt-in plugin: register() attaches exactly the documented registrations.
 
-    The two subagent hooks are part of that declared surface: they only record
-    which session is a child and the goal its parent wrote, and they are inert
-    until subagent_mode is explicitly enabled.
+    Session lifecycle hooks retain turn status between turns and clear it at
+    conversation boundaries. The subagent hooks only record which session is a
+    child and the goal its parent wrote, and are inert until subagent_mode is enabled.
     """
     ctx = registered()
     assert [k for k, _ in ctx.middleware] == ["llm_request"]
     assert [k for k, _ in ctx.hooks] == [
-        "on_session_end", "subagent_start", "subagent_stop"]
-    assert [c["name"] for c in ctx.commands] == ["jev-auto-effort"]
+        "on_session_end", "on_session_finalize", "on_session_reset",
+        "subagent_start", "subagent_stop"]
+    assert [c["name"] for c in ctx.commands] == ["hermes-adaptive-effort"]
 
 
 def test_registered_handler_is_the_command_module_entry_point():
@@ -94,11 +97,44 @@ def test_status_renders_the_configured_mode(monkeypatch):
 
 def test_status_json_returns_the_documented_payload():
     payload = json.loads(command.handle("status json"))
-    assert payload["schema"] == "jev-auto-effort.status.v1"
-    assert payload["plugin"] == "jev-auto-effort"
+    assert payload["schema"] == "hermes-adaptive-effort.status.v1"
+    assert payload["plugin"] == "hermes-adaptive-effort"
     assert payload["mode"] in ("off", "recommend", "auto")
     for key in ("settings", "credential", "counts", "sessions", "last"):
         assert key in payload
+
+
+def test_status_reports_selected_scorer_and_active_endpoint(monkeypatch):
+    configured = {
+        "scorer_provider": "openrouter",
+        "scorer_model": "openai/gpt-4o-mini",
+    }
+    monkeypatch.setattr(middleware, "_settings_provider",
+                        lambda key, default=None: configured.get(key, default))
+    payload = json.loads(command.handle("status json"))
+    assert payload["settings"]["scorer_provider"] == "openrouter"
+    assert payload["settings"]["scorer_model_effective"] == "openai/gpt-4o-mini"
+    assert payload["settings"]["endpoint_effective"] == \
+        "https://openrouter.ai/api/v1/chat/completions"
+
+
+@pytest.mark.parametrize("api_mode, expected", [
+    ("chat_completions", "cache-safe on chat_completions"),
+    ("codex_responses", "cache-safe on codex_responses"),
+    ("anthropic_messages", "cache-hostile on anthropic_messages"),
+    (None, "unknown route (no api_mode)"),
+])
+def test_status_cache_safety_uses_last_observed_route(monkeypatch, api_mode, expected):
+    monkeypatch.setattr(middleware, "_settings_provider",
+                        lambda key, default=None: {"mode": "auto"}.get(key, default))
+    # No effort field: even unsupported requests must report the actual route.
+    middleware.on_llm_request(
+        request={"messages": [{"role": "user", "content": "hey"}]},
+        session_id="MAIN", turn_id="turn", provider="example", model="model", api_mode=api_mode)
+    payload = json.loads(command.handle("status json"))
+    assert payload["last"]["api_mode"] == api_mode
+    assert payload["cache_safety"].startswith(expected)
+    assert f"cache safety: {expected}" in command.handle("status")
 
 
 def test_status_json_reports_last_score_target_timing_and_failure(monkeypatch):
@@ -121,6 +157,26 @@ def test_status_json_reports_last_score_target_timing_and_failure(monkeypatch):
     assert entry["probes"] == 1
     assert payload["last"]["session_id"] == "s1"
     assert payload["last"]["score"] == 1.9
+    middleware.reset_state()
+
+
+def test_status_json_exposes_exact_conversation_identity_for_turn_entries(monkeypatch):
+    monkeypatch.setattr(middleware, "_settings_provider",
+                        lambda key, default=None: {"mode": "recommend"}.get(key, default))
+    middleware.reset_state()
+    middleware.on_llm_request(
+        request={"messages": [{"role": "user", "content": "hello"}]},
+        session_id="room/a", turn_id="turn-1", provider="example", model="model",
+    )
+    middleware.on_llm_request(
+        request={"messages": [{"role": "user", "content": "hello"}]},
+        session_id="room/another", turn_id="turn-1", provider="example", model="model",
+    )
+
+    payload = json.loads(command.handle("status json"))
+    by_decision = {entry["session_id"]: entry for entry in payload["sessions"]}
+    assert by_decision["room/a/turn-1"]["conversation_id"] == "room/a"
+    assert by_decision["room/another/turn-1"]["conversation_id"] == "room/another"
     middleware.reset_state()
 
 

@@ -1,19 +1,21 @@
-# AGENTS.md — jev-auto-effort
+# AGENTS.md — hermes-adaptive-effort
 
-Hermes plugin that lets an external rubric scorer (Jev) pick the **reasoning effort**
+Hermes plugin that lets a selected external rubric scorer pick the **reasoning effort**
 of a request. Fail-open by contract: any error leaves the request untouched.
 
 ## Layout
 
 ```text
-jev-auto-effort/          payload installed as ~/.hermes/plugins/jev-auto-effort (NOT pip-installable)
+hermes-adaptive-effort/          payload installed as ~/.hermes/plugins/hermes-adaptive-effort (NOT pip-installable)
   plugin.yaml             manifest: id, commands, hooks, settings defaults
-  __init__.py             register(): llm_request middleware + on_session_end/subagent hooks + /jev-auto-effort
-  middleware.py           settings, mode, decision cache, request rewrite, session state
+  __init__.py             register(): llm_request middleware + on_session_end/subagent hooks + /hermes-adaptive-effort
+  middleware.py           settings, mode, decision cache, request rewrite, applied-change feed, session state
   effort.py               pure score -> label -> wire-effort mapping (no I/O, no Hermes import at top level)
-  jev_client.py           HTTP client for scorer + credential probe (lazy core import)
+  jev_client.py           Jev adapter + credential probe (lazy core import)
+  openrouter_client.py    OpenRouter adapter; requires explicit model + OPENROUTER_API_KEY
+  scorers.py              explicit provider registry, credentials and endpoint display
   cache_safety.py         is an effort change cache-neutral on this route?
-  command.py              /jev-auto-effort: help, status, status json, probe, mode verbs
+  command.py              /hermes-adaptive-effort: help, status, status json, probe, mode verbs
 tests/                    one module per contract (see README.md table)
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh
 pyproject.toml            pytest + ruff config only — no [project] table on purpose
@@ -24,9 +26,17 @@ docs/                     reviews + handoff for card t_cb5d47d0
 ## Commands (use these exactly)
 
 ```bash
-./scripts/run_tests.sh   # .venv/bin/python -m pytest tests (~127 tests, ~8s, network-free)
+./scripts/run_tests.sh   # .venv/bin/python -m pytest tests (~193 tests, ~1s, network-free)
 ./scripts/run_lint.sh    # .venv/bin/ruff check . (ruff 0.16.9)
 ./scripts/bootstrap_test_env.sh  # fresh machine: python3 -m venv --system-site-packages .venv + install + test
+```
+
+Windows PowerShell equivalents:
+
+```powershell
+.\scripts\bootstrap_test_env.ps1
+.\scripts\run_tests.ps1
+.\scripts\run_lint.ps1
 ```
 
 - Always use `.venv/bin/python` — it has the Hermes source tree (`agent/`, `hermes_cli/` from `/usr/local/lib/hermes-agent`, `HERMES_SOURCE_ROOT` override) on `sys.path` via `tests/conftest.py`.
@@ -44,27 +54,28 @@ docs/                     reviews + handoff for card t_cb5d47d0
 1. **Default mode is `off`.** Modes: `off` (no-op) / `recommend` (classify, rewrite nothing) / `auto` (rewrite existing field) / `cache_safe` (per-turn on cache-safe routes, session-pinned otherwise).
 2. **Rewrite only an existing effort field.** Shapes in `middleware._effort_slot`: `extra_body.reasoning.effort`, top-level `reasoning_effort`, top-level `reasoning.effort` (codex_responses). Never invent a field, never re-enable thinking, never touch `"none"` / `enabled: false`.
 3. **Clamp onto the route vocabulary.** `effort.map_effort` → `agent.reasoning_effort.clamp_effort` + narrow `wire_efforts`/`wire_overrides` for Kimi K3 / GLM-5.2 / GLM-5.3. `openai-codex` skips the narrow table. Unknown routes fall back to the widest OpenAI-compatible set. Known gap: Ox Alpha `medium` → 400 (do NOT silently work around; see README "Residual risk").
-4. **One Jev call per turn.** Memo key `(session_id, turn_id)`; `failed`/`unsupported` not retried in-turn; concurrent probes claimed via `_IN_FLIGHT`; re-clamp stored target on route change (`_target_for_route`).
-5. **Score rubric:** Jev score `0..2` → `low (<0.5)` / `medium (<1.5)` / `high`. Out-of-range, NaN/inf, bool, non-numeric → `None` → fail open.
-6. **Fail-open everywhere.** `on_llm_request` catches all; missing credential / timeout / transport / malformed → unchanged request + `failed` entry. Missing writable field → `unsupported`, 0 Jev calls.
+4. **One selected-scorer call per turn.** Memo key `(session_id, turn_id)`; `failed`/`unsupported` not retried in-turn; concurrent probes claimed via `_IN_FLIGHT`; re-clamp stored target on route change (`_target_for_route`).
+5. **Shared score rubric:** finite numeric score `0..2` → `low (<0.5)` / `medium (<1.5)` / `high`. Out-of-range, NaN/inf, bool, non-numeric → `None` → fail open. Jev is the default; OpenRouter requires an explicit model and never falls back to Jev.
+6. **Fail-open everywhere.** `on_llm_request` catches all; missing credential/model / timeout / transport / malformed → unchanged request + `failed` entry. Missing writable field → `unsupported`, 0 scorer calls.
 7. **Subagents:** child classified from parent-written goal (`subagent_start` hook), gated by independent `subagent_mode`. `probe`/`status` classify/store nothing; `probe` only scores operator-typed text.
 8. **No prompt storage, no prompt in logs/reasons/traces.** Reason strings carry effort values only. `command._ENTRY_FIELDS` is the only rendered session allowlist.
-9. **Never write the operator's config.** `/jev-auto-effort <mode>` sets in-memory `_MODE_OVERRIDE` for future requests in this process only; persist path is `plugins.entries.jev-auto-effort.settings.mode`.
-10. **Endpoint tolerance:** `jev_client.normalize_endpoint` accepts full route, API base, or bare host; `status` shows `endpoint_effective` + raw setting when they differ. Credential `TYPESAFE_API_KEY` via `agent.secret_scope` then env; `credential_present()` never returns the secret.
+9. **Never write the operator's config.** `/hermes-adaptive-effort <mode>` sets in-memory `_MODE_OVERRIDE` for future requests in this process only; persist path is `plugins.entries.hermes-adaptive-effort.settings.mode`.
+10. **Provider settings:** Jev uses `endpoint`, `TYPESAFE_API_KEY`, and fixed `jev_client.JEV_MODEL`; OpenRouter uses `scorer_model`, the fixed chat-completions endpoint, and `OPENROUTER_API_KEY`. Both resolve keys through `agent.secret_scope` then env; `credential_present()` never returns a secret. Jev endpoint tolerance remains full route/API base/bare host.
 11. **Cache safety:** `cache_safety.effort_is_cache_safe(provider, model, api_mode)` — `True` only for `chat_completions` / `codex_responses`; `anthropic_messages` and unknown → `False` (pin, never gamble).
+12. **Applied-change feed.** `middleware.effort_change_state()` → `{stream_id, events:[{id,from,to,at}], latest}` under schema `hermes-adaptive-effort.changes.v1`: the rewrites that actually reached a request (bounded ring of 64), effort values only, no session ids, no prompt text. Recorded at the single point where a rewritten request is returned — so `recommend`, `failed`, `unsupported`, no-op turns and a tool loop re-sending the applied value record nothing — and deduplicated on `(decision_key, from, to)` so a route change re-sending the original level does not replay. `reset_state()` mints a new `stream_id` (the sequence restarts); that is the consumer's signal to drop its cursor. Served as `GET /changes`.
 
 ## Test conventions
 
-- `tests/conftest.py` loads payload as `hermes_plugin_jev_auto.<stem>` via `import_plugin()`; Hermes core added to `sys.path` once (`ensure_hermes_source_on_path`).
+- `tests/conftest.py` loads payload as `hermes_plugin_adaptive_effort.<stem>` via `import_plugin()`; Hermes core added to `sys.path` once (`ensure_hermes_source_on_path`).
 - `no_network` (session autouse): any `socket.socket` / `create_connection` fails the run. Inject fakes via `_classifier_factory` or `transport=` / `key_reader=`, never real HTTP.
 - `hermetic_plugin_settings` (function autouse): `_config_reader = lambda: {}`, `_settings_provider = None`, `_classifier_factory = None`, `reset_state()` before/after. Never read `~/.hermes/config.yaml` in unit tests.
-- `test_dispatcher_integration.py` boots a throwaway `HERMES_HOME` + real `PluginManager.discover_and_load()` + `apply_llm_request_middleware`; it runs in `run_tests.sh`, never skipped there.
-- Settings under test live in `middleware.DEFAULTS` (`mode=off`, `subagent_mode=off`, `endpoint=https://api.typesafe.ai/v1/systemone`, `timeout_s=3.0`, `max_turns=64`, `prompt_chars=4000`); scorer model is const `jev_client.JEV_MODEL`, not a setting.
+- `test_dispatcher_integration.py` boots a throwaway `HERMES_HOME` + real `PluginManager.discover_and_load()` + `apply_llm_request_middleware`; it runs in `run_tests.sh` and `run_tests.ps1`, never skipped there. `run_tests.ps1` locates the Hermes source tree (`HERMES_SOURCE_ROOT`, then `$env:HERMES_HOME\hermes-agent`, a sibling `hermes-agent/` checkout, `$env:LOCALAPPDATA\hermes`) and falls back to a scratch `--basetemp` when `%TEMP%\pytest-of-<user>` or `.pytest_cache` has a foreign ACL — without either, ~40 mapping tests and every `tmp_path` test error out for unrelated-looking reasons.
+- Settings under test live in `middleware.DEFAULTS` (`mode=off`, `subagent_mode=off`, `endpoint=https://api.typesafe.ai/v1/systemone`, `scorer_provider=jev`, `scorer_model=""`, `timeout_s=3.0`, `max_turns=64`, `prompt_chars=4000`); Jev model is const `jev_client.JEV_MODEL`, while OpenRouter's model is configured.
 
 ## Hermes plugin development (canonical)
 
 - Locations: `~/.hermes/plugins/<name>/`, `./.hermes/plugins/` (opt-in), `<repo>/plugins/`, pip `hermes_agent.plugins`. This repo is a standalone example.
-- Minimal: `plugin.yaml` (`name, version, provides_tools/hooks`) + `__init__.py` with `def register(ctx)`. See `jev-auto-effort/__init__.py:16`.
+- Minimal: `plugin.yaml` (`name, version, provides_tools/hooks`) + `__init__.py` with `def register(ctx)`. See `hermes-adaptive-effort/__init__.py:16`.
 - `ctx` (`hermes_cli/plugins.py:231`): `register_tool(name, toolset, schema, handler)` — handler `(args:dict, **kwargs)->str` JSON, never raise; `register_hook(name, fn)` — `VALID_HOOKS` (`plugins.py:109`); `register_middleware(kind, fn)` — `VALID_MIDDLEWARE` (`middleware.py:24`: `llm_request/tool_request/llm_execution/tool_execution`); `register_command` (`/name`) / `register_cli_command` (`hermes <name>`); `get_config/set_config` (only `plugins.entries.<id>.settings`), `ctx.state`, `dispatch_tool`, `register_skill/locale`.
 - Hooks take `**kwargs` (additive payloads); middleware is fail-open, request returns `{"request"|"args":...}`, execution calls `next_call` exactly once. Order/contract: `website/docs/developer-guide/middleware.md`, guide: `website/docs/developer-guide/plugins/index.md`, policy: `plugins/AGENTS.md`.
 - Rules: never touch core files; internal `agent.*`/`hermes_cli.*` imports are not API (lazy import); secrets in `.env`/`secret_scope`, never `config.yaml`; no `~/.hermes` hardcode (`get_hermes_home()`); third-party-product plugins stay out-of-tree.
@@ -73,6 +84,6 @@ docs/                     reviews + handoff for card t_cb5d47d0
 ## When editing
 
 - Keep `effort.py` pure (stdlib only; lazy `agent.*` imports inside functions).
-- Keep failure reason codes stable (`invalid_prompt`, `credential_missing`, `http_error`, `timeout`, `transport_error`, `malformed_response`, `unexpected_error`, `classifier_error`) — `status`/`status json` schemas (`jev-auto-effort.status.v1`, `jev-auto-effort.probe.v1`) are a documented contract.
-- Unknown `/jev-auto-effort` verb or stray arg → return `USAGE`, change nothing.
+- Keep existing failure reason codes stable; additive scorer codes are `model_missing` and `unsupported_provider` — `status`/`status json` schemas (`hermes-adaptive-effort.status.v1`, `hermes-adaptive-effort.probe.v1`) are a documented contract.
+- Unknown `/hermes-adaptive-effort` verb or stray arg → return `USAGE`, change nothing.
 - Update `README.md` contract tables + `docs/` handoff if behavior changes; note cost/cache claims as unmeasured unless you run a live A/B.
