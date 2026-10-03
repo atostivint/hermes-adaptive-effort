@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-24.04, python: '3.11'}
+          - {os: ubuntu-24.04, python: '3.12'}
+          - {os: ubuntu-24.04, python: '3.14'}
+          - {os: windows-2025, python: '3.12'}
+    env:
+      HERMES_SOURCE_ROOT: ${{ github.workspace }}/.ci/hermes
+      PYTHONPATH: ${{ github.workspace }}/.ci/hermes
+      HERMES_HOME: ${{ github.workspace }}/.ci/home
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Check out the verified Hermes host
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: NousResearch/hermes-agent
+          ref: 0a374d167424cdc730ce9761368b62255b551e58
+          path: .ci/hermes
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Prepare and test (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements-dev.txt
+          .venv/bin/python -c "import agent.reasoning_effort; import hermes_cli.plugins"
+          ./scripts/run_tests.sh --junitxml=test-results.xml
+      - name: Prepare and test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python.exe -m pip install -r requirements-dev.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+          .venv/Scripts/python.exe -c "import agent.reasoning_effort; import hermes_cli.plugins"
+          if ($LASTEXITCODE -ne 0) { throw 'Hermes imports failed' }
+          ./scripts/run_tests.ps1 --junitxml=test-results.xml
+      - name: Require real integration tests and no skips
+        run: python .github/scripts/verify_test_report.py test-results.xml
+      - name: Retain test report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tests-${{ matrix.os }}-${{ matrix.python }}
+          path: test-results.xml
+          retention-days: 7
+          if-no-files-found: error
+
+  lint:
+    name: Lint and workflow validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: Python lint
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements-dev.txt
+          ./scripts/run_lint.sh
+          .venv/bin/ruff check .github/scripts
+      - name: Desktop JavaScript syntax
+        run: node --check hermes-adaptive-effort/desktop/plugin.js
+      - name: GitHub workflow validation
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
