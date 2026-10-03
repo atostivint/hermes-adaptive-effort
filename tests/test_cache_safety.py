@@ -139,7 +139,7 @@ def test_cache_safe_mode_pins_the_session_on_an_unsafe_route(monkeypatch):
     """Unsafe route: the first decision stands for the whole conversation.
 
     The first turn is still routed (that is the point of the mode); it is every
-    LATER turn that reuses it, so exactly one Jev call covers the session.
+    LATER turn that reuses it, so exactly one scorer call covers the session.
     """
     use_settings(monkeypatch, mode="cache_safe")
     seq = ScoreSequence([0.1, 1.9])
@@ -215,7 +215,7 @@ def test_cache_safe_is_rejected_as_a_session_mode_for_children_only(monkeypatch)
 
 
 def test_effort_unchanged_returns_no_decision(monkeypatch):
-    """A turn that needs the level already on the wire needs no Jev call."""
+    """A turn that needs the level already on the wire needs no scorer call."""
     use_settings(monkeypatch, mode="cache_safe")
     seq = ScoreSequence([0.1])   # would pick "low"
     monkeypatch.setattr(middleware, "_classifier_factory", seq)

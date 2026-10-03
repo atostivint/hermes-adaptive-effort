@@ -17,7 +17,7 @@ DESKTOP_JS = PLUGIN_DIR / "desktop" / "plugin.js"
 
 
 def _load_api():
-    name = "hermes_dashboard_plugin_jev_auto_effort_under_test"
+    name = "hermes_dashboard_plugin_hermes_adaptive_effort_under_test"
     if name in sys.modules:
         return sys.modules[name]
     spec = importlib.util.spec_from_file_location(name, str(API_PATH))
@@ -52,20 +52,21 @@ def _pin_hermetic_modules():
 def test_manifest_declares_backend_api():
     assert MANIFEST_PATH.exists()
     payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-    assert payload["name"] == "jev-auto-effort"
+    assert payload["name"] == "hermes-adaptive-effort"
     assert payload["api"] == "plugin_api.py"
     assert API_PATH.exists()
 
 
 def test_status_payload_uses_stable_schema_and_allowlist():
     payload = api.get_status_payload()
-    assert payload["schema"] == "jev-auto-effort.status.v1"
-    assert payload["plugin"] == "jev-auto-effort"
+    assert payload["schema"] == "hermes-adaptive-effort.status.v1"
+    assert payload["plugin"] == "hermes-adaptive-effort"
     assert payload["mode"] == "off"  # hermetic defaults; live profile must not leak in
     assert isinstance(payload["counts"], dict)
     assert isinstance(payload["sessions"], list)
     for entry in payload["sessions"]:
         assert "session_id" in entry
+        assert "conversation_id" in entry
 
 
 def test_set_mode_rejects_unknown_and_changes_nothing():
@@ -91,7 +92,7 @@ def test_set_mode_runtime_only_by_default():
 
 def test_probe_scores_nothing_and_stores_nothing():
     result = api.run_probe("   ")
-    assert result["schema"] == "jev-auto-effort.probe.v1"
+    assert result["schema"] == "hermes-adaptive-effort.probe.v1"
     assert result["failure"] == "invalid_prompt"
     assert result["score"] is None
     assert middleware.session_state() == {}
@@ -112,14 +113,54 @@ def test_probe_clips_long_text():
     assert result["text_chars"] == api.MAX_PROBE_CHARS
 
 
+
+def test_changes_feed_mirrors_the_live_agent_half():
+    empty = api.get_changes_payload()
+    assert empty["events"] == [] and empty["latest"] is None
+    assert empty["schema"] == "hermes-adaptive-effort.changes.v1"
+    middleware._record_effort_change("s1/turn", "medium", "high")
+    feed = api.get_changes_payload()
+    assert feed["stream_id"] == empty["stream_id"]  # same process, same stream
+    assert (feed["latest"]["from"], feed["latest"]["to"]) == ("medium", "high")
+
+
+def test_changes_feed_degrades_without_the_agent_half(monkeypatch):
+    monkeypatch.setattr(api, "_agent_modules", lambda: (None, None))
+    payload = api.get_changes_payload()
+    assert payload["error"] == "agent_plugin_not_loaded"
+    assert payload["schema"] == "hermes-adaptive-effort.changes.v1"
+
+
+def test_changes_feed_degrades_when_the_feed_raises(monkeypatch):
+    def boom():
+        raise RuntimeError("state gone")
+
+    monkeypatch.setattr(middleware, "effort_change_state", boom)
+    payload = api.get_changes_payload()
+    assert payload["error"] == "changes_failed"
+
+
 def test_desktop_plugin_static_contract():
     text = DESKTOP_JS.read_text(encoding="utf-8")
-    assert "const ID = 'jev-auto-effort'" in text  # folder name must equal plugin id
+    chip = text.split("function AdaptiveEffortChip", 1)[1].split(
+        "function AdaptiveEffortPane", 1)[0]
+    assert "const ID = 'hermes-adaptive-effort'" in text  # folder name must equal plugin id
     assert "id: ID" in text
     assert "defaultEnabled: false" in text  # opt-in, mirrors plugins.enabled gate
     assert "rest = ctx.rest" in text
     assert "rest('/status'" in text
     assert "rest('/mode'" in text
+    assert "rest('/changes'" in text  # the chip's effort-change feed is a real backend route
+    assert "useValue(host.state.focusedSessionId)" in text
+    assert "useValue(host.state.focusedSessionOwner)" in text
+    assert "effortForConversation(data, focusedSessionId)" in text
+    assert "entry?.conversation_id === conversationId" in text
+    assert "focusedOwner?.connectionId === activeConnectionId" in text
+    assert "focusedOwner?.profile === activeProfile" in text
+    assert "focusedOwner?.connectionId, focusedOwner?.profile" in text
+    assert "changesQuery.data?.latest" not in chip  # a global feed cannot pick the chip effort
+    assert "latest?.state === 'decided'" in text  # unsupported / in-flight focus shows N/A
+    assert "latest applied effort (all conversations)" in text
     for allowed in ("@hermes/plugin-sdk", "react", "react/jsx-runtime"):
         assert allowed in text
     assert "localStorage" not in text  # UI prefs belong to ctx.storage, decisions to backend

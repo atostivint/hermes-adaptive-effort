@@ -1,9 +1,9 @@
-"""Pure Jev-score -> effort mapping.
+"""Pure rubric-score -> effort mapping.
 
 No I/O, no Hermes imports at module import time (core is imported lazily so the
 unit tests run without a Hermes install). Rules:
 
-* Jev answers an ordered 3-level score rubric: 0 = low, 1 = medium, 2 = high,
+* Scorers answer an ordered 3-level score rubric: 0 = low, 1 = medium, 2 = high,
   with deterministic thresholds <0.5, 0.5..<1.5, >=1.5.
 * Anything outside 0..2, non-finite, or non-numeric is invalid -> ``None``.
 * The target level is always clamped onto the route's own declared vocabulary
@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 from typing import Optional, Sequence
 
-#: Normalized labels Jev-Auto Effort may select. Never a fourth value.
+#: Normalized labels Hermes Adaptive Effort may select. Never a fourth value.
 EFFORT_LABELS: tuple[str, ...] = ("low", "medium", "high")
 
 #: Rubric boundaries (documented in README.md).

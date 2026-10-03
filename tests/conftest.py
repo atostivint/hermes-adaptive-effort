@@ -1,6 +1,6 @@
-"""Shared fixtures for Jev-Auto Effort plugin tests.
+"""Shared fixtures for Hermes Adaptive Effort plugin tests.
 
-Loads the plugin payload (``jev-auto-effort/``) as a real package (the same sibling-module
+Loads the plugin payload (``hermes-adaptive-effort/``) as a real package (the same sibling-module
 layout Hermes' plugin loader builds) and guarantees unit tests never touch the network.
 """
 
@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-PLUGIN_DIR = Path(__file__).resolve().parents[1] / "jev-auto-effort"
-PLUGIN_PACKAGE = "hermes_plugin_jev_auto"
+PLUGIN_DIR = Path(__file__).resolve().parents[1] / "hermes-adaptive-effort"
+PLUGIN_PACKAGE = "hermes_plugin_adaptive_effort"
 
 #: Where the Hermes *source tree* (``agent/``, ``hermes_cli/``) lives on this machine.
 #: The plugin imports ``agent.reasoning_effort`` for effort clamping, and the dispatcher
@@ -79,7 +79,7 @@ def plugin_pkg():
 
 
 def import_plugin(stem: str):
-    """Import ``<plugin>/<stem>.py`` as ``hermes_plugin_jev_auto.<stem>``."""
+    """Import ``<plugin>/<stem>.py`` as ``hermes_plugin_adaptive_effort.<stem>``."""
     full_name = f"{PLUGIN_PACKAGE}.{stem}"
     if full_name in sys.modules:
         return sys.modules[full_name]

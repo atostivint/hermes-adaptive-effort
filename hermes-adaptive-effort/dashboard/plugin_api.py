@@ -1,16 +1,18 @@
-"""Jev-Auto Effort dashboard/desktop backend, mounted at ``/api/plugins/jev-auto-effort/``.
+"""Hermes Adaptive Effort dashboard/desktop backend, mounted at ``/api/plugins/hermes-adaptive-effort/``.
 
 Thin wrapper around the agent half's :mod:`command` / :mod:`middleware`: the same
-``jev-auto-effort.status.v1`` payload ``/jev-auto-effort status json`` prints, plus a
+``hermes-adaptive-effort.status.v1`` payload ``/hermes-adaptive-effort status json`` prints, a
 runtime mode switch with the same semantics (future requests of this process, never a
-config write unless ``persist`` is set). Fail-open by contract: any error is a 5xx /
+config write unless ``persist`` is set), and ``GET /changes`` — the bounded feed of
+rewrites that actually reached a request, so the desktop chip can say which reasoning
+effort is now in force. Fail-open by contract: any error is a 5xx /
 ``failure`` field, never a broken turn, and no prompt text is ever stored or echoed.
 
 Module-resolution note: the dashboard loader imports this file as a top-level module
-(``hermes_dashboard_plugin_jev-auto-effort``), NOT as part of the agent package, so a
+(``hermes_dashboard_plugin_hermes-adaptive-effort``), NOT as part of the agent package, so a
 plain relative import would load a SECOND copy of the middleware with its own empty
 ``_SESSIONS`` / ``_MODE_OVERRIDE``. :func:`_agent_modules` therefore prefers the
-already-loaded ``hermes_plugins.jev_auto_effort.*`` modules (same process under
+already-loaded ``hermes_plugins.hermes_adaptive_effort.*`` modules (same process under
 ``hermes serve`` → shared live state) and only falls back to loading the files from
 disk (degraded: fresh state, still correct shapes).
 """
@@ -28,9 +30,10 @@ from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-PLUGIN_ID = "jev-auto-effort"
-STATUS_SCHEMA = "jev-auto-effort.status.v1"
-PROBE_SCHEMA = "jev-auto-effort.probe.v1"
+PLUGIN_ID = "hermes-adaptive-effort"
+STATUS_SCHEMA = "hermes-adaptive-effort.status.v1"
+PROBE_SCHEMA = "hermes-adaptive-effort.probe.v1"
+CHANGES_SCHEMA = "hermes-adaptive-effort.changes.v1"
 VALID_MODES = ("off", "recommend", "auto", "cache_safe")
 MAX_PROBE_CHARS = 4000
 
@@ -51,9 +54,9 @@ except Exception:  # pragma: no cover - unit env without FastAPI
 
 router = APIRouter() if _HAS_HTTP else None
 
-_AGENT_PKG = "hermes_plugins.jev_auto_effort"
-_TEST_PKG = "hermes_plugin_jev_auto"
-_FALLBACK_PKG = "hermes_dashboard_jev_auto_pkg"
+_AGENT_PKG = "hermes_plugins.hermes_adaptive_effort"
+_TEST_PKG = "hermes_plugin_adaptive_effort"
+_FALLBACK_PKG = "hermes_dashboard_hermes_adaptive_effort_pkg"
 
 #: Pinned ``(middleware, command)`` pair. ``None`` in production (resolve from the
 #: live process). Tests pin the hermetic copies so a neighbour suite's real
@@ -63,7 +66,7 @@ _PINNED: Optional[Tuple[Any, Any]] = None
 
 
 def _plugin_root() -> Path:
-    """Agent payload dir: ``.../jev-auto-effort/`` (parent of ``dashboard/``)."""
+    """Agent payload dir: ``.../hermes-adaptive-effort/`` (parent of ``dashboard/``)."""
     return Path(__file__).resolve().parents[1]
 
 
@@ -123,12 +126,12 @@ def _agent_modules() -> Tuple[Any, Any]:
     try:
         return _load_from_disk()
     except Exception:
-        logger.debug("jev-auto-effort: agent modules unavailable; degrading", exc_info=True)
+        logger.debug("hermes-adaptive-effort: agent modules unavailable; degrading", exc_info=True)
         return None, None
 
 
 def get_status_payload() -> Dict[str, Any]:
-    """Live ``jev-auto-effort.status.v1`` payload (same builder as the slash command)."""
+    """Live ``hermes-adaptive-effort.status.v1`` payload (same builder as the slash command)."""
     middleware, command = _agent_modules()
     if command is None or middleware is None:
         return {"schema": STATUS_SCHEMA, "plugin": PLUGIN_ID,
@@ -136,7 +139,7 @@ def get_status_payload() -> Dict[str, Any]:
     try:
         payload = command._status_payload()
     except Exception:
-        logger.debug("jev-auto-effort: status build failed", exc_info=True)
+        logger.debug("hermes-adaptive-effort: status build failed", exc_info=True)
         return {"schema": STATUS_SCHEMA, "plugin": PLUGIN_ID, "error": "status_failed"}
     if not isinstance(payload, dict):
         return {"schema": STATUS_SCHEMA, "plugin": PLUGIN_ID, "error": "status_failed"}
@@ -145,13 +148,34 @@ def get_status_payload() -> Dict[str, Any]:
     return payload
 
 
+def get_changes_payload() -> Dict[str, Any]:
+    """Recent applied effort changes for Desktop notifications and status."""
+    middleware, _ = _agent_modules()
+    if middleware is None:
+        return {"schema": CHANGES_SCHEMA, "plugin": PLUGIN_ID,
+                "error": "agent_plugin_not_loaded"}
+    try:
+        state = middleware.effort_change_state()
+    except Exception:
+        logger.debug("hermes-adaptive-effort: change feed build failed", exc_info=True)
+        return {"schema": CHANGES_SCHEMA, "plugin": PLUGIN_ID,
+                "error": "changes_failed"}
+    return {
+        "schema": CHANGES_SCHEMA,
+        "plugin": PLUGIN_ID,
+        "stream_id": state["stream_id"],
+        "events": state["events"],
+        "latest": state["latest"],
+    }
+
+
 def set_mode(mode: Any, *, persist: bool = False) -> Dict[str, Any]:
     """Runtime mode switch for future requests of this process (never echoes config).
 
-    ``persist=True`` additionally writes ``plugins.entries.jev-auto-effort.settings.mode``
+    ``persist=True`` additionally writes ``plugins.entries.hermes-adaptive-effort.settings.mode``
     through the canonical writer, so the choice survives a restart — the same write the
     Desktop settings form performs. Default is runtime-only, mirroring
-    ``/jev-auto-effort <mode>``.
+    ``/hermes-adaptive-effort <mode>``.
     """
     middleware, _ = _agent_modules()
     if middleware is None:
@@ -167,7 +191,7 @@ def set_mode(mode: Any, *, persist: bool = False) -> Dict[str, Any]:
     try:
         applied = middleware.set_mode_override(value)
     except Exception:
-        logger.debug("jev-auto-effort: set_mode_override failed", exc_info=True)
+        logger.debug("hermes-adaptive-effort: set_mode_override failed", exc_info=True)
         return {"ok": False, "error": "mode_failed", "mode": None}
     if applied is None:
         return {"ok": False, "error": "mode_failed", "mode": None}
@@ -203,7 +227,7 @@ def run_probe(text: Any) -> Dict[str, Any]:
     try:
         result = middleware.run_probe(clipped)
     except Exception:
-        logger.debug("jev-auto-effort: probe failed", exc_info=True)
+        logger.debug("hermes-adaptive-effort: probe failed", exc_info=True)
         return {"schema": PROBE_SCHEMA, "text_chars": len(clipped), "score": None,
                 "label": None, "failure": "probe_failed", "elapsed_ms": 0.0,
                 "at": time.time()}
@@ -229,6 +253,13 @@ if _HAS_HTTP and router is not None:  # pragma: no cover - needs serve env
             raise HTTPException(status_code=503, detail=payload["error"])
         return payload
 
+    @router.get("/changes")
+    def changes() -> Dict[str, Any]:
+        payload = get_changes_payload()
+        if payload.get("error"):
+            raise HTTPException(status_code=503, detail=payload["error"])
+        return payload
+
     @router.post("/mode")
     def switch_mode(body: ModeBody) -> Dict[str, Any]:
         result = set_mode(body.mode, persist=bool(body.persist))
@@ -244,3 +275,4 @@ if _HAS_HTTP and router is not None:  # pragma: no cover - needs serve env
         if not isinstance(body.text, str) or not body.text.strip():
             raise HTTPException(status_code=400, detail="text is required")
         return run_probe(body.text)
+
