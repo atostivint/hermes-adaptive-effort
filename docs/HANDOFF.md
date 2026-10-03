@@ -71,6 +71,10 @@ read-only `SELECT 1` succeeds; a full read-only quick-check did not complete, so
 integrity remains unverified. The gateway remained active after its restart. No live scorer
 request was issued during deployment.
 
+### Documentation delivery
+
+The documentation refresh is also available in a separate master checkout at `/root/workspace/Hermes/hermes-adaptive-effort` on Iris. The older `/root/workspace/Hermes/jev-auto-effort` checkout was left on its existing feature branch, including its local `.hermes/` directory. The Windows client workspace contains the same documentation. Documentation-only updates do not require a runtime restart.
+
 ### Git and repository identity
 
 `codex/windows-desktop-dev-loop` was merged into `master` as `d1d31c2` and pushed to
