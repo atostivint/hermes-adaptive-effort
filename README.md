@@ -2,15 +2,23 @@
 
 [![CI](https://github.com/atostivint/hermes-adaptive-effort/actions/workflows/ci.yml/badge.svg)](https://github.com/atostivint/hermes-adaptive-effort/actions/workflows/ci.yml) [![Security](https://github.com/atostivint/hermes-adaptive-effort/actions/workflows/security.yml/badge.svg)](https://github.com/atostivint/hermes-adaptive-effort/actions/workflows/security.yml)
 
-A small Hermes plugin that chooses reasoning effort for each user turn, using an external scorer. It changes an existing effort setting on the model request and lets Hermes handle the rest.
+Hermes Adaptive Effort asks an external scorer how much reasoning a task needs, then adjusts the effort setting already present in the outgoing model request. A greeting can use `low`; a more demanding task can use `high`.
 
-Built for everyday use: one focused job, a quiet interface, and a scorer you can choose. In the committed release, Jev (TypeSafe) is the default; OpenRouter is an explicit alternative with a model you configure. The scorer and the model answering your conversation are separate choices.
+Choose Jev (TypeSafe), a model you configure through OpenRouter, or Cloudflare Clef / Clef Flash. Jev is the default. Your scorer and the model answering the conversation are separate choices.
 
-The plugin is opt-in and starts **off**. If scoring fails, your original request continues unchanged. It does not switch your conversation model, add tools, or invent a reasoning setting that your route does not expose.
+The plugin starts **off** and requires explicit permission to share prompt text with the selected scorer. If scoring fails, your original request continues unchanged. It changes only an existing effort field, leaves explicitly disabled reasoning alone, and keeps your conversation model.
+
+**Tried live with Jev:** an October 3, 2026 evaluation exercised real Hermes conversations on Codex and OpenCode Go, including verification of outgoing HTTP bodies. OpenRouter and Cloudflare scoring have not been evaluated live. Cost savings, cache benefits and general answer-quality improvements remain unmeasured.
 
 ## Quick install
 
-Already have Hermes? Install and enable the plugin with one command, in a shell or PowerShell:
+After the catalog entry is accepted, install by the plugin name without the repository subdirectory:
+
+```bash
+hermes plugins install hermes-adaptive-effort --enable
+```
+
+Until then, install directly from GitHub with the current subdirectory form:
 
 ```bash
 hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort' --enable
@@ -46,7 +54,13 @@ hermes gateway restart
 
 Desktop connections can have separate agent processes; reconnect or restart the one behind your connection.
 
-### 3. Choose a mode in chat
+### 3. Permit prompt sharing with your scorer
+
+In **Desktop → Capabilities → Plugins → Hermes Adaptive Effort**, set **Prompt sharing consent** (`prompt_sharing_provider`) to `jev` for the default scorer. For another scorer, select that same provider in both **Scorer provider** and **Prompt sharing consent**.
+
+This permits sending up to 4,000 characters of task text per classification by default. It does not control the provider's retention policy. Without matching consent, the plugin makes no scorer call and reports `prompt_consent_required`. If you use the CLI, add the consent setting through the persistent configuration below.
+
+### 4. Choose a mode in chat
 
 Start by inspecting decisions without changing effort:
 
@@ -67,9 +81,13 @@ You can check the scorer independently with `/hermes-adaptive-effort probe What 
 
 ### Prefer OpenRouter?
 
-In the plugin's Desktop settings, select `openrouter` and enter your scorer model slug. Make `OPENROUTER_API_KEY` available to the serving Hermes process, then use the same chat commands above. No YAML editing is needed when your Desktop host exposes the settings form.
+In the plugin's Desktop settings, select `openrouter`, enter your scorer model slug, and set **Prompt sharing consent** to `openrouter`. Make `OPENROUTER_API_KEY` available to the serving Hermes process, then use the same chat commands above. No YAML editing is needed when your Desktop host exposes the settings form.
 
 The scorer is separate from your conversation model. You choose which OpenRouter model to pay for; no model is silently selected and no failure falls back to Jev. The adapter requests JSON and caps completion output at 32 tokens; invalid answers or timeouts preserve the original request.
+
+### Prefer Cloudflare?
+
+Select `cloudflare`, enter your 32-character hexadecimal account ID, choose `clef` or `clef-flash`, and set **Prompt sharing consent** to `cloudflare`. Make `CLOUDFLARE_AUTH_TOKEN` available to the serving Hermes process before launching or restarting it. Cloudflare has no fallback to another scorer.
 
 <details>
 <summary>Optional: persistent configuration, credentials and host compatibility</summary>
@@ -85,6 +103,7 @@ plugins:
       settings:
         mode: auto
         scorer_provider: jev
+        prompt_sharing_provider: jev
 ```
 
 For OpenRouter, change the settings to:
@@ -94,14 +113,27 @@ settings:
   mode: auto
   scorer_provider: openrouter
   scorer_model: "YOUR_OPENROUTER_MODEL_SLUG"
+  prompt_sharing_provider: openrouter
 ```
 
-Replace the model placeholder before using it. Start with `mode: recommend` instead of `auto` if you want to observe decisions first.
+For Cloudflare:
+
+```yaml
+settings:
+  mode: auto
+  scorer_provider: cloudflare
+  cloudflare_account_id: "YOUR_32_HEX_ACCOUNT_ID"
+  cloudflare_model: clef
+  prompt_sharing_provider: cloudflare
+```
+
+Replace the model or account placeholder before using it. Start with `mode: recommend` instead of `auto` if you want to observe decisions first. Each `settings` example belongs under `plugins.entries.hermes-adaptive-effort`.
 
 | Scorer | Credential | Model |
 | --- | --- | --- |
 | Jev (default) | `TYPESAFE_API_KEY` | Fixed `jev-latest` |
 | OpenRouter | `OPENROUTER_API_KEY` | Explicit `scorer_model` slug |
+| Cloudflare | `CLOUDFLARE_AUTH_TOKEN` | `clef` (default) or `clef-flash`; requires an account ID |
 
 Credentials resolve through Hermes' secret scope, then the environment. A key set in a terminal reaches only processes that inherit that environment.
 
@@ -133,13 +165,19 @@ Mode commands are process-local and do not edit your config. Unknown commands or
 ## How it works
 
 1. Read the latest user text from the outgoing request, rather than the opening message or the whole conversation.
-2. Send a bounded excerpt to the selected scorer. A finite score from `0` to `2` becomes `low` below `0.5`, `medium` below `1.5`, or `high` otherwise.
+2. Check provider-specific prompt consent, then send a bounded excerpt to the selected scorer. A finite score from `0` to `2` becomes `low` below `0.5`, `medium` below `1.5`, or `high` otherwise.
 3. Map that label to the route's available effort values.
-4. Rewrite only an existing `reasoning.effort` or `reasoning_effort` slot. Explicitly disabled reasoning stays disabled.
+4. In an applying mode, rewrite only an existing `extra_body.reasoning.effort`, `reasoning_effort` or top-level `reasoning.effort` slot. Explicitly disabled reasoning stays disabled.
 
 A tool loop reuses its turn's decision instead of calling the scorer for every model request. A new user turn gets a new classification in `auto`. A new classification does not necessarily change the effort: the existing value may match, or a route may offer only a narrow set of levels.
 
-Scoring sends prompt text outside the client, so it requires an explicit provider-specific opt-in: set `prompt_sharing_provider` to the selected scorer. With no matching opt-in, the plugin makes no scorer request and fails open with `prompt_consent_required`. The `prompt_chars` setting caps the text sent (4,000 characters by default); truncation does not guarantee provider non-retention. The plugin itself does not persist prompts or include them in logs or status. Provider retention policies are separate. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints; this does not keep the prompt from being processed by OpenRouter. This plugin cannot assure ZDR for Jev or Cloudflare. Subagent goals are held transiently in memory and classified only when the independent `subagent_mode` setting permits it and the main mode is enabled; child scoring follows the same provider opt-in gate.
+Missing consent, credentials or required settings, timeouts, transport errors and malformed scores leave the request unchanged. A request without a writable effort field is `unsupported` and makes zero scorer calls. A failed or unsupported decision is not retried within the same turn.
+
+### Prompt privacy
+
+The plugin itself does not persist prompts or include them in logs or status. The `prompt_chars` cap limits the text sent; truncation does not guarantee provider non-retention. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints, while still sending the text to OpenRouter for processing. This plugin cannot assure ZDR for Jev or Cloudflare.
+
+Subagents use the parent-written goal as their task text. Goals are held transiently in memory and classified only when the independent `subagent_mode` setting permits it and the main mode is enabled. Child scoring follows the same provider consent gate.
 
 ## Settings
 
@@ -171,17 +209,25 @@ The optional Desktop extension provides a small effort chip, a details pane and 
 
 The chip follows the focused conversation and backend/profile, including after a completed turn while its result remains cached. It shows `N/A` when there is no usable decision for that chat. Change notifications and the pane's latest transition reflect activity across conversations.
 
-## Compatibility and limits
+## What has been evaluated
+
+On **October 3, 2026**, the deployed Jev plugin was exercised through Hermes's real middleware with Codex (`gpt-6.1-sol`) and OpenCode Go (`deepseek-v4.1-flash`) conversation requests. Fourteen synthetic cases completed, comprising fifteen primary conversation API calls and ten successful live Jev classifications. The cases covered changing task complexity, off/recommend modes, scorer failure, unsupported and disabled reasoning, and a real tool loop.
+
+HTTP-body checks confirmed `reasoning.effort: low` reached the Codex responses route and `reasoning_effort: medium` reached the OpenCode Go chat-completions route. The recorded ten successful Jev classifications took 241–368 ms (mean 287 ms). These are observations from one small run, not performance or quality benchmarks.
+
+The run also found a Desktop status issue in the evaluated revision: Hermes's completed-turn hook cleared the decision ledger, so the focused-conversation chip lost its result after delivery even though the effort change reached the request. Current source retains bounded decisions on completed-turn events and clears them at conversation finalize/reset boundaries. The October 3 report does not verify that fix in a subsequent live run.
+
+The evaluated payload still used the former `jev-auto-effort` identity; it predates the current provider-consent setup.
+
+OpenRouter and Cloudflare adapters have network-free test coverage, but no live scorer evaluation has been run for either. The October 3 live report predates the later prompt-consent and Clef Flash selector changes and does not validate them. No cost saving, cache benefit or general answer-quality improvement is claimed as measured. Scoring adds latency and can add cost.
+
+## Compatibility and residual risk
 
 A reasoning-capable model is not enough: its Hermes provider route must expose a writable effort field. `unsupported` with zero probes usually means there is no field to change. This has been observed with OpenCode Go's `space-bunny-free` profile. The plugin deliberately does not add one.
 
 The route vocabulary comes from Hermes plus narrow mappings for Kimi K3 and GLM-5.2/5.3. Unknown routes use Hermes' broad OpenAI-compatible vocabulary, which cannot guarantee vendor acceptance. **Known gap:** Ox Alpha / `x-preview-f-free` can reject `medium` with HTTP 400. That gap is documented rather than silently remapped.
 
 `cache_safe` treats `chat_completions` and `codex_responses` as cache-neutral, and Anthropic/unknown API modes as cache-hostile. These are routing rules, not measured cache-hit guarantees. Session decisions can be evicted from the bounded cache or lost on reload/reset.
-
-Cloudflare Clef is available through `scorer_provider: cloudflare`; its latency and scoring quality have not been evaluated live.
-
-No cost saving, cache benefit or answer-quality improvement is claimed as measured. Scoring adds latency and can add cost. OpenRouter and Cloudflare adapters are covered by network-free tests; no live provider scorer evaluation has been run.
 
 ## Why this plugin exists
 
@@ -211,4 +257,4 @@ If you used `jev-auto-effort`, install the new payload, move your old settings f
 - [Documentation index](docs/README.md): current references and dated review history.
 - [Operator handoff](docs/HANDOFF.md): the recorded Iris/Windows rollout and unresolved operational items.
 
-The Windows suite last verified for this implementation has 217 passing tests, including real Hermes plugin discovery/dispatcher integration. Tests use fake scorer transports and block network access. See the development guide to reproduce them.
+The recorded October 3 baseline passed 217 Windows tests, including real Hermes plugin discovery/dispatcher integration. Tests use fake scorer transports and block network access; that baseline is not verification of every later source change. See the development guide to reproduce the checks.
