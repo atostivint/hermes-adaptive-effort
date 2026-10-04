@@ -50,6 +50,7 @@ DEFAULTS: Dict[str, Any] = {
     "scorer_provider": _scorers.JEV,
     "scorer_model": "",
     "cloudflare_account_id": "",
+    "cloudflare_model": _scorers.cloudflare_client.DEFAULT_MODEL_SELECTOR,
     "prompt_sharing_provider": "none",
 }
 
@@ -473,14 +474,16 @@ def _settings() -> Dict[str, Any]:
             "scorer_model", DEFAULTS["scorer_model"]) or "").strip(),
         "cloudflare_account_id": str(_read_setting(
             "cloudflare_account_id", DEFAULTS["cloudflare_account_id"]) or "").strip(),
+        "cloudflare_model": _scorers.cloudflare_client.normalize_model_selector(
+            _read_setting("cloudflare_model", DEFAULTS["cloudflare_model"])),
         "prompt_sharing_provider": str(_read_setting(
             "prompt_sharing_provider", DEFAULTS["prompt_sharing_provider"]) or "none").strip().lower(),
     }
     settings["scorer_model_effective"] = _scorers.model_for(
-        settings["scorer_provider"], settings["scorer_model"])
+        settings["scorer_provider"], settings["scorer_model"], settings["cloudflare_model"])
     (settings["scorer_endpoint"], settings["scorer_endpoint_effective"]) = \
         _scorers.endpoint_for(settings["scorer_provider"], settings["endpoint"],
-                              settings["cloudflare_account_id"])
+                              settings["cloudflare_account_id"], settings["cloudflare_model"])
     settings["cloudflare_account_ready"] = _scorers.cloudflare_client.valid_account_id(
         settings["cloudflare_account_id"])
     # This compatibility key has always meant "where the active scorer posts";

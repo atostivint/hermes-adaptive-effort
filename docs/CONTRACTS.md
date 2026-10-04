@@ -62,7 +62,7 @@ mirroring the Kimi and GLM entries that are already there).
 
 ## Fail-open behaviour
 
-Scorer selection is explicit: `jev` (default), `openrouter`, or `cloudflare`; failures never select another scorer. OpenRouter requires `scorer_model` and `OPENROUTER_API_KEY`. Cloudflare uses the fixed Workers AI `@cf/cloudflare/clef` route with body model `clef`, requires a 32-character hexadecimal `cloudflare_account_id` and `CLOUDFLARE_AUTH_TOKEN`, and ignores the Jev endpoint and OpenRouter model settings. Credentials resolve through Hermes secret scope, then environment, and are never rendered in status.
+Scorer selection is explicit: `jev` (default), `openrouter`, or `cloudflare`; failures never select another scorer. OpenRouter requires `scorer_model` and `OPENROUTER_API_KEY`. Cloudflare uses `cloudflare_model` (`clef` by default, or `clef-flash`) to select the matching Workers AI route and body selector; it requires a 32-character hexadecimal `cloudflare_account_id` and `CLOUDFLARE_AUTH_TOKEN`, and ignores the Jev endpoint and OpenRouter model settings. Credentials resolve through Hermes secret scope, then environment, and are never rendered in status.
 
 Cloudflare returns the shared `0..2` score from `result.answers.effort.score` only when the REST wrapper has `success: true` and no reported errors. Missing or invalid account IDs fail before HTTP with `account_missing` or `account_invalid`; other failures use the existing transport/response codes. Status adds `cloudflare_account_ready`, separate from token presence, and displays the account-scoped endpoint (a placeholder when the ID is invalid). Probe scores only operator-typed text and stores no decision.
 

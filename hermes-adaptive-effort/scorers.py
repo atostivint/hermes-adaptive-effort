@@ -47,6 +47,8 @@ def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]
         try:
             return cloudflare_client.CloudflareClient(
                 account_id=account_id,
+                model_selector=settings.get(
+                    "cloudflare_model", cloudflare_client.DEFAULT_MODEL_SELECTOR),
                 timeout=settings["timeout_s"],
                 max_prompt_chars=settings["prompt_chars"],
             ), None
@@ -67,24 +69,26 @@ def credential_present(provider: Any = JEV) -> bool:
     return False
 
 
-def endpoint_for(provider: Any, jev_endpoint: Any, cloudflare_account_id: Any = "") -> Tuple[str, str]:
+def endpoint_for(provider: Any, jev_endpoint: Any, cloudflare_account_id: Any = "",
+                 cloudflare_model: Any = cloudflare_client.DEFAULT_MODEL_SELECTOR) -> Tuple[str, str]:
     """Return the raw and effective endpoint for the selected scorer."""
     selected = str(provider or JEV).strip().lower()
     if selected == OPENROUTER:
         endpoint = openrouter_client.DEFAULT_ENDPOINT
         return endpoint, endpoint
     if selected == CLOUDFLARE:
-        endpoint = cloudflare_client.endpoint_for(cloudflare_account_id)
+        endpoint = cloudflare_client.endpoint_for(cloudflare_account_id, cloudflare_model)
         return endpoint, endpoint
     raw = str(jev_endpoint or jev_client.DEFAULT_ENDPOINT)
     return raw, jev_client.normalize_endpoint(raw)
 
 
-def model_for(provider: Any, configured_model: Any) -> str:
+def model_for(provider: Any, configured_model: Any,
+              cloudflare_model: Any = cloudflare_client.DEFAULT_MODEL_SELECTOR) -> str:
     """Return the model reported in status for the selected scorer."""
     selected = str(provider or JEV).strip().lower()
     if selected == JEV:
         return jev_client.JEV_MODEL
     if selected == CLOUDFLARE:
-        return cloudflare_client.MODEL
+        return cloudflare_client.model_path_for(cloudflare_model)
     return str(configured_model or "").strip()

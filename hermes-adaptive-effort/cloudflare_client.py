@@ -1,4 +1,4 @@
-"""Bounded Cloudflare Workers AI Clef scoring adapter."""
+"""Bounded Cloudflare Workers AI Clef / Clef Flash scoring adapter."""
 
 from __future__ import annotations
 
@@ -17,8 +17,13 @@ from .jev_client import DEFAULT_MAX_PROMPT_CHARS, DEFAULT_TIMEOUT_S, QUESTIONS, 
 logger = logging.getLogger(__name__)
 
 API_ROOT = "https://api.cloudflare.com/client/v4/accounts"
-MODEL = "@cf/cloudflare/clef"
-MODEL_SELECTOR = "clef"
+MODEL_PATHS = {
+    "clef": "@cf/cloudflare/clef",
+    "clef-flash": "@cf/cloudflare/clef-flash",
+}
+DEFAULT_MODEL_SELECTOR = "clef"
+MODEL = MODEL_PATHS[DEFAULT_MODEL_SELECTOR]
+MODEL_SELECTOR = DEFAULT_MODEL_SELECTOR
 SENTINEL_ENV = "CLOUDFLARE_AUTH_TOKEN"
 _ACCOUNT_ID = re.compile(r"^[0-9a-fA-F]{32}$")
 
@@ -27,11 +32,22 @@ def valid_account_id(account_id: Any) -> bool:
     return isinstance(account_id, str) and bool(_ACCOUNT_ID.fullmatch(account_id.strip()))
 
 
-def endpoint_for(account_id: Any) -> str:
+def normalize_model_selector(selector: Any) -> str:
+    """Return a supported model selector; invalid values use the legacy default."""
+    selected = str(selector or DEFAULT_MODEL_SELECTOR).strip().lower()
+    return selected if selected in MODEL_PATHS else DEFAULT_MODEL_SELECTOR
+
+
+def model_path_for(selector: Any = DEFAULT_MODEL_SELECTOR) -> str:
+    return MODEL_PATHS[normalize_model_selector(selector)]
+
+
+def endpoint_for(account_id: Any, model_selector: Any = DEFAULT_MODEL_SELECTOR) -> str:
     """Return the fixed account-scoped route, or a safe placeholder if invalid."""
+    model_path = model_path_for(model_selector)
     if not valid_account_id(account_id):
-        return API_ROOT + "/{account_id}/ai/run/" + MODEL
-    return f"{API_ROOT}/{account_id.strip()}/ai/run/{MODEL}"
+        return API_ROOT + "/{account_id}/ai/run/" + model_path
+    return f"{API_ROOT}/{account_id.strip()}/ai/run/{model_path}"
 
 
 def _default_key_reader() -> str:
@@ -50,17 +66,19 @@ def _default_transport(request: urllib.request.Request, timeout: float):
 
 
 class CloudflareClient:
-    """Ask Clef for one score using the shared effort rubric."""
+    """Ask the selected Clef model for one score using the shared effort rubric."""
 
     def __init__(self, *, account_id: str, api_key: str = "", timeout: float = DEFAULT_TIMEOUT_S,
                  max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+                 model_selector: str = DEFAULT_MODEL_SELECTOR,
                  transport: Optional[Callable[..., Any]] = None,
                  key_reader: Optional[Callable[[], str]] = None):
         self.account_id = str(account_id or "").strip()
         self.api_key = (api_key or "").strip()
         self.timeout = float(timeout) if timeout else DEFAULT_TIMEOUT_S
         self.max_prompt_chars = int(max_prompt_chars or DEFAULT_MAX_PROMPT_CHARS)
-        self.endpoint = endpoint_for(self.account_id)
+        self.model_selector = normalize_model_selector(model_selector)
+        self.endpoint = endpoint_for(self.account_id, self.model_selector)
         self._transport = transport
         self._key_reader = key_reader
 
@@ -87,7 +105,7 @@ class CloudflareClient:
             return None, "credential_missing"
 
         body = {
-            "model": MODEL_SELECTOR,
+            "model": self.model_selector,
             "state": {"prompt": truncate_prompt(prompt, self.max_prompt_chars)},
             "questions": QUESTIONS,
         }

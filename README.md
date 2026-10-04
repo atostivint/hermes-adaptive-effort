@@ -150,15 +150,16 @@ Scoring sends prompt text outside the client, so it requires an explicit provide
 | `scorer_provider` | `jev` | `jev`, `openrouter` or `cloudflare`; no automatic fallback |
 | `scorer_model` | empty | Required OpenRouter model slug; ignored by Jev and Cloudflare |
 | `cloudflare_account_id` | empty | Required 32-character hexadecimal account ID for Cloudflare |
+| `cloudflare_model` | `clef` | Cloudflare model selector: `clef` or `clef-flash` |
 | `prompt_sharing_provider` | `none` | Explicitly permit sending prompt text to this scorer (`none`, `jev`, `openrouter` or `cloudflare`); must match `scorer_provider` |
 | `endpoint` | `https://api.typesafe.ai/v1/systemone` | Jev endpoint; ignored by OpenRouter and Cloudflare |
 | `timeout_s` | `3.0` | HTTP timeout for classification |
 | `max_turns` | `64` | Bounded decision-cache capacity per process |
 | `prompt_chars` | `4000` | Maximum task characters sent after matching provider consent; not a retention control |
 
-Jev accepts a full route, API base or bare host; `status` shows the effective URL. OpenRouter uses its fixed chat-completions endpoint and requests `provider.zdr=true` plus `data_collection=deny`; if no eligible route is available the request fails open rather than using a non-ZDR endpoint. Cloudflare uses Workers AI's account-scoped `@cf/cloudflare/clef` REST route and fixed `clef` model; it requires `CLOUDFLARE_AUTH_TOKEN` and a valid account ID. Status reports token presence and account readiness without exposing the token. Configured scorer failures leave requests unchanged and appear in status.
+Jev accepts a full route, API base or bare host; `status` shows the effective URL. OpenRouter uses its fixed chat-completions endpoint and requests `provider.zdr=true` plus `data_collection=deny`; if no eligible route is available the request fails open rather than using a non-ZDR endpoint. Cloudflare uses the account-scoped Workers AI route for the selected `cloudflare_model` (`clef` or `clef-flash`); it requires `CLOUDFLARE_AUTH_TOKEN` and a valid account ID. Status reports token presence and account readiness without exposing the token. Configured scorer failures leave requests unchanged and appear in status.
 
-Cloudflare Clef receives the same bounded `state.prompt` and score question as Jev. Its REST response must have `success: true` and a finite numeric `result.answers.effort.score` from 0 through 2. See the [Clef model documentation](https://developers.cloudflare.com/workers-ai/models/clef/) and [Workers AI REST API guide](https://developers.cloudflare.com/workers-ai/get-started/rest-api/).
+Cloudflare Clef and Clef Flash receive the same bounded `state.prompt` and typed score question as Jev. Their REST response must have `success: true` and a finite numeric `result.answers.effort.score` from 0 through 2. See the [Clef](https://developers.cloudflare.com/workers-ai/models/clef/), [Clef Flash](https://developers.cloudflare.com/workers-ai/models/clef-flash/) and [Workers AI REST API](https://developers.cloudflare.com/workers-ai/get-started/rest-api/) documentation.
 
 Cloudflare configuration failures use `account_missing` or `account_invalid`; transport and malformed response failures use the shared fail-open reason codes.
 

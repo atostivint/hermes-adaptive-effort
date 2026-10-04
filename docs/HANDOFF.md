@@ -11,7 +11,9 @@ what the project is, what is verified today, what is *not* finished, and recorde
 
 A Hermes plugin that lets a selected external rubric scorer choose the
 **reasoning effort** of each LLM request. Jev (TypeSafe) remains the default;
-OpenRouter and Cloudflare Clef are explicit opt-in providers.
+OpenRouter and Cloudflare are explicit opt-in providers; Cloudflare's `clef` and `clef-flash`
+models are selectable. Prompt sharing also requires `prompt_sharing_provider` to match the
+selected scorer.
 
 Pipeline: read the outgoing request → score the prompt (`0 = low`, `1 = medium`,
 `2 = high`) → clamp the label onto **the route's own wire vocabulary** → write it into
@@ -31,17 +33,20 @@ hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort
 
 (the `#subdir` fragment points at the renamed payload directory inside the repository).
 
-## 2. Verified state (2026-10-03)
+## 2. Verified state (2026-10-04)
 
 The payload directory, plugin ID, slash command, dashboard route and Desktop identity are
 `hermes-adaptive-effort`. Jev remains the default scorer. OpenRouter is explicit opt-in,
-requires a configured model and `OPENROUTER_API_KEY`; Cloudflare requires a valid account ID
-and `CLOUDFLARE_AUTH_TOKEN`. Neither has a silent fallback to Jev. No live provider request
-was made.
+requires a configured model and `OPENROUTER_API_KEY`; Cloudflare requires a valid account ID,
+`CLOUDFLARE_AUTH_TOKEN`, and can select `clef` or `clef-flash`. Neither has a silent fallback
+to Jev. Prompt text is not sent until the matching `prompt_sharing_provider` opt-in is set.
+OpenRouter requests require ZDR endpoints and deny data-collecting endpoints; the plugin cannot
+assure ZDR for Jev or Cloudflare.
 
-The Windows test suite passed **217 tests**, and Ruff passed. The current master commit
-contains the implementation merge and the GitHub repository is now
-`atostivint/hermes-adaptive-effort`.
+At the 2026-10-03 baseline, the Windows test suite passed **217 tests** and Ruff passed.
+The prompt-consent and Cloudflare model-selector changes were not tested in this checkout.
+GitHub `master` contains the implementation; Iris was reinstalled from the GitHub subdirectory
+on 2026-10-04.
 
 ### Current host installs
 
@@ -94,10 +99,13 @@ hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort
 ## 3. Live configuration
 
 Windows uses the default `mode: off`. Iris remains `mode: auto` with
-`endpoint: https://api.typesafe.ai/v1/systemone`; do not change either setting without
-the operator's direction. OpenRouter is selected by `scorer_provider: openrouter` and
-`scorer_model`; Cloudflare is selected by `scorer_provider: cloudflare` and
-`cloudflare_account_id`. This deployment did not enable either provider.
+`endpoint: https://api.typesafe.ai/v1/systemone`. Its plugin settings currently contain no
+`scorer_provider`, `cloudflare_account_id`, `cloudflare_model`, or
+`prompt_sharing_provider`; the effective scorer is Jev, and the consent default is `none`,
+so no scorer prompt is sent. OpenRouter requires `scorer_provider: openrouter`, `scorer_model`,
+and `prompt_sharing_provider: openrouter`. Cloudflare requires `scorer_provider: cloudflare`,
+`cloudflare_account_id`, a `cloudflare_model` choice, and
+`prompt_sharing_provider: cloudflare`.
 
 The endpoint is the full scoring route, retained from the prior install. Do not simplify it
 to `https://api.typesafe.ai/v1`; `jev_client.normalize_endpoint()` handles base URLs, but
@@ -225,8 +233,8 @@ plugin is disabled, or the dashboard half is not deployed), the chip correctly s
    rejection. Either document it further or make it fail open loudly.
 2. **Cost effect is unmeasured.** No live A/B has been run, so every cost or cache claim
    in the README is an expectation, not a measurement. Do not restate them as results.
-3. **Cloudflare Clef:** the adapter is implemented and covered by network-free tests. Live latency, scoring quality and cost evaluation remain pending; no Cloudflare configuration or deployment was performed.
-4. **OpenRouter evaluation:** the adapter is covered by network-free tests, but no live scorer request or model comparison has been run.
+3. **Cloudflare Clef / Clef Flash:** the existing Clef adapter had network-free tests; the new Flash selector was not tested in this checkout. Live latency, scoring quality and cost evaluation remain pending; Iris has no Cloudflare account ID setting and no matching prompt-sharing consent, so no live request was sent.
+4. **OpenRouter evaluation:** OpenRouter ZDR routing is requested per call; no live scorer request or model comparison has been run.
 5. **Pre-install backups** sit in `~/.hermes/cache/scratch/` (`jev-backup-20260930-080501`,
    `jev-backup-20260930-082258`). Harmless, and they are the rollback path if the managed
    install ever needs undoing. Retain or remove them only under the operator's backup policy.
