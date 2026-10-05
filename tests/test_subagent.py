@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import import_plugin
+from conftest import import_plugin, settings_with_prompt_consent
 
 middleware = import_plugin("middleware")
 
@@ -71,6 +71,7 @@ def clean(monkeypatch):
 
 
 def use_settings(monkeypatch, settings):
+    settings = settings_with_prompt_consent(settings)
     monkeypatch.setattr(
         middleware, "_settings_provider", lambda key, default=None: settings.get(key, default))
 

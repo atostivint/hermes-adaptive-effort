@@ -49,7 +49,12 @@ DEFAULTS: Dict[str, Any] = {
     "endpoint": _jev_client.DEFAULT_ENDPOINT,
     "scorer_provider": _scorers.JEV,
     "scorer_model": "",
+    "custom_endpoint": "",
+    "custom_api_format": "systemone",
+    "custom_auth": "none",
     "cloudflare_account_id": "",
+    "cloudflare_model": _scorers.cloudflare_client.DEFAULT_MODEL_SELECTOR,
+    "prompt_sharing_provider": "none",
 }
 
 # Injected by register(ctx); None until a PluginContext exists (and in tests).
@@ -470,14 +475,25 @@ def _settings() -> Dict[str, Any]:
             "scorer_provider", DEFAULTS["scorer_provider"]) or _scorers.JEV).strip().lower(),
         "scorer_model": str(_read_setting(
             "scorer_model", DEFAULTS["scorer_model"]) or "").strip(),
+        "custom_endpoint": str(_read_setting(
+            "custom_endpoint", DEFAULTS["custom_endpoint"]) or "").strip(),
+        "custom_api_format": str(_read_setting(
+            "custom_api_format", DEFAULTS["custom_api_format"]) or "systemone").strip().lower(),
+        "custom_auth": str(_read_setting(
+            "custom_auth", DEFAULTS["custom_auth"]) or "none").strip().lower(),
         "cloudflare_account_id": str(_read_setting(
             "cloudflare_account_id", DEFAULTS["cloudflare_account_id"]) or "").strip(),
+        "cloudflare_model": _scorers.cloudflare_client.normalize_model_selector(
+            _read_setting("cloudflare_model", DEFAULTS["cloudflare_model"])),
+        "prompt_sharing_provider": str(_read_setting(
+            "prompt_sharing_provider", DEFAULTS["prompt_sharing_provider"]) or "none").strip().lower(),
     }
     settings["scorer_model_effective"] = _scorers.model_for(
-        settings["scorer_provider"], settings["scorer_model"])
+        settings["scorer_provider"], settings["scorer_model"], settings["cloudflare_model"])
     (settings["scorer_endpoint"], settings["scorer_endpoint_effective"]) = \
         _scorers.endpoint_for(settings["scorer_provider"], settings["endpoint"],
-                              settings["cloudflare_account_id"])
+                              settings["cloudflare_account_id"], settings["cloudflare_model"],
+                              settings["custom_endpoint"])
     settings["cloudflare_account_ready"] = _scorers.cloudflare_client.valid_account_id(
         settings["cloudflare_account_id"])
     # This compatibility key has always meant "where the active scorer posts";
@@ -542,6 +558,11 @@ def _classify(prompt: str, settings: Dict[str, Any]) -> "Tuple[Optional[float], 
     injected client raised, was unavailable, or answered nothing at all). Every
     path fails open — this function never raises.
     """
+    provider = str(settings.get("scorer_provider") or _scorers.JEV).strip().lower()
+    if (provider in _scorers.PROVIDERS
+            and settings.get("prompt_sharing_provider", "none") != provider):
+        return None, "prompt_consent_required"
+
     factory = _classifier_factory
     if factory is None:
         client, build_failure = _scorers.build_client(settings)

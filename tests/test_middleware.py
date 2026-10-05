@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from conftest import import_plugin
+from conftest import import_plugin, settings_with_prompt_consent
 
 middleware = import_plugin("middleware")
 
@@ -46,6 +46,7 @@ def clean_middleware(monkeypatch):
 
 
 def use_settings(monkeypatch, settings):
+    settings = settings_with_prompt_consent(settings)
     monkeypatch.setattr(
         middleware, "_settings_provider", lambda key, default=None: settings.get(key, default))
 
@@ -110,6 +111,35 @@ def test_recommend_records_but_does_not_mutate(monkeypatch):
     assert out["source"] == "hermes-adaptive-effort"
     assert "high" in out["reason"] and "not applied" in out["reason"]
     assert factory.instances[0].calls == ["first user prompt"]
+
+
+@pytest.mark.parametrize("consent", ["none", "openrouter"])
+def test_missing_or_mismatched_consent_fails_open_before_classifier_call(monkeypatch, consent):
+    use_settings(monkeypatch, {"mode": "auto", "prompt_sharing_provider": consent})
+    factory = RecordingClassifierFactory(score=1.9)
+    use_classifier(monkeypatch, factory)
+    req = supported_request()
+    before = json.loads(json.dumps(req))
+
+    assert call(ctx(request=req)) is None
+    assert req == before
+    assert factory.instances == []
+    entry = middleware.session_state()["s1/turn"]
+    assert entry["state"] == "failed"
+    assert entry["failure"] == "prompt_consent_required"
+    assert entry["probes"] == 1
+
+
+def test_matching_consent_allows_one_explicit_classifier_call(monkeypatch):
+    use_settings(monkeypatch, {"mode": "auto", "prompt_sharing_provider": "jev"})
+    factory = RecordingClassifierFactory(score=1.9)
+    use_classifier(monkeypatch, factory)
+
+    out = call(ctx(request=supported_request()))
+
+    assert out["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    assert factory.instances[0].calls == ["first user prompt"]
+    assert middleware.session_state()["s1/turn"]["probes"] == 1
 
 
 def test_auto_rewrites_only_the_effort_value(monkeypatch, no_network):
@@ -405,6 +435,41 @@ def test_cloudflare_adapter_success_rewrites_the_existing_field(monkeypatch):
     entry = middleware.session_state()["cloudflare-success/turn"]
     assert entry["scorer_provider"] == "cloudflare"
     assert entry["scorer_model"] == "@cf/cloudflare/clef"
+    assert entry["probes"] == 1
+
+
+def test_custom_chat_completions_scorer_rewrites_with_matching_consent(monkeypatch):
+    use_settings(monkeypatch, {
+        "mode": "auto",
+        "scorer_provider": "custom",
+        "scorer_model": "local-rubric-4b",
+        "custom_endpoint": "http://127.0.0.1:8080/v1/chat/completions",
+        "custom_api_format": "chat_completions",
+        "custom_auth": "none",
+    })
+    monkeypatch.setattr(middleware, "_classifier_factory", None)
+    monkeypatch.setattr(
+        middleware._scorers.custom_client, "_default_key_reader",
+        lambda: (_ for _ in ()).throw(AssertionError("auth=none must not read a key")))
+    requests = []
+
+    def transport(request, _timeout):
+        requests.append(request)
+        return {"choices": [{"message": {"content": '{"score": 1.9}'}}]}
+
+    monkeypatch.setattr(middleware._scorers.custom_client, "_default_transport", transport)
+    out = call(ctx(request=supported_request(), session="custom-scorer"))
+
+    assert out["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    assert len(requests) == 1
+    assert requests[0].full_url == "http://127.0.0.1:8080/v1/chat/completions"
+    body = json.loads(requests[0].data.decode("utf-8"))
+    assert body["model"] == "local-rubric-4b"
+    assert body["messages"][-1]["content"] == "first user prompt"
+    assert requests[0].get_header("Authorization") is None
+    entry = middleware.session_state()["custom-scorer/turn"]
+    assert entry["scorer_provider"] == "custom"
+    assert entry["scorer_model"] == "local-rubric-4b"
     assert entry["probes"] == 1
 
 

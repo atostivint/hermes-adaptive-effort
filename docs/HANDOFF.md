@@ -11,7 +11,10 @@ what the project is, what is verified today, what is *not* finished, and recorde
 
 A Hermes plugin that lets a selected external rubric scorer choose the
 **reasoning effort** of each LLM request. Jev (TypeSafe) remains the default;
-OpenRouter and Cloudflare Clef are explicit opt-in providers.
+OpenRouter, Cloudflare, and a configurable custom endpoint are other explicit choices;
+Cloudflare's `clef` and `clef-flash` models are selectable. The classifier is independent of
+the model that answers the conversation. Prompt sharing also requires
+`prompt_sharing_provider` to match the selected scorer.
 
 Pipeline: read the outgoing request → score the prompt (`0 = low`, `1 = medium`,
 `2 = high`) → clamp the label onto **the route's own wire vocabulary** → write it into
@@ -19,6 +22,14 @@ the effort field **that already exists** in the request.
 
 It is fail-open by contract: any error, timeout, missing credential or unusable request
 shape leaves the request **byte-for-byte untouched**.
+
+The custom scorer can target a hosted or local service using the exact `custom_endpoint`
+and either System One or OpenAI Chat Completions. It requires `scorer_model`; optional
+bearer auth uses `CUSTOM_SCORER_API_KEY`, while `custom_auth: none` makes no credential
+lookup. The endpoint is validated, embedded credentials/fragments are rejected, redirects
+are disabled, and query values are masked in status. There is no provider fallback. Custom
+endpoint privacy/retention is determined by the operator's service; the plugin does not
+guarantee ZDR. No Kev live classification or benchmark result is available yet.
 
 `hermes-adaptive-effort/` is the **payload**; Hermes installs it at
 `~/.hermes/plugins/hermes-adaptive-effort`. This repo is the payload's source plus its tests.
@@ -31,17 +42,26 @@ hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort
 
 (the `#subdir` fragment points at the renamed payload directory inside the repository).
 
-## 2. Verified state (2026-10-03)
+## 2. Verified state and implementation notes (host snapshot 2026-10-04; custom provider added 2026-10-05)
 
 The payload directory, plugin ID, slash command, dashboard route and Desktop identity are
 `hermes-adaptive-effort`. Jev remains the default scorer. OpenRouter is explicit opt-in,
-requires a configured model and `OPENROUTER_API_KEY`; Cloudflare requires a valid account ID
-and `CLOUDFLARE_AUTH_TOKEN`. Neither has a silent fallback to Jev. No live provider request
-was made.
+requires a configured model and `OPENROUTER_API_KEY`; Cloudflare requires a valid account ID,
+`CLOUDFLARE_AUTH_TOKEN`, and can select `clef` or `clef-flash`. Neither has a silent fallback
+to Jev. Prompt text is not sent until the matching `prompt_sharing_provider` opt-in is set.
+OpenRouter requests require ZDR endpoints and deny data-collecting endpoints; the plugin cannot
+assure ZDR for Jev, Cloudflare, or custom endpoints. The custom provider implementation
+supports exact HTTP(S) endpoint URLs with `systemone` or `chat_completions` formats and
+`none` or `bearer` authentication. Its code path has network-free unit-test coverage;
+local Kev startup, model compatibility, live classification quality, and latency remain
+unverified pending the separate Zenon evaluation.
 
-The Windows test suite passed **217 tests**, and Ruff passed. The current master commit
-contains the implementation merge and the GitHub repository is now
-`atostivint/hermes-adaptive-effort`.
+At the 2026-10-03 baseline, the Windows test suite passed **217 tests** and Ruff passed.
+The prompt-consent and Cloudflare model-selector changes were not tested in this checkout.
+GitHub `master` contains the implementation; Iris was reinstalled from the GitHub subdirectory
+on 2026-10-04.
+
+On 2026-10-05, the custom-provider implementation passed the current Windows suite (**248 tests**), Ruff, and Hermes catalog validation (`validate_plugin_dir`, all checks passed). The Zenon setup installed the pinned Windows CUDA builds llama.cpp b11396 and llama-swap v262, verified both GGUF SHA-256 hashes, validated the two-model config, and exercised sequential model switching. Both Kev models returned System One scores through the plugin's `custom` provider. During the live run, 60 synthetic bilingual prompts were classified three times per model; all 180 warmed calls per model succeeded. Fixed-label agreement was **50%** for Kev 0.8B and **60%** for Kev 4B, with no `high` predictions from either model. Kev 4B's cold plugin probe hit the configured 3-second timeout; after loading, its warmup and measured calls succeeded. The observed GPU reached 58% utilization and 8,753 MiB used during the final run. These are exploratory synthetic results, not human-gold labels or a Jev comparison. See [the local scorer report](reviews/local-scorer-benchmark-20261005T090911Z.md).
 
 ### Current host installs
 
@@ -94,14 +114,25 @@ hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort
 ## 3. Live configuration
 
 Windows uses the default `mode: off`. Iris remains `mode: auto` with
-`endpoint: https://api.typesafe.ai/v1/systemone`; do not change either setting without
-the operator's direction. OpenRouter is selected by `scorer_provider: openrouter` and
-`scorer_model`; Cloudflare is selected by `scorer_provider: cloudflare` and
-`cloudflare_account_id`. This deployment did not enable either provider.
+`endpoint: https://api.typesafe.ai/v1/systemone`. Its plugin settings currently contain no
+`scorer_provider`, `cloudflare_account_id`, `cloudflare_model`, or
+`prompt_sharing_provider`; the effective scorer is Jev, and the consent default is `none`,
+so no scorer prompt is sent. OpenRouter requires `scorer_provider: openrouter`, `scorer_model`,
+and `prompt_sharing_provider: openrouter`. Cloudflare requires `scorer_provider: cloudflare`,
+`cloudflare_account_id`, a `cloudflare_model` choice, and
+`prompt_sharing_provider: cloudflare`.
 
 The endpoint is the full scoring route, retained from the prior install. Do not simplify it
 to `https://api.typesafe.ai/v1`; `jev_client.normalize_endpoint()` handles base URLs, but
 this exact configured endpoint was previously verified live.
+
+For custom: set `scorer_provider: custom`, `scorer_model`, `custom_endpoint`, and
+`custom_api_format` (`systemone` or `chat_completions`). `custom_auth` is `none` by default;
+for `bearer`, provide `CUSTOM_SCORER_API_KEY` through Hermes secret scope or the Hermes
+process environment. Local unauthenticated System One can use
+`http://127.0.0.1:8099/v1/systemone`. Consent must independently be set to
+`prompt_sharing_provider: custom`. Neither this provider nor Jev, Cloudflare, or OpenRouter
+is selected as an automatic fallback.
 
 ## 4. Deployment and recovery notes
 
@@ -141,13 +172,21 @@ or restart before they import changed Python modules.
 5. **Rubric:** score `0..2` → `low` (<0.5) / `medium` (<1.5) / `high`. Out of range,
    NaN/inf, bool, non-numeric → `None` → fail open.
 6. **Fail-open everywhere.** `on_llm_request` catches all exceptions. Stable reason codes:
-   `invalid_prompt`, `credential_missing`, `http_error`, `timeout`, `transport_error`,
-   `malformed_response`, `unexpected_error`, `classifier_error`, plus scorer-selection codes `model_missing`, `account_missing`, `account_invalid` and `unsupported_provider`.
+   `invalid_prompt`, `prompt_consent_required`, `credential_missing`, `http_error`,
+   `timeout`, `transport_error`, `malformed_response`, `unexpected_error`,
+   `classifier_error`, plus scorer-selection codes `model_missing`, `account_missing`,
+   `account_invalid`, `unsupported_provider`, `endpoint_missing`, `endpoint_invalid`,
+   `unsupported_api_format` and `unsupported_auth`.
 7. **Subagents** are classified from the parent-written goal (`subagent_start`), gated by
    the independent `subagent_mode`. `status` performs no classification; `probe` scores only operator-typed text and stores no decision.
-8. **No prompt storage, no prompt in logs/reasons/traces.** Effort-change notices log
-   only the old and new effort values. Reason strings carry effort values only;
-   `command._ENTRY_FIELDS` is the only rendered session allowlist.
+8. **Prompt sharing requires provider-specific consent.** `prompt_sharing_provider`
+   must match the selected scorer before any scorer request is made; otherwise the
+   decision fails open with `prompt_consent_required`. `prompt_chars` only caps the
+   excerpt and says nothing about provider retention. OpenRouter requests require
+   ZDR endpoints and deny data-collecting endpoints. This plugin makes no ZDR
+   guarantee for Jev, Cloudflare, or custom endpoints. The plugin itself does not persist prompts or
+   include them in logs/reasons/traces. Effort-change notices log only old and new
+   effort values; `command._ENTRY_FIELDS` is the only rendered session allowlist.
 9. **Never write the operator's config from a chat command.** `/hermes-adaptive-effort <mode>`
    sets an in-process `_MODE_OVERRIDE` only; the persist path is
    `plugins.entries.hermes-adaptive-effort.settings.mode`.
@@ -218,9 +257,10 @@ plugin is disabled, or the dashboard half is not deployed), the chip correctly s
    rejection. Either document it further or make it fail open loudly.
 2. **Cost effect is unmeasured.** No live A/B has been run, so every cost or cache claim
    in the README is an expectation, not a measurement. Do not restate them as results.
-3. **Cloudflare Clef:** the adapter is implemented and covered by network-free tests. Live latency, scoring quality and cost evaluation remain pending; no Cloudflare configuration or deployment was performed.
-4. **OpenRouter evaluation:** the adapter is covered by network-free tests, but no live scorer request or model comparison has been run.
-5. **Pre-install backups** sit in `~/.hermes/cache/scratch/` (`jev-backup-20260930-080501`,
+3. **Custom scorer / Kev:** local setup, model loading, GPU use, and the initial warm-latency trial are verified. Both models missed the `high` class on the synthetic benchmark; agreement with its fixed labels was only 50% / 60%. No Jev A/B or human-labeled evaluation has been run. Treat quality as exploratory and do not claim parity or superiority.
+4. **Cloudflare Clef / Clef Flash:** the existing Clef adapter had network-free tests; the new Flash selector was not tested in this checkout. Live latency, scoring quality and cost evaluation remain pending; Iris has no Cloudflare account ID setting and no matching prompt-sharing consent, so no live request was sent.
+5. **OpenRouter evaluation:** OpenRouter ZDR routing is requested per call; no live scorer request or model comparison has been run.
+6. **Pre-install backups** sit in `~/.hermes/cache/scratch/` (`jev-backup-20260930-080501`,
    `jev-backup-20260930-082258`). Harmless, and they are the rollback path if the managed
    install ever needs undoing. Retain or remove them only under the operator's backup policy.
 

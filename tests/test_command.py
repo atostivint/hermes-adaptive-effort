@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from conftest import import_plugin
+from conftest import import_plugin, settings_with_prompt_consent
 
 init_module = import_plugin("__init__")
 command = import_plugin("command")
@@ -51,6 +51,12 @@ def registered():
     ctx = RecordingCtx()
     init_module.register(ctx)
     return ctx
+
+
+def use_settings(monkeypatch, settings):
+    settings = settings_with_prompt_consent(settings)
+    monkeypatch.setattr(
+        middleware, "_settings_provider", lambda key, default=None: settings.get(key, default))
 
 
 def test_register_registers_exactly_one_command_named_hermes_adaptive_effort():
@@ -118,11 +124,33 @@ def test_status_reports_selected_scorer_and_active_endpoint(monkeypatch):
         "https://openrouter.ai/api/v1/chat/completions"
 
 
-def test_cloudflare_status_and_probe_show_only_safe_provider_details(monkeypatch):
-    account_id = "0123456789abcdef0123456789abcdef"
-    configured = {"scorer_provider": "cloudflare", "cloudflare_account_id": account_id}
+def test_custom_scorer_status_redacts_endpoint_query_values(monkeypatch):
+    configured = {
+        "scorer_provider": "custom",
+        "scorer_model": "local-rubric-4b",
+        "custom_endpoint": "http://127.0.0.1:8080/v1/systemone?token=secret-custom-value&route=chosen-route",
+        "custom_api_format": "systemone",
+        "custom_auth": "none",
+    }
     monkeypatch.setattr(middleware, "_settings_provider",
                         lambda key, default=None: configured.get(key, default))
+
+    payload = json.loads(command.handle("status json"))
+    rendered = json.dumps(payload)
+
+    assert payload["settings"]["scorer_provider"] == "custom"
+    assert payload["settings"]["scorer_model_effective"] == "local-rubric-4b"
+    assert payload["settings"]["custom_endpoint"] == (
+        "http://127.0.0.1:8080/v1/systemone?token=%5Bredacted%5D&route=%5Bredacted%5D")
+    assert payload["credential_required"] is False
+    assert "secret-custom-value" not in rendered and "chosen-route" not in rendered
+
+
+def test_cloudflare_status_and_probe_show_only_safe_provider_details(monkeypatch):
+    account_id = "0123456789abcdef0123456789abcdef"
+    configured = settings_with_prompt_consent({
+        "scorer_provider": "cloudflare", "cloudflare_account_id": account_id})
+    use_settings(monkeypatch, configured)
     monkeypatch.setattr(middleware, "_classifier_factory",
                         lambda **_kwargs: type("Scorer", (), {
                             "classify_detail": lambda _self, text: (1.0, None)})())
@@ -236,8 +264,7 @@ def test_probe_without_text_is_usage_and_runs_no_classification(monkeypatch, no_
 
 
 def test_probe_reports_score_and_label(monkeypatch, no_network):
-    monkeypatch.setattr(middleware, "_settings_provider",
-                        lambda key, default=None: {"mode": "auto"}.get(key, default))
+    use_settings(monkeypatch, {"mode": "auto"})
     monkeypatch.setattr(middleware, "_classifier_factory",
                         lambda **kw: type("C", (), {"classify": lambda self, p: 1.9})())
     payload = json.loads(command.handle("probe how do I rotate a k3s token"))
@@ -248,8 +275,7 @@ def test_probe_reports_score_and_label(monkeypatch, no_network):
 
 
 def test_probe_is_bounded_and_writes_no_session_state(monkeypatch, no_network):
-    monkeypatch.setattr(middleware, "_settings_provider",
-                        lambda key, default=None: {"mode": "auto"}.get(key, default))
+    use_settings(monkeypatch, {"mode": "auto"})
     monkeypatch.setattr(middleware, "_classifier_factory",
                         lambda **kw: type("C", (), {"classify": lambda self, p: 1.0})())
     command.handle("probe anything at all")
@@ -257,8 +283,7 @@ def test_probe_is_bounded_and_writes_no_session_state(monkeypatch, no_network):
 
 
 def test_probe_failure_is_reported_as_a_reason(monkeypatch, no_network):
-    monkeypatch.setattr(middleware, "_settings_provider",
-                        lambda key, default=None: {"mode": "auto"}.get(key, default))
+    use_settings(monkeypatch, {"mode": "auto"})
     monkeypatch.setattr(middleware, "_classifier_factory",
                         lambda **kw: type("C", (), {"classify": lambda self, p: 1 / 0})())
     payload = json.loads(command.handle("probe something"))

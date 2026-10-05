@@ -62,13 +62,17 @@ mirroring the Kimi and GLM entries that are already there).
 
 ## Fail-open behaviour
 
-Scorer selection is explicit: `jev` (default), `openrouter`, or `cloudflare`; failures never select another scorer. OpenRouter requires `scorer_model` and `OPENROUTER_API_KEY`. Cloudflare uses the fixed Workers AI `@cf/cloudflare/clef` route with body model `clef`, requires a 32-character hexadecimal `cloudflare_account_id` and `CLOUDFLARE_AUTH_TOKEN`, and ignores the Jev endpoint and OpenRouter model settings. Credentials resolve through Hermes secret scope, then environment, and are never rendered in status.
+Scorer selection is explicit: `jev` (default), `openrouter`, `cloudflare`, or `custom`; failures never select another scorer. The scorer is independent of the conversation model. OpenRouter requires `scorer_model` and `OPENROUTER_API_KEY`. Cloudflare uses `cloudflare_model` (`clef` by default, or `clef-flash`) to select the matching Workers AI route and body selector; it requires a 32-character hexadecimal `cloudflare_account_id` and `CLOUDFLARE_AUTH_TOKEN`. Custom requires `scorer_model`, a complete `custom_endpoint`, and `custom_api_format` (`systemone` by default or `chat_completions`). `custom_auth` defaults to `none`; `bearer` requires `CUSTOM_SCORER_API_KEY`. Required credentials resolve through Hermes secret scope, then environment, and are never rendered in status. Auth `none` does not look up a key.
+
+The custom endpoint is used exactly as configured; no path is appended. It must be a valid HTTP(S) URL without embedded credentials or a fragment. Redirects are not followed. Status masks URL query values and adds the boolean `credential_required`; custom auth `none` reports false without inspecting a key, while `bearer` reports true and checks key presence without exposing the key. System One sends the bounded prompt in `state.prompt`, the shared `questions` rubric, and the configured model; it reads `answers.effort.score`. Chat Completions uses a JSON response request with zero temperature, at most 32 completion tokens, no streaming, and the configured model; only the strict numeric score is accepted. Both formats share the rubric and finite `0..2` validation. Invalid endpoint and unsupported format/auth settings fail open before transport.
 
 Cloudflare returns the shared `0..2` score from `result.answers.effort.score` only when the REST wrapper has `success: true` and no reported errors. Missing or invalid account IDs fail before HTTP with `account_missing` or `account_invalid`; other failures use the existing transport/response codes. Status adds `cloudflare_account_ready`, separate from token presence, and displays the account-scoped endpoint (a placeholder when the ID is invalid). Probe scores only operator-typed text and stores no decision.
 
 | situation | request | request state | scorer calls |
 | --- | --- | --- | --- |
-| no credential | unchanged | `failed` (`credential_missing`) | 0 HTTP calls |
+| missing required credential | unchanged | `failed` (`credential_missing`) | 0 HTTP calls |
+| custom auth `none` | unchanged unless classification succeeds | configured result | no credential lookup |
+| custom endpoint/model/format/auth invalid | unchanged | `failed` with configuration code | 0 HTTP calls |
 | classifier timeout / transport error | unchanged | `failed`, one probe | 1 (never retried in the turn) |
 | score out of `0..2`, non-finite, non-numeric | unchanged | `failed`, one probe | 1 |
 | no writable effort field (e.g. reasoning disabled) | unchanged | `unsupported` | 0 |
@@ -128,8 +132,8 @@ The CLI uses the optional host `register_cli_status_item` API to show the last a
 
 ## Failure codes
 
-Existing codes remain stable: `invalid_prompt`, `credential_missing`, `http_error`, `timeout`, `transport_error`, `malformed_response`, `unexpected_error`, `classifier_error`. Scorer selection adds `model_missing` and `unsupported_provider`. Failed decisions are not retried within their retained scope. Missing credentials perform no HTTP call, even though the ledger records a classification attempt.
+Existing codes remain stable: `invalid_prompt`, `credential_missing`, `http_error`, `timeout`, `transport_error`, `malformed_response`, `unexpected_error`, `classifier_error`. Scorer configuration adds `model_missing`, `endpoint_missing`, `endpoint_invalid`, `unsupported_api_format`, `unsupported_auth`, `unsupported_provider` and `prompt_consent_required`. Failed decisions are not retried within their retained scope. Missing consent or credentials perform no HTTP call, even though the ledger records a classification attempt.
 
 ## Privacy boundary
 
-Normal turns send at most `prompt_chars` characters of the latest user text to the selected external scorer; the conversation history and tool results are not sent as task text. Child scoring uses the parent-written goal. Prompts are not persisted or emitted in logs, reasons, status, probe output or the applied-change feed. Child goals necessarily exist transiently in memory. These are plugin guarantees, not statements about a scoring provider's retention policy.
+Normal turns send at most `prompt_chars` characters of the latest user text only when `prompt_sharing_provider` matches the selected scorer; the conversation history and tool results are not sent as task text. Child scoring uses the parent-written goal and the same consent gate. Without matching consent, no scorer call is made and the decision fails open with `prompt_consent_required`. Prompts are not persisted or emitted in logs, reasons, status, probe output or the applied-change feed. Child goals necessarily exist transiently in memory. These are plugin guarantees, not statements about a scoring provider's retention policy. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints; the prompt is still processed by OpenRouter. Jev, Cloudflare, and custom endpoints have no ZDR guarantee from this plugin. `prompt_chars` limits the excerpt only and is not a retention control.
