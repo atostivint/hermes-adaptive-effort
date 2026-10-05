@@ -78,7 +78,10 @@ def dispatched(tmp_path_factory):
     (home / "plugins").mkdir()
     shutil.copytree(
         PLUGIN_DIR, home / "plugins" / "hermes-adaptive-effort",
-        ignore=shutil.ignore_patterns("__pycache__"),
+        ignore=shutil.ignore_patterns(
+            "__pycache__", ".git", ".github", ".venv", ".worktrees", "AGENTS.md",
+            "docs", "pyproject.toml", "README.md", "requirements*.txt", "scripts", "tests",
+        ),
     )
     bundled = home / "bundled_plugins"
     bundled.mkdir()

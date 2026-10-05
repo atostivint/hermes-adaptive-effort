@@ -17,18 +17,20 @@ The Windows test runner discovers the Hermes source tree from `HERMES_SOURCE_ROO
 ## Files
 
 ```text
-hermes-adaptive-effort/                 the payload installed as ~/.hermes/plugins/hermes-adaptive-effort
+./                         the plugin payload installed as ~/.hermes/plugins/hermes-adaptive-effort
   plugin.yaml             manifest: id, commands, hooks, settings defaults + config_schema (Desktop form)
-  __init__.py             register(): commands + the llm_request middleware
-  middleware.py           settings, decision cache, request rewrite, session state + effort-change feed
-  effort.py               pure score -> label -> wire-effort mapping (no I/O)
-  jev_client.py           Jev adapter; openrouter_client.py is the OpenRouter adapter
-  scorers.py              explicit scorer registry, credential and endpoint selection
-  cache_safety.py         is an effort change cache-neutral on this route?
-  command.py              /hermes-adaptive-effort: help, status, status json, probe, mode verbs
-  dashboard/manifest.json + plugin_api.py
-                            desktop backend: GET /status, GET /changes, POST /mode, POST /probe
-  desktop/plugin.js       desktop half: effort chip, pane, change toasts, palette (opt-in)
+  __init__.py              register(): commands + the llm_request middleware
+  middleware.py            settings, decision cache, request rewrite, session state + effort-change feed
+  effort.py                pure score -> label -> wire-effort mapping (no I/O)
+  jev_client.py            Jev adapter; openrouter_client.py is the OpenRouter adapter
+  cloudflare_client.py     Cloudflare Clef adapter
+  custom_client.py         custom System One / OpenAI Chat Completions adapter
+  rubric.py                shared scorer question and score validation
+  scorers.py               explicit scorer registry, credential and endpoint selection
+  cache_safety.py          is an effort change cache-neutral on this route?
+  command.py               /hermes-adaptive-effort: help, status, status json, probe, mode verbs
+  dashboard/               backend: GET /status, GET /changes, POST /mode, POST /probe
+  desktop/plugin.js        desktop half: effort chip, pane, change toasts, palette (opt-in)
 tests/                    217 tests, one module per contract
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh (+ .ps1 for Windows)
 pyproject.toml            pytest + ruff configuration

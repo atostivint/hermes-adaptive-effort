@@ -14,17 +14,13 @@ The plugin is opt-in and starts **off**. If scoring fails, your original request
 
 ## Quick install
 
-If the Hermes catalog entry has been accepted, install and enable the plugin by name:
+Install directly from the GitHub repository root:
 
 ```bash
-hermes plugins install hermes-adaptive-effort --enable
+hermes plugins install 'atostivint/hermes-adaptive-effort' --enable
 ```
 
-Until then, install directly from GitHub with the repository subdirectory:
-
-```bash
-hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort' --enable
-```
+The plugin manifest and payload now live at the repository root, so no subdirectory fragment is needed. The previous `#hermes-adaptive-effort` suffix selected the old nested payload directory. A root install retains Git metadata, which lets `hermes plugins update hermes-adaptive-effort` update the plugin normally.
 
 Hermes handles installation; you do not need to clone this repo or install a Python package. Enabling the plugin makes it available, but its reasoning mode still starts **off**.
 
@@ -206,7 +202,7 @@ Credentials resolve through Hermes' secret scope, then the environment. A key se
 
 Hermes must support plugin `llm_request` middleware and session lifecycle hooks. Effort mapping also uses host internals. The optional Desktop interface needs the plugin SDK and focused-conversation state support. If your older Hermes CLI does not recognize `--enable`, run the install command without that flag, then `hermes plugins enable hermes-adaptive-effort`.
 
-The `#hermes-adaptive-effort` URL fragment selects the payload directory inside this repository. This is a Hermes plugin, not a pip package.
+The repository root is the Hermes plugin payload. This is a Hermes plugin, not a pip package.
 
 </details>
 

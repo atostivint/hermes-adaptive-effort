@@ -1,7 +1,7 @@
 """Shared fixtures for Hermes Adaptive Effort plugin tests.
 
-Loads the plugin payload (``hermes-adaptive-effort/``) as a real package (the same sibling-module
-layout Hermes' plugin loader builds) and guarantees unit tests never touch the network.
+Loads the repository-root plugin payload as a real package (the same sibling-module layout
+Hermes' plugin loader builds) and guarantees unit tests never touch the network.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-PLUGIN_DIR = Path(__file__).resolve().parents[1] / "hermes-adaptive-effort"
+PLUGIN_DIR = Path(__file__).resolve().parents[1]
 PLUGIN_PACKAGE = "hermes_plugin_adaptive_effort"
 
 #: Where the Hermes *source tree* (``agent/``, ``hermes_cli/``) lives on this machine.

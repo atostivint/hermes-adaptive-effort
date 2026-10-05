@@ -92,6 +92,6 @@ jobs:
           ./scripts/run_lint.sh
           .venv/bin/ruff check .github/scripts
       - name: Desktop JavaScript syntax
-        run: node --check hermes-adaptive-effort/desktop/plugin.js
+        run: node --check desktop/plugin.js
       - name: GitHub workflow validation
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12

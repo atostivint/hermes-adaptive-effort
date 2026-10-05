@@ -6,20 +6,21 @@ of a request. Fail-open by contract: any error leaves the request untouched.
 ## Layout
 
 ```text
-hermes-adaptive-effort/          payload installed as ~/.hermes/plugins/hermes-adaptive-effort (NOT pip-installable)
+./                         plugin payload installed as ~/.hermes/plugins/hermes-adaptive-effort (NOT pip-installable)
   plugin.yaml             manifest: id, commands, hooks, settings defaults
   __init__.py             register(): llm_request middleware + on_session_end/subagent hooks + /hermes-adaptive-effort
   middleware.py           settings, mode, decision cache, request rewrite, applied-change feed, session state
   effort.py               pure score -> label -> wire-effort mapping (no I/O, no Hermes import at top level)
   jev_client.py           Jev adapter + credential probe (lazy core import)
-  rubric.py               shared, pure score rubric and validation
+  rubric.py               shared score question, pure rubric and strict JSON parsing/validation
   openrouter_client.py    OpenRouter adapter; requires explicit model + OPENROUTER_API_KEY
   cloudflare_client.py   Cloudflare Clef adapter; requires account ID + CLOUDFLARE_AUTH_TOKEN
   custom_client.py        custom System One / OpenAI chat-completions adapter
-  rubric.py               shared score question and strict JSON score parsing
   scorers.py              explicit provider registry, credentials and endpoint display
   cache_safety.py         is an effort change cache-neutral on this route?
   command.py              /hermes-adaptive-effort: help, status, status json, probe, mode verbs
+  dashboard/              optional Hermes dashboard backend
+  desktop/                optional Desktop extension
 tests/                    one module per contract (see docs/DEVELOPMENT.md table)
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh
 pyproject.toml            pytest + ruff config only — no [project] table on purpose
@@ -79,7 +80,7 @@ Windows PowerShell equivalents:
 ## Hermes plugin development (canonical)
 
 - Locations: `~/.hermes/plugins/<name>/`, `./.hermes/plugins/` (opt-in), `<repo>/plugins/`, pip `hermes_agent.plugins`. This repo is a standalone example.
-- Minimal: `plugin.yaml` (`name, version, provides_tools/hooks`) + `__init__.py` with `def register(ctx)`. See `hermes-adaptive-effort/__init__.py:16`.
+- Minimal: `plugin.yaml` (`name, version, provides_tools/hooks`) + `__init__.py` with `def register(ctx)`. See `__init__.py:16`.
 - `ctx` (`hermes_cli/plugins.py:231`): `register_tool(name, toolset, schema, handler)` — handler `(args:dict, **kwargs)->str` JSON, never raise; `register_hook(name, fn)` — `VALID_HOOKS` (`plugins.py:109`); `register_middleware(kind, fn)` — `VALID_MIDDLEWARE` (`middleware.py:24`: `llm_request/tool_request/llm_execution/tool_execution`); `register_command` (`/name`) / `register_cli_command` (`hermes <name>`); `get_config/set_config` (only `plugins.entries.<id>.settings`), `ctx.state`, `dispatch_tool`, `register_skill/locale`.
 - Hooks take `**kwargs` (additive payloads); middleware is fail-open, request returns `{"request"|"args":...}`, execution calls `next_call` exactly once. Order/contract: `website/docs/developer-guide/middleware.md`, guide: `website/docs/developer-guide/plugins/index.md`, policy: `plugins/AGENTS.md`.
 - Rules: never touch core files; internal `agent.*`/`hermes_cli.*` imports are not API (lazy import); secrets in `.env`/`secret_scope`, never `config.yaml`; no `~/.hermes` hardcode (`get_hermes_home()`); third-party-product plugins stay out-of-tree.

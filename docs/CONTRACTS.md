@@ -62,7 +62,7 @@ declares `OX_ALPHA_EFFORTS` and `OX_ALPHA_OVERRIDES` but exposes **no route sele
 for that slug, so `route_supported_efforts` hands this plugin the wide set and the plugin
 can legitimately choose `medium` — which the vendor then rejects. This is a live, unfixed
 risk, tracked by criterion 8 of the card and **not** worked around here (a follow-up
-would add the Ox Alpha slug to `wire_efforts()`/`wire_overrides()` in `hermes-adaptive-effort/effort.py`,
+would add the Ox Alpha slug to `wire_efforts()`/`wire_overrides()` in `effort.py`,
 mirroring the Kimi and GLM entries that are already there).
 
 ## Fail-open behaviour

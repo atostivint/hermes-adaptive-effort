@@ -5,6 +5,16 @@
 This file is the single entry point for an agent picking the work up cold. It states
 what the project is, what is verified today, what is *not* finished, and recorded operational gaps. Host state below is dated evidence, not a fresh health check.
 
+## Current install note
+
+The Hermes manifest and payload now live at the repository root. Install from GitHub without a path fragment:
+
+```bash
+hermes plugins install 'atostivint/hermes-adaptive-effort' --enable
+```
+
+The former `#hermes-adaptive-effort` suffix selected the old nested payload directory. Root installation keeps the Git checkout available for `hermes plugins update` and provenance checks.
+
 ---
 
 ## 1. What this is
@@ -35,16 +45,16 @@ endpoint privacy/retention is determined by the operator's service; the plugin d
 guarantee ZDR. The Zenon Kev benchmark ([report](reviews/local-scorer-benchmark-20261005T090911Z.md))
 exercised it live; see §2.
 
-`hermes-adaptive-effort/` is the **payload**; Hermes installs it at
-`~/.hermes/plugins/hermes-adaptive-effort`. This repo is the payload's source plus its tests.
+The repository root is the **payload**; Hermes installs it at
+`~/.hermes/plugins/hermes-adaptive-effort`. Tests, docs and development tools live beside it.
 There is deliberately **no `[project]` table** — nothing here is pip-installable, so
 `pip install` is never the install path. The managed path is:
 
 ```bash
-hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort' --enable
+hermes plugins install 'atostivint/hermes-adaptive-effort' --enable
 ```
 
-(the `#subdir` fragment points at the renamed payload directory inside the repository).
+The repository root contains `plugin.yaml` and the loadable plugin entry point, so Hermes can install it directly.
 
 ## 2. Verified state and implementation notes (host snapshot 2026-10-04; custom provider added 2026-10-05)
 
@@ -131,7 +141,7 @@ The repo was previously `atostivint/jev-auto-effort`; Iris metadata and this han
 the new repository slug. For future installs, use:
 
 ```bash
-hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort' --enable
+hermes plugins install 'atostivint/hermes-adaptive-effort' --enable
 ```
 
 ## 3. Live configuration
