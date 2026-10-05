@@ -21,7 +21,7 @@ else:
 
 
 def register(ctx: Any) -> None:
-    """Attach middleware, lifecycle hooks and ``/hermes-adaptive-effort`` to a real PluginContext."""
+    """Attach middleware, lifecycle hooks and effort commands to a real PluginContext."""
     if _command is None or _middleware is None:
         raise RuntimeError("Hermes plugin entrypoint must be loaded as a package")
 
@@ -57,13 +57,16 @@ def register(ctx: Any) -> None:
     # the goal its parent wrote.
     ctx.register_hook("subagent_start", _middleware.on_subagent_start)
     ctx.register_hook("subagent_stop", _middleware.on_subagent_stop)
-    # Verified API: PluginContext.register_command (hermes_cli/plugins.py) -> `/hermes-adaptive-effort`.
-    ctx.register_command(
-        "hermes-adaptive-effort",
-        handler=_command.handle,
-        description=(
-            "Hermes Adaptive Effort reasoning-effort router: status, bounded probe, and "
-            "off|recommend|auto|cache_safe|inject for future requests"
-        ),
-        args_hint="<status|status json|probe <text>|off|recommend|auto|cache_safe|inject>",
+    # Keep the original command for compatibility and offer a shorter everyday alias.
+    command_description = (
+        "Hermes Adaptive Effort reasoning-effort router: status, bounded probe, and "
+        "off|recommend|auto|cache_safe|inject for future requests"
     )
+    command_args = "<status|status json|probe <text>|off|recommend|auto|cache_safe|inject>"
+    for command_name in ("hae", "hermes-adaptive-effort"):
+        ctx.register_command(
+            command_name,
+            handler=_command.handle,
+            description=command_description,
+            args_hint=command_args,
+        )

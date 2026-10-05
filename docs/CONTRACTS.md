@@ -120,7 +120,7 @@ Registered child sessions are classified from the goal written by their parent. 
 
 ## Public API and visibility
 
-The slash command is `/hermes-adaptive-effort`. `status` performs no scoring; `probe <text>` scores only operator-typed text and stores no decision. Mode commands apply only to future requests in the current process.
+The preferred short slash command is `/hae`; `/hermes-adaptive-effort` remains an equivalent compatibility alias. `status` performs no scoring; `probe <text>` scores only operator-typed text and stores no decision. Mode commands apply only to future requests in the current process.
 
 The dashboard API is mounted under `/api/plugins/hermes-adaptive-effort/`:
 

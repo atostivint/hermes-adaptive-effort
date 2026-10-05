@@ -15,6 +15,9 @@ hermes plugins install 'atostivint/hermes-adaptive-effort' --enable
 
 The former `#hermes-adaptive-effort` suffix selected the old nested payload directory. Root installation keeps the Git checkout available for `hermes plugins update` and provenance checks.
 
+Use `/hae` for the plugin's status, probe and mode commands. The original
+`/hermes-adaptive-effort` form remains registered as a compatibility alias.
+
 ---
 
 ## 1. What this is
@@ -221,7 +224,8 @@ or restart before they import changed Python modules.
    custom endpoints. Prompts are not persisted or included in logs/reasons/traces. Effort-change
    notices log only effort values; injection records `from: absent`. `command._ENTRY_FIELDS` is
    the only rendered session allowlist.
-9. **Never write the operator's config from a chat command.** `/hermes-adaptive-effort <mode>`
+9. **Never write the operator's config from a chat command.** `/hae <mode>` (also
+   `/hermes-adaptive-effort <mode>`)
    sets an in-process `_MODE_OVERRIDE` only; the persist path is
    `plugins.entries.hermes-adaptive-effort.settings.mode`.
 10. **Schemas are a public contract:** `hermes-adaptive-effort.status.v1`,
@@ -248,7 +252,7 @@ The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separ
   `POST /probe`. It reuses
   the already-loaded agent modules (`command._status_payload()`,
   `middleware.set_mode_override()`), so the chip reports exactly what
-  `/hermes-adaptive-effort status` prints. `probe` returns score/label/failure and a
+  `/hae status` prints. `probe` returns score/label/failure and a
   `text_chars` count only — **never the text**. It degrades to an `error: status_failed`
   payload rather than raising. Each status entry carries an allowlisted
   `conversation_id` alongside its decision-key `session_id`; this is the exact
@@ -279,7 +283,7 @@ The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separ
   Hermes `PluginContext.register_cli_status_item()` host API and updates it after each
   distinct applied rewrite. The status handle also prints one bounded notice above the
   prompt for each distinct applied change; the plugin logs the same prompt-free `from -> to` notice and
-  `/hermes-adaptive-effort status` prints the last applied transition. Older Hermes hosts without
+  `/hae status` prints the last applied transition. Older Hermes hosts without
   the status-item API still get the log notice and command output.
 
 **Security boundary, not a bug:** the Python backend only mounts for plugins listed in

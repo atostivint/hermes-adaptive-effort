@@ -8,7 +8,7 @@ of a request. Fail-open by contract: any error leaves the request untouched.
 ```text
 ./                         plugin payload installed as ~/.hermes/plugins/hermes-adaptive-effort (NOT pip-installable)
   plugin.yaml             manifest: id, commands, hooks, settings defaults
-  __init__.py             register(): llm_request middleware + on_session_end/subagent hooks + /hermes-adaptive-effort
+  __init__.py             register(): llm_request middleware + lifecycle hooks + /hae and /hermes-adaptive-effort commands
   middleware.py           settings, mode, decision cache, request rewrite, applied-change feed, session state
   effort.py               pure score -> label -> wire-effort mapping (no I/O, no Hermes import at top level)
   jev_client.py           Jev adapter + credential probe (lazy core import)
@@ -18,7 +18,7 @@ of a request. Fail-open by contract: any error leaves the request untouched.
   custom_client.py        custom System One / OpenAI chat-completions adapter
   scorers.py              explicit provider registry, credentials and endpoint display
   cache_safety.py         is an effort change cache-neutral on this route?
-  command.py              /hermes-adaptive-effort: help, status, status json, probe, mode verbs
+  command.py              /hae (also /hermes-adaptive-effort): help, status, status json, probe, mode verbs
   dashboard/              optional Hermes dashboard backend
   desktop/                optional Desktop extension
 tests/                    one module per contract (see docs/DEVELOPMENT.md table)
@@ -66,7 +66,7 @@ Windows PowerShell equivalents:
 6. **Fail-open everywhere.** `on_llm_request` catches all; missing credential/model / timeout / transport / malformed → unchanged request + `failed` entry. Missing writable or positively supported injection field → `unsupported`; ineligible routes make no scorer call.
 7. **Subagents:** child classified from parent-written goal (`subagent_start` hook), gated by independent `subagent_mode`. `status` does not classify; `probe` scores only operator-typed text and stores no decision.
 8. **Enabling a routing mode authorizes scorer prompt sharing.** Selecting a scorer alone while mode is `off` sends no prompt; enabling a mode sends task text to the selected scorer. `probe` sends only operator-typed text. `prompt_chars` is only a text-size cap and gives no retention guarantee. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints; this plugin cannot assure ZDR for Jev, Cloudflare, or custom endpoints. Prompts never enter logs/reasons/traces; reason strings and the applied-change feed carry effort values only (injection records prior value `absent`). `command._ENTRY_FIELDS` is the only rendered session allowlist.
-9. **Never write the operator's config.** `/hermes-adaptive-effort <mode>` sets in-memory `_MODE_OVERRIDE` for future requests in this process only; persist path is `plugins.entries.hermes-adaptive-effort.settings.mode`.
+9. **Never write the operator's config.** `/hae <mode>` or `/hermes-adaptive-effort <mode>` sets in-memory `_MODE_OVERRIDE` for future requests in this process only; persist path is `plugins.entries.hermes-adaptive-effort.settings.mode`.
 10. **Provider settings:** Jev uses `endpoint`, `TYPESAFE_API_KEY`, and fixed `jev_client.JEV_MODEL`; OpenRouter uses `scorer_model`, the fixed chat-completions endpoint, and `OPENROUTER_API_KEY`; Cloudflare uses `cloudflare_account_id`, `cloudflare_model` (`clef` or `clef-flash`), and `CLOUDFLARE_AUTH_TOKEN`; custom uses an exact `custom_endpoint`, `scorer_model`, and `custom_api_format` (`systemone` or `chat_completions`), with optional `CUSTOM_SCORER_API_KEY` bearer auth selected by `custom_auth`. Required keys resolve through `agent.secret_scope` then env; `credential_present()` never returns a secret. Jev endpoint tolerance remains full route/API base/bare host. See invariant 8 for prompt handling.
 11. **Cache safety:** `cache_safety.effort_is_cache_safe(provider, model, api_mode)` — `True` only for `chat_completions` / `codex_responses`; `anthropic_messages` and unknown → `False` (pin, never gamble).
 12. **Applied-change feed.** `middleware.effort_change_state()` → `{stream_id, events:[{id,from,to,at}], latest}` under schema `hermes-adaptive-effort.changes.v1`: the rewrites that actually reached a request (bounded ring of 64), effort values only, no session ids, no prompt text. Recorded at the single point where a rewritten request is returned — so `recommend`, `failed`, `unsupported`, no-op turns and a tool loop re-sending the applied value record nothing — and deduplicated on `(decision_key, from, to)` so a route change re-sending the original level does not replay. `reset_state()` mints a new `stream_id` (the sequence restarts); that is the consumer's signal to drop its cursor. Served as `GET /changes`.
@@ -92,5 +92,5 @@ Windows PowerShell equivalents:
 
 - Keep `effort.py` pure (stdlib only; lazy `agent.*` imports inside functions).
 - Keep existing failure reason codes stable; additive scorer codes include `model_missing`, `account_missing`, `account_invalid`, `unsupported_provider`, `endpoint_missing`, `endpoint_invalid`, `unsupported_api_format`, and `unsupported_auth`. The status contract also exposes `credential_required` — `status`/`status json` schemas (`hermes-adaptive-effort.status.v1`, `hermes-adaptive-effort.probe.v1`) are documented contracts.
-- Unknown `/hermes-adaptive-effort` verb or stray arg → return `USAGE`, change nothing.
+- Unknown `/hae` or `/hermes-adaptive-effort` verb or stray arg → return `USAGE`, change nothing.
 - Update `README.md`, `docs/CONTRACTS.md` + `docs/HANDOFF.md` if behavior changes; note cost/cache claims as unmeasured unless you run a live A/B.

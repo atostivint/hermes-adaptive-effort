@@ -90,7 +90,7 @@ Select the `custom` scorer and point it at a local OpenAI-compatible server. No 
 
 Local-model caveats, measured on one Windows/RTX 4070 Ti box (not a recommendation): Kev 0.8B agreed with the synthetic fixed labels 50% of the time, Kev 4B 60%, and neither predicted `high`; the first 4B call hit the default 3-second timeout while the model loaded, then warmed calls answered in ~80–125 ms. If your model loads slowly, raise `timeout_s`. See the [full report](docs/reviews/local-scorer-benchmark-20261005T090911Z.md).
 
-Check readiness at any time with `/hermes-adaptive-effort status` — it reports key presence without exposing values (`credential: present/missing`) and names the effective endpoint. A missing key there means Hermes cannot see the variable: check the right `.env` file and restart.
+Use `/hae status` to check readiness — it reports key presence without exposing values (`credential: present/missing`) and names the effective endpoint. The original `/hermes-adaptive-effort` command remains available as an alias. A missing key there means Hermes cannot see the variable: check the right `.env` file and restart.
 
 ### 2. Restart your Hermes session
 
@@ -107,19 +107,21 @@ Desktop connections can have separate agent processes; reconnect or restart the 
 Start by inspecting decisions without changing effort:
 
 ```text
-/hermes-adaptive-effort recommend
-/hermes-adaptive-effort status
+/hae recommend
+/hae status
 ```
+
+The short command is `/hae` (“Hermes Adaptive Effort”); existing `/hermes-adaptive-effort` commands continue to work.
 
 Send a normal message with reasoning enabled on a compatible route, then check `status` again. A `decided` entry shows the score and target. When you want decisions applied:
 
 ```text
-/hermes-adaptive-effort auto
+/hae auto
 ```
 
 To keep that mode after a restart, save it in **Desktop → Capabilities → Plugins → Hermes Adaptive Effort → Mode**, or use the optional configuration below. Chat mode commands apply only to the current process.
 
-You can check the scorer independently with `/hermes-adaptive-effort probe What is 2 + 2?`. It scores only that typed text and stores no decision. Scoring can incur provider charges.
+You can check the scorer independently with `/hae probe What is 2 + 2?`. It scores only that typed text and stores no decision. Scoring can incur provider charges.
 
 ### Prefer OpenRouter?
 
@@ -217,12 +219,14 @@ The repository root is the Hermes plugin payload. This is a Hermes plugin, not a
 | `inject` | Compatibility mode: cache-safe policy plus exact-route injection |
 
 ```text
-/hermes-adaptive-effort help
-/hermes-adaptive-effort status
-/hermes-adaptive-effort status json
-/hermes-adaptive-effort probe <text>
-/hermes-adaptive-effort off|recommend|auto|cache_safe|inject
+/hae help
+/hae status
+/hae status json
+/hae probe <text>
+/hae off|recommend|auto|cache_safe|inject
 ```
+
+`/hermes-adaptive-effort` remains an equivalent long-form alias.
 
 Mode commands are process-local and do not edit your config. Unknown commands or extra arguments return help without changing anything.
 
@@ -297,7 +301,7 @@ hermes plugins update hermes-adaptive-effort
 hermes plugins disable hermes-adaptive-effort
 ```
 
-Restart the serving agent after an update or enable/disable change. `/hermes-adaptive-effort off` stops routing immediately for future requests in that process; set the persistent mode to `off` if it should stay off.
+Restart the serving agent after an update or enable/disable change. `/hae off` stops routing immediately for future requests in that process; set the persistent mode to `off` if it should stay off.
 
 If you used `jev-auto-effort`, install the new payload, move your old settings from `plugins.entries.jev-auto-effort.settings` to `plugins.entries.hermes-adaptive-effort.settings`, disable the old ID and enable the new one. Replace the old Desktop extension too. Keep your existing mode deliberately, and run only one middleware copy to avoid duplicate scoring. Update source metadata to the renamed repository when using a managed install.
 

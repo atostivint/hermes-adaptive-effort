@@ -1,4 +1,4 @@
-"""``/hermes-adaptive-effort`` slash command: registered through Hermes' verified plugin API.
+"""``/hae`` and ``/hermes-adaptive-effort`` commands use Hermes' verified plugin API.
 
 The command is the operator-facing surface for the plugin: ``status`` renders the
 documented status payload, ``probe`` runs exactly one bounded classification.
@@ -58,9 +58,9 @@ def use_settings(monkeypatch, settings):
         middleware, "_settings_provider", lambda key, default=None: settings.get(key, default))
 
 
-def test_register_registers_exactly_one_command_named_hermes_adaptive_effort():
+def test_register_registers_short_and_compatibility_commands():
     ctx = registered()
-    assert [c["name"] for c in ctx.commands] == ["hermes-adaptive-effort"]
+    assert [c["name"] for c in ctx.commands] == ["hae", "hermes-adaptive-effort"]
     assert callable(ctx.commands[0]["handler"])
     assert ctx.commands[0]["description"].strip()
 
@@ -77,7 +77,7 @@ def test_register_registers_nothing_beyond_the_declared_surface():
     assert [k for k, _ in ctx.hooks] == [
         "on_session_end", "on_session_finalize", "on_session_reset",
         "subagent_start", "subagent_stop"]
-    assert [c["name"] for c in ctx.commands] == ["hermes-adaptive-effort"]
+    assert [c["name"] for c in ctx.commands] == ["hae", "hermes-adaptive-effort"]
 
 
 def test_registered_handler_is_the_command_module_entry_point():

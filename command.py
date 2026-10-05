@@ -1,4 +1,4 @@
-"""/hermes-adaptive-effort — explain, inspect and steer the plugin.
+"""/hae (also /hermes-adaptive-effort) — explain, inspect and steer the plugin.
 
 ``status`` and ``probe`` never classify a conversation, never rewrite a request
 and never store anything: they only render what the middleware already holds.
@@ -24,12 +24,13 @@ from . import scorers as _scorers
 PLUGIN_ID = _middleware.PLUGIN_ID
 MODES = _middleware.VALID_MODES
 USAGE = """Usage:
-  /hermes-adaptive-effort status            Show mode, settings, credential, session counts
-  /hermes-adaptive-effort status json       Machine-readable status payload
-  /hermes-adaptive-effort off|recommend|auto|cache_safe|inject
-                              Set the mode used by future requests
-  /hermes-adaptive-effort probe <text>      Classify <text> once (prints score/label, stores nothing)
-  /hermes-adaptive-effort help              Show this help
+  /hae status                               Show mode, settings, credential, session counts
+  /hae status json                          Machine-readable status payload
+  /hae off|recommend|auto|cache_safe|inject Set the mode used by future requests
+  /hae probe <text>                         Classify <text> once (prints score/label, stores nothing)
+  /hae help                                 Show this help
+
+The original /hermes-adaptive-effort command remains available as an alias.
 
 Modes:
   off         do nothing (the default)
@@ -168,7 +169,7 @@ def _status_payload() -> Dict[str, Any]:
         "schema": STATUS_SCHEMA,
         "plugin": PLUGIN_ID,
         "mode": settings["mode"],
-        # "config" (the file decides) vs "override" (/hermes-adaptive-effort in this process);
+        # "config" (the file decides) vs "override" (/hae in this process);
         # a runtime override applies to future requests only and is not persisted.
         "mode_source": settings["mode_source"],
         "settings": public_settings,
