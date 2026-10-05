@@ -71,7 +71,7 @@ Scorer selection is explicit: `jev` (default), `openrouter`, `cloudflare`, or `c
 
 The custom endpoint is used exactly as configured; no path is appended. It must be a valid HTTP(S) URL without embedded credentials or a fragment. Redirects are not followed. Status masks URL query values and adds the boolean `credential_required`; custom auth `none` reports false without inspecting a key, while `bearer` reports true and checks key presence without exposing the key. System One sends the bounded prompt in `state.prompt`, the shared `questions` rubric, and the configured model; it reads `answers.effort.score`. Chat Completions uses a JSON response request with zero temperature, at most 32 completion tokens, no streaming, and the configured model; only the strict numeric score is accepted. Both formats share the rubric and finite `0..2` validation. Invalid endpoint and unsupported format/auth settings fail open before transport.
 
-Cloudflare returns the shared `0..2` score from `result.answers.effort.score` only when the REST wrapper has `success: true` and no reported errors. Missing or invalid account IDs fail before HTTP with `account_missing` or `account_invalid`; other failures use the existing transport/response codes. Status adds `cloudflare_account_ready`, separate from token presence, and displays the account-scoped endpoint (a placeholder when the ID is invalid). Probe scores only operator-typed text and stores no decision.
+Cloudflare returns the shared `0..2` score from `result.answers.effort.score` only when the REST wrapper has `success: true` and no reported errors. Missing or invalid account IDs fail before HTTP with `account_missing` or `account_invalid`; other failures use the existing transport/response codes. Status adds `cloudflare_account_ready`, separate from token presence, and displays the account-scoped endpoint (a placeholder when the ID is invalid). Probe scores operator-typed text plus optional configured guidance and stores no decision.
 
 | situation | request | request state | scorer calls |
 | --- | --- | --- | --- |
@@ -120,7 +120,7 @@ Registered child sessions are classified from the goal written by their parent. 
 
 ## Public API and visibility
 
-The preferred short slash command is `/hae`; `/hermes-adaptive-effort` remains an equivalent compatibility alias. `status` performs no scoring; `probe <text>` scores only operator-typed text and stores no decision. Mode commands apply only to future requests in the current process.
+The plugin registers the `/hae` slash command. `status` performs no scoring; `probe <text>` scores operator-typed text plus optional configured guidance and stores no decision. Mode commands apply only to future requests in the current process.
 
 The dashboard API is mounted under `/api/plugins/hermes-adaptive-effort/`:
 
@@ -133,11 +133,21 @@ The dashboard API is mounted under `/api/plugins/hermes-adaptive-effort/`:
 
 The applied-change feed contains `{stream_id, events: [{id, from, to, at}], latest}`. It retains up to 64 actual rewritten transitions, without prompt or session identifiers. Recommend mode, unsupported/failed attempts and identical values emit no change. Deduplication uses `(decision_key, from, to)`; a reload/reset creates a new stream ID and consumers must reset their cursor.
 
-The Desktop chip matches the focused chat's exact `conversation_id` and backend/profile owner. It polls every two seconds and does not use global changes as a fallback for another chat's effort. No decision, unsupported/in-flight state or backend mismatch shows `Effort: N/A`. The pane's latest transition and change notifications apply across conversations, since the feed has no conversation identifier. Initial history establishes a baseline without replaying old notifications. The Desktop extension is opt-in.
+The Desktop chip matches the focused chat's exact `conversation_id` and backend/profile owner. Its popup groups the active mode and description, focused conversation effort and route, selected scorer/model and readiness, and whether custom classifier guidance is configured. It polls every two seconds and does not use global changes as a fallback for another chat's effort. No decision, unsupported/in-flight state or backend mismatch shows `Effort: N/A`. The pane's latest transition and change notifications apply across conversations, since the feed has no conversation identifier. Initial history establishes a baseline without replaying old notifications. The Desktop extension is opt-in.
+
+When mode is `off`, the middleware may keep bounded provider/model/API-mode status for the current route so the popup can identify it. It makes no scorer call, stores no prompt, and leaves the request unchanged; this metadata does not create an effort decision.
 
 Completed-turn `on_session_end` events with a turn ID retain bounded decision state. Actual finalize/reset hooks clear it; legacy end events without a turn ID retain cleanup behavior. This lets the chip keep a completed turn's result while the entry remains cached.
 
 The CLI uses the optional host `register_cli_status_item` API to show the last applied effort and a short notice. Older hosts still have command status and prompt-free log notices.
+
+`config_schema` also exposes `show_tui_status` and `show_desktop_popup`, both enabled by default. The former controls the TUI effort status item and is re-read as requests arrive. The latter hides the bottom-right Desktop chip, its mode-selection popup, and its change notifications; the separate details pane remains available. These switches affect display only, not routing or classification.
+
+## Rubric and configurable guidance
+
+The shared score contract remains numeric `0..2` → `low` / `medium` / `high`; operator text cannot replace the score format or the built-in level definitions. `classification_instructions` is an optional addition, capped at 2,000 characters, and is added to the selected scorer's rubric for Jev, OpenRouter, Cloudflare and custom providers. The empty default preserves the built-in rubric. The setting is available in Desktop Capabilities → Plugins and in `plugins.entries.hermes-adaptive-effort.settings`.
+
+The default rubric considers requested complexity, ambiguity, scope, reasoning steps, tool or research depth, and explicit speed/cost priorities. This is informed by Anthropic's [Effort guide](https://platform.claude.com/docs/en/build-with-claude/effort), which describes effort as a thoroughness/token-efficiency trade-off and gives typical examples by task type. Anthropic's recommendations are model-specific; this plugin adopts them only as qualitative guidance. No quality, latency or cost improvement has been measured here.
 
 ## Failure codes
 
@@ -145,7 +155,7 @@ Existing codes remain stable: `invalid_prompt`, `credential_missing`, `http_erro
 
 ## Privacy boundary
 
-Enabling routing authorizes task text to the selected scorer. Normal turns send at most `prompt_chars` characters of the latest user text; the conversation history and tool results are not sent as task text. Child scoring uses the parent-written goal and requires the independent subagent mode to be enabled. Explicit probe commands send only operator-typed text, even when routing is off. Prompts are not persisted or emitted in logs, reasons, status, probe output or the applied-change feed. Child goals necessarily exist transiently in memory. These are plugin guarantees, not statements about a scoring provider's retention policy. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints; the prompt is still processed by OpenRouter. Jev, Cloudflare, and custom endpoints have no ZDR guarantee from this plugin. `prompt_chars` limits the excerpt only and is not a retention control.
+Enabling routing authorizes sending task text and any configured classification guidance to the selected scorer. Normal turns send at most `prompt_chars` characters of the latest user text, plus up to 2,000 characters of operator guidance; the conversation history and tool results are not sent as task text. Child scoring uses the parent-written goal and requires the independent subagent mode to be enabled. Explicit probe commands send only operator-typed text plus the configured guidance, even when routing is off. Prompts and guidance are not persisted or emitted in logs, reasons, status, probe output or the applied-change feed; status exposes only whether guidance is configured and its character count. Child goals necessarily exist transiently in memory. These are plugin guarantees, not statements about a scoring provider's retention policy. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints; the prompt is still processed by OpenRouter. Jev, Cloudflare, and custom endpoints have no ZDR guarantee from this plugin. `prompt_chars` limits the user-text excerpt only and is not a retention control.
 
 ## Verified transport paths
 

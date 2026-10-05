@@ -1,8 +1,8 @@
-"""/hermes-adaptive-effort off|recommend|auto|cache_safe — the mode verbs (acceptance criterion 2).
+"""/hae off|recommend|auto|cache_safe — the mode verbs (acceptance criterion 2).
 
 Two defects are pinned here. First, ``_dispatch`` answered the usage banner for every
 verb except ``help``/``status``/``probe``, so none of the four documented modes could
-be set from a chat at all. Second, that banner pointed at ``/hermes-adaptive-effort setup``, which
+be set from a chat at all. Second, that banner pointed at ``/hae setup``, which
 does not exist anywhere: the host API (``hermes_cli/plugins.py``) exposes
 ``register_command`` and nothing else, so there is no "setup" wizard to delegate to.
 

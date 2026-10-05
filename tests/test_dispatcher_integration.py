@@ -146,7 +146,7 @@ def test_real_dispatcher_discovers_registers_and_rewrites(dispatched, no_network
     # Registered through the real PluginContext, nothing more and nothing less.
     plugin = dispatched["manager"]._plugins["hermes-adaptive-effort"]
     assert plugin.middleware_registered == ["llm_request"]
-    assert "hermes-adaptive-effort" in plugin.commands_registered
+    assert "hae" in plugin.commands_registered
     assert "on_session_end" in plugin.hooks_registered
     assert not getattr(plugin, "tools_registered", None)
 
@@ -202,7 +202,10 @@ def test_real_dispatcher_leaves_the_request_untouched_when_mode_is_off(dispatche
     assert result.payload["extra_body"]["reasoning"]["effort"] == "medium"
     assert result.trace == []
     assert calls["n"] == 0          # off means *no* scorer call, not a silent one
-    assert middleware.session_state() == {}
+    [entry] = middleware.session_state().values()
+    assert (entry["state"], entry["provider"], entry["model"], entry["api_mode"]) == (
+        "off", "openrouter", "openrouter/meta/llama-3.3-70b-instruct", "chat")
+    assert entry["probes"] == 0
 
 
 # ── criterion 3: one decision per TURN, re-clamped when the route changes ───

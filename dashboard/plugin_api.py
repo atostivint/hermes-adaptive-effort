@@ -1,7 +1,7 @@
 """Hermes Adaptive Effort dashboard/desktop backend, mounted at ``/api/plugins/hermes-adaptive-effort/``.
 
 Thin wrapper around the agent half's :mod:`command` / :mod:`middleware`: the same
-``hermes-adaptive-effort.status.v1`` payload ``/hermes-adaptive-effort status json`` prints, a
+``hermes-adaptive-effort.status.v1`` payload ``/hae status json`` prints, a
 runtime mode switch with the same semantics (future requests of this process, never a
 config write unless ``persist`` is set), and ``GET /changes`` — the bounded feed of
 rewrites that actually reached a request, so the desktop chip can say which reasoning
@@ -175,7 +175,7 @@ def set_mode(mode: Any, *, persist: bool = False) -> Dict[str, Any]:
     ``persist=True`` additionally writes ``plugins.entries.hermes-adaptive-effort.settings.mode``
     through the canonical writer, so the choice survives a restart — the same write the
     Desktop settings form performs. Default is runtime-only, mirroring
-    ``/hermes-adaptive-effort <mode>``.
+    ``/hae <mode>``.
     """
     middleware, _ = _agent_modules()
     if middleware is None:

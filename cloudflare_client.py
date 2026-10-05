@@ -12,9 +12,11 @@ import urllib.error
 import urllib.request
 from typing import Any, Callable, Optional
 
-from .jev_client import DEFAULT_MAX_PROMPT_CHARS, DEFAULT_TIMEOUT_S, QUESTIONS, truncate_prompt
+from . import rubric
+from .jev_client import DEFAULT_MAX_PROMPT_CHARS, DEFAULT_TIMEOUT_S, truncate_prompt
 
 logger = logging.getLogger(__name__)
+QUESTIONS = rubric.QUESTIONS
 
 API_ROOT = "https://api.cloudflare.com/client/v4/accounts"
 MODEL_PATHS = {
@@ -70,6 +72,7 @@ class CloudflareClient:
 
     def __init__(self, *, account_id: str, api_key: str = "", timeout: float = DEFAULT_TIMEOUT_S,
                  max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+                 classification_instructions: str = "",
                  model_selector: str = DEFAULT_MODEL_SELECTOR,
                  transport: Optional[Callable[..., Any]] = None,
                  key_reader: Optional[Callable[[], str]] = None):
@@ -77,6 +80,8 @@ class CloudflareClient:
         self.api_key = (api_key or "").strip()
         self.timeout = float(timeout) if timeout else DEFAULT_TIMEOUT_S
         self.max_prompt_chars = int(max_prompt_chars or DEFAULT_MAX_PROMPT_CHARS)
+        self.classification_instructions = rubric.normalize_classification_instructions(
+            classification_instructions)
         self.model_selector = normalize_model_selector(model_selector)
         self.endpoint = endpoint_for(self.account_id, self.model_selector)
         self._transport = transport
@@ -107,7 +112,7 @@ class CloudflareClient:
         body = {
             "model": self.model_selector,
             "state": {"prompt": truncate_prompt(prompt, self.max_prompt_chars)},
-            "questions": QUESTIONS,
+            "questions": rubric.questions_for(self.classification_instructions),
         }
         request = urllib.request.Request(
             self.endpoint,

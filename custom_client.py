@@ -12,9 +12,10 @@ import urllib.request
 from typing import Any, Callable, Optional, Tuple
 
 from . import rubric
-from .jev_client import DEFAULT_MAX_PROMPT_CHARS, DEFAULT_TIMEOUT_S, QUESTIONS, truncate_prompt
+from .jev_client import DEFAULT_MAX_PROMPT_CHARS, DEFAULT_TIMEOUT_S, truncate_prompt
 
 logger = logging.getLogger(__name__)
+QUESTIONS = rubric.QUESTIONS
 
 SENTINEL_ENV = "CUSTOM_SCORER_API_KEY"
 API_FORMATS = ("systemone", "chat_completions")
@@ -82,6 +83,7 @@ class CustomClient:
     def __init__(self, *, endpoint: str, model: str, api_format: str = "systemone",
                  auth: str = "none", api_key: str = "", timeout: float = DEFAULT_TIMEOUT_S,
                  max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+                 classification_instructions: str = "",
                  transport: Optional[Callable[..., Any]] = None,
                  key_reader: Optional[Callable[[], str]] = None):
         self.endpoint = str(endpoint or "").strip()
@@ -91,6 +93,8 @@ class CustomClient:
         self.api_key = (api_key or "").strip()
         self.timeout = float(timeout) if timeout else DEFAULT_TIMEOUT_S
         self.max_prompt_chars = int(max_prompt_chars or DEFAULT_MAX_PROMPT_CHARS)
+        self.classification_instructions = rubric.normalize_classification_instructions(
+            classification_instructions)
         self._transport = transport
         self._key_reader = key_reader
 
@@ -128,12 +132,13 @@ class CustomClient:
         prompt_text = truncate_prompt(prompt, self.max_prompt_chars)
         if self.api_format == "systemone":
             body = {"state": {"prompt": prompt_text}, "model": self.model,
-                    "questions": QUESTIONS}
+                    "questions": rubric.questions_for(self.classification_instructions)}
         else:
             body = {
                 "model": self.model,
                 "messages": [
-                    {"role": "system", "content": rubric.CHAT_SYSTEM_PROMPT},
+                    {"role": "system", "content": rubric.chat_system_prompt(
+                        self.classification_instructions)},
                     {"role": "user", "content": prompt_text},
                 ],
                 "response_format": {"type": "json_object"},

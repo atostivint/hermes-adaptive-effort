@@ -81,6 +81,24 @@ def test_unknown_provider_fails_open_without_jev_fallback():
     assert failure == "unsupported_provider"
 
 
+def test_classifier_guidance_is_shared_by_every_provider():
+    guidance = "Prefer high when several independent constraints interact."
+    common = {"classification_instructions": guidance}
+    configurations = (
+        settings(**common),
+        settings(**common, scorer_provider="openrouter", scorer_model="openai/gpt-4o-mini"),
+        settings(**common, scorer_provider="cloudflare",
+                 cloudflare_account_id="0123456789abcdef0123456789abcdef"),
+        settings(**common, scorer_provider="custom", scorer_model="local-model",
+                 custom_endpoint="http://127.0.0.1:8080/v1/systemone"),
+    )
+
+    for configured in configurations:
+        client, failure = scorers.build_client(configured)
+        assert failure is None
+        assert client.classification_instructions == guidance
+
+
 def test_status_endpoint_and_model_follow_selected_scorer():
     jev_raw, jev_effective = scorers.endpoint_for("jev", "https://api.typesafe.ai/v1")
     assert jev_raw == "https://api.typesafe.ai/v1"

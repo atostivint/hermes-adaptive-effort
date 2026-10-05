@@ -26,6 +26,13 @@ import { useEffect, useRef, useState } from 'react'
 
 const ID = 'hermes-adaptive-effort'
 const MODES = ['off', 'recommend', 'auto', 'cache_safe', 'inject']
+const MODE_HELP = {
+  off: 'No scoring or effort changes.',
+  recommend: 'Scores each new turn and leaves the request unchanged.',
+  auto: 'Applies a compatible effort to each new user turn.',
+  cache_safe: 'Scores per turn on cache-neutral routes; otherwise pins effort for the session.',
+  inject: 'Uses cache-safe routing and can add effort on exact verified routes.'
+}
 let rest = null
 
 function toneFor(mode, isError) {
@@ -45,16 +52,28 @@ function useEffortChanges() {
   })
 }
 
-function effortForConversation(data, conversationId) {
-  if (typeof conversationId !== 'string' || !conversationId) return 'N/A'
+function entryForConversation(data, conversationId) {
+  if (typeof conversationId !== 'string' || !conversationId) return null
   const sessions = Array.isArray(data?.sessions) ? data.sessions : []
-  const latest = sessions
+  return sessions
     .filter(entry => entry?.conversation_id === conversationId)
     .reduce((best, entry) => {
       const updatedAt = Number(entry?.updated_at) || 0
       return !best || updatedAt >= (Number(best.updated_at) || 0) ? entry : best
     }, null)
+}
+
+function effortForConversation(data, conversationId) {
+  const latest = entryForConversation(data, conversationId)
   return latest?.state === 'decided' && typeof latest.target === 'string' ? latest.target : 'N/A'
+}
+
+function routeForConversation(data, conversationId) {
+  const latest = entryForConversation(data, conversationId)
+  if (!latest) return 'N/A'
+  return [latest.provider, latest.model]
+    .filter(value => typeof value === 'string' && value.length > 0)
+    .join(' · ') || 'N/A'
 }
 
 function ChangeNotifications({ query }) {
@@ -132,11 +151,22 @@ function AdaptiveEffortChip() {
   })
   const data = query.data
   const mode = typeof data?.mode === 'string' ? data.mode : null
+  const settings = data?.settings || {}
+  const scorerProvider = settings.scorer_provider || '…'
+  const scorerModel = settings.scorer_model_effective || 'unset'
+  const credential = data?.credential_required === false
+    ? 'not required'
+    : data?.credential ? 'present' : 'missing'
   const ownerMatchesBackend = focusedOwner?.connectionId === activeConnectionId &&
     focusedOwner?.profile === activeProfile
   const effort = ownerMatchesBackend ? effortForConversation(data, focusedSessionId) : 'N/A'
+  const route = ownerMatchesBackend ? routeForConversation(data, focusedSessionId) : 'N/A'
   const label = `Effort: ${effort}`
   const tone = toneFor(mode, query.isError)
+
+  // The manifest setting controls both this status-bar chip and its mode popup.
+  // The independent details pane remains available from Desktop's plugin panel.
+  if (data?.settings?.show_desktop_popup === false) return null
 
   return jsx(Popover, {
     open,
@@ -151,14 +181,14 @@ function AdaptiveEffortChip() {
             className: `inline-flex h-full items-center gap-1 px-1.5 text-[0.6875rem] ${tone} hover:text-(--ui-text-primary)`,
             title: query.isError
               ? 'Scoring backend unavailable — enable the plugin in config (plugins.enabled) and Desktop'
-              : `Hermes Adaptive Effort: ${mode || 'loading'} · focused conversation effort: ${effort} — click to switch`,
+              : `Hermes Adaptive Effort: ${mode || 'loading'} · focused conversation effort: ${effort} · route: ${route} — click to switch`,
             children: [jsx(Codicon, { name: 'zap', className: 'text-[0.75rem]' }), label]
           })
         }),
         jsx(PopoverContent, {
           align: 'end',
           sideOffset: 6,
-          className: 'w-64 space-y-2 p-3',
+          className: 'max-h-96 w-72 space-y-3 overflow-y-auto p-3',
           children: query.isError
             ? jsxs('div', {
               className: 'space-y-1 text-xs',
@@ -171,13 +201,60 @@ function AdaptiveEffortChip() {
               ]
             })
             : jsxs('div', {
-              className: 'space-y-2',
+              className: 'space-y-3',
               children: [
-                jsx('div', { className: 'text-xs font-medium', children: `Mode: ${mode || '…'}` }),
-                jsx(ModeButtons, { mode, query, compact: true }),
-                jsx('div', {
-                  className: 'text-[0.625rem] text-(--ui-text-quaternary)',
-                  children: `sessions=${data?.counts?.sessions ?? 0} probes=${data?.counts?.probes ?? 0} credential=${data?.credential ? 'present' : 'missing'}`
+                jsxs('section', {
+                  className: 'space-y-1.5',
+                  children: [
+                    jsxs('div', {
+                      className: 'flex items-center justify-between text-xs font-medium',
+                      children: [jsx('span', { children: 'Routing mode' }),
+                        jsx('span', { className: 'text-(--ui-accent)', children: mode || '…' })]
+                    }),
+                    jsx('div', {
+                      className: 'text-[0.6875rem] text-(--ui-text-tertiary)',
+                      children: MODE_HELP[mode] || 'Choose how effort is classified and applied.'
+                    }),
+                    jsx(ModeButtons, { mode, query, compact: true })
+                  ]
+                }),
+                jsxs('section', {
+                  className: 'space-y-1 border-t border-(--ui-border) pt-2',
+                  children: [
+                    jsx('div', {
+                      className: 'text-[0.625rem] font-semibold uppercase tracking-wide text-(--ui-text-quaternary)',
+                      children: 'This conversation'
+                    }),
+                    jsxs('div', {
+                      className: 'flex justify-between gap-2 text-xs',
+                      children: [jsx('span', { className: 'text-(--ui-text-tertiary)', children: 'Effort' }),
+                        jsx('span', { className: 'font-medium', children: effort })]
+                    }),
+                    jsx('div', {
+                      className: 'break-all text-[0.6875rem] text-(--ui-text-tertiary)',
+                      children: `Route: ${route}`
+                    })
+                  ]
+                }),
+                jsxs('section', {
+                  className: 'space-y-1 border-t border-(--ui-border) pt-2',
+                  children: [
+                    jsx('div', {
+                      className: 'text-[0.625rem] font-semibold uppercase tracking-wide text-(--ui-text-quaternary)',
+                      children: 'Classifier'
+                    }),
+                    jsx('div', { className: 'break-all text-xs', children: `${scorerProvider} · ${scorerModel}` }),
+                    jsx('div', {
+                      className: 'text-[0.6875rem] text-(--ui-text-tertiary)',
+                      children: `Credential: ${credential} · extra guidance: ${settings.classification_instructions_configured ? 'on' : 'off'}`
+                    }),
+                    jsx('div', {
+                      className: 'text-[0.6875rem] text-(--ui-text-quaternary)',
+                      children: mode === 'off'
+                        ? 'Automatic routing sends no task text while mode is off. A manual probe still sends its typed text and optional guidance.'
+                        : 'Routing sends the bounded latest user text and optional classifier guidance to this scorer.'
+                    })
+                  ]
                 })
               ]
             })
@@ -246,7 +323,7 @@ function AdaptiveEffortPane() {
               : jsx('div', { className: 'text-xs text-(--ui-text-quaternary)', children: 'last: none' }),
             jsx('div', {
               className: 'text-[0.6875rem] text-(--ui-text-quaternary)',
-              children: 'Fail-open: any error leaves the request untouched. Fine-tune in Capabilities → Plugins (gear) or /hermes-adaptive-effort status.'
+              children: 'Fail-open: any error leaves the request untouched. Fine-tune in Capabilities → Plugins (gear) or /hae status.'
             })
           ]
         })

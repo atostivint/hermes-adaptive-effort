@@ -130,7 +130,7 @@ def test_prompt_is_truncated_before_send():
 
 
 # ── classify_detail: the same call, with the *reason* on failure ────────────
-# /hermes-adaptive-effort status reports a failure reason; classify() alone cannot say
+# /hae status reports a failure reason; classify() alone cannot say
 # whether a None meant "no key", "timed out" or "the answer was garbage".
 
 def test_classify_detail_reports_the_score_and_no_reason():

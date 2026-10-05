@@ -543,6 +543,26 @@ def test_default_off_never_classifies(monkeypatch, no_network):
     assert call(ctx(request=req)) is None
     assert factory.instances == []
     assert req["extra_body"]["reasoning"]["effort"] == "medium"
+    [entry] = middleware.session_state().values()
+    assert (entry["state"], entry["provider"], entry["model"], entry["api_mode"]) == (
+        "off", "openrouter", "openrouter/x/y", "chat")
+    assert entry["probes"] == 0
+    assert "first user prompt" not in json.dumps(entry)
+
+
+def test_classifier_guidance_and_display_flags_are_normalized(monkeypatch):
+    guidance = "  " + ("x" * 2100) + "  "
+    use_settings(monkeypatch, {
+        "classification_instructions": guidance,
+        "show_tui_status": "off",
+        "show_desktop_popup": "true",
+    })
+
+    settings = middleware._settings()
+
+    assert settings["classification_instructions"] == "x" * 2000
+    assert settings["show_tui_status"] is False
+    assert settings["show_desktop_popup"] is True
 
 
 def test_invalid_mode_is_off(monkeypatch):
@@ -715,7 +735,7 @@ def test_no_network_during_auto_path(monkeypatch, no_network):
     assert out["request"]["extra_body"]["reasoning"]["effort"] == "high"
 
 
-# ── what /hermes-adaptive-effort status reports ──────────────────────────────────────────
+# ── what /hae status reports ──────────────────────────────────────────────────────────────
 
 class DetailedClassifier(FakeClassifier):
     """Reports *why* it failed, the way JevClient.classify_detail does.

@@ -10,7 +10,7 @@ rejects. Moonshot K3 accepts exactly ``low``/``high``/``max`` (a bare ``medium``
 label describes the PROMPT, so on a route change it is re-clamped onto the new
 route's vocabulary; a route that cannot express it at all rewrites nothing.
 
-Criterion 6 — ``/hermes-adaptive-effort status`` names the provider and model behind each decision,
+Criterion 6 — ``/hae status`` names the provider and model behind each decision,
 so an operator can tell what was classified and on which route, while still never
 printing prompt text.
 """

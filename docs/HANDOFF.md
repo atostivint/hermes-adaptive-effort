@@ -15,8 +15,7 @@ hermes plugins install 'atostivint/hermes-adaptive-effort' --enable
 
 The former `#hermes-adaptive-effort` suffix selected the old nested payload directory. Root installation keeps the Git checkout available for `hermes plugins update` and provenance checks.
 
-Use `/hae` for the plugin's status, probe and mode commands. The original
-`/hermes-adaptive-effort` form remains registered as a compatibility alias.
+Use `/hae` for the plugin's status, probe and mode commands.
 
 ---
 
@@ -28,7 +27,7 @@ OpenRouter, Cloudflare, and a configurable custom endpoint are other explicit ch
 Cloudflare's `clef` and `clef-flash` models are selectable. The classifier is independent of
 the model that answers the conversation. Enabling a routing mode authorizes sending task
 text to the selected scorer; choosing a provider while mode is `off` sends nothing. `probe`
-sends only its typed text.
+sends its typed text plus optional configured classification guidance.
 
 Pipeline: read the outgoing request → score the prompt (`0 = low`, `1 = medium`,
 `2 = high`) → clamp the label onto **the route's own wire vocabulary** → write it into
@@ -207,7 +206,12 @@ or restart before they import changed Python modules.
    never retried in-turn; concurrent probes are claimed via `_IN_FLIGHT`; a stored target
    is re-clamped when the route changes (`_target_for_route`).
 5. **Rubric:** score `0..2` → `low` (<0.5) / `medium` (<1.5) / `high`. Out of range,
-   NaN/inf, bool, non-numeric → `None` → fail open.
+   NaN/inf, bool, non-numeric → `None` → fail open. The default classifier guidance
+   weighs task complexity, ambiguity, scope, reasoning steps, tool/research depth and
+   explicit speed/cost priorities; optional `classification_instructions` supplements the
+   fixed score contract and is capped at 2,000 characters.
+   In `off`, the middleware may retain bounded provider/model/API-mode metadata for the
+   Desktop popup; it never scores or changes the request in that mode.
 6. **Fail-open everywhere.** `on_llm_request` catches all exceptions. Stable reason codes:
    `invalid_prompt`, `credential_missing`, `http_error`,
    `timeout`, `transport_error`, `malformed_response`, `unexpected_error`,
@@ -215,18 +219,20 @@ or restart before they import changed Python modules.
    `account_invalid`, `unsupported_provider`, `endpoint_missing`, `endpoint_invalid`,
    `unsupported_api_format` and `unsupported_auth`.
 7. **Subagents** are classified from the parent-written goal (`subagent_start`), gated by
-   the independent `subagent_mode`. `status` performs no classification; `probe` scores only operator-typed text and stores no decision.
+   the independent `subagent_mode`. `status` performs no classification; `probe` scores operator-typed text plus configured guidance and stores no decision.
 8. **Enabling a routing mode authorizes prompt sharing with the selected scorer.**
-   Provider selection alone while mode is `off` sends nothing; `probe` sends only typed text.
-   `prompt_chars` caps the excerpt and
-   says nothing about provider retention. OpenRouter requests require ZDR endpoints and deny
+   Provider selection alone while mode is `off` sends nothing; `probe` sends only typed text
+   plus optional operator guidance. Normal classifications send the bounded latest-user
+   excerpt plus optional guidance (maximum 2,000 characters); `prompt_chars` caps the excerpt
+   only and says nothing about provider retention. Guidance content is never returned in
+   status, logs, probe output, session state or the change feed; status may report only its
+   presence and character count. OpenRouter requests require ZDR endpoints and deny
    data-collecting endpoints. The plugin gives no ZDR guarantee for Jev, Cloudflare, or
    custom endpoints. Prompts are not persisted or included in logs/reasons/traces. Effort-change
    notices log only effort values; injection records `from: absent`. `command._ENTRY_FIELDS` is
    the only rendered session allowlist.
-9. **Never write the operator's config from a chat command.** `/hae <mode>` (also
-   `/hermes-adaptive-effort <mode>`)
-   sets an in-process `_MODE_OVERRIDE` only; the persist path is
+9. **Never write the operator's config from a chat command.** `/hae <mode>` sets an
+   in-process `_MODE_OVERRIDE` only; the persist path is
    `plugins.entries.hermes-adaptive-effort.settings.mode`.
 10. **Schemas are a public contract:** `hermes-adaptive-effort.status.v1`,
     `hermes-adaptive-effort.probe.v1`, and `hermes-adaptive-effort.changes.v1`. Field names and reason
@@ -247,6 +253,8 @@ The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separ
   which `middleware._read_setting` reads back per call (not frozen at import). Types and
   `choices` **must** stay in sync with `middleware.DEFAULTS` / `VALID_MODES`; the
   settings writer refuses mismatches, and `tests/test_config_schema.py` enforces it.
+  `classification_instructions` customizes the shared rubric across all providers;
+  `show_tui_status` and `show_desktop_popup` control their respective visible elements.
 * **`dashboard/plugin_api.py`** — FastAPI backend mounted at
 `/api/plugins/hermes-adaptive-effort/`: `GET /status`, `GET /changes`, `POST /mode`,
   `POST /probe`. It reuses
@@ -272,6 +280,11 @@ The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separ
 * **`desktop/plugin.js`** — opt-in desktop plugin (`defaultEnabled: false`): a status-bar
   chip `Effort: <focused conversation's latest decided effort>`, a `Adaptive Effort` pane with
   the global latest transition, and one toast per newly observed applied change. Toasts apply across conversations because the feed has no session id.
+  The mode popup groups the current mode/description, focused-chat effort, scorer/model and
+  credential readiness, live conversation route, plus whether extra classifier guidance is configured.
+  `show_desktop_popup: false` hides the bottom-right chip, its mode-selection popup and those
+  notifications; the details pane remains available. `show_tui_status: false` blanks the
+  optional CLI status item, and the setting is re-read on an outgoing request.
   The changes feed and chip status poll every 2 s;
   the chip reads `host.state.focusedSessionId` and matches `conversation_id` exactly, so
   another chat's activity cannot change its effort. A focused chat with no decision,

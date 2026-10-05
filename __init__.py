@@ -57,16 +57,14 @@ def register(ctx: Any) -> None:
     # the goal its parent wrote.
     ctx.register_hook("subagent_start", _middleware.on_subagent_start)
     ctx.register_hook("subagent_stop", _middleware.on_subagent_stop)
-    # Keep the original command for compatibility and offer a shorter everyday alias.
     command_description = (
         "Hermes Adaptive Effort reasoning-effort router: status, bounded probe, and "
         "off|recommend|auto|cache_safe|inject for future requests"
     )
     command_args = "<status|status json|probe <text>|off|recommend|auto|cache_safe|inject>"
-    for command_name in ("hae", "hermes-adaptive-effort"):
-        ctx.register_command(
-            command_name,
-            handler=_command.handle,
-            description=command_description,
-            args_hint=command_args,
-        )
+    ctx.register_command(
+        "hae",
+        handler=_command.handle,
+        description=command_description,
+        args_hint=command_args,
+    )

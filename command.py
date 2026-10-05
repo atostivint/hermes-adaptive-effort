@@ -1,4 +1,4 @@
-"""/hae (also /hermes-adaptive-effort) — explain, inspect and steer the plugin.
+"""/hae — explain, inspect and steer the plugin.
 
 ``status`` and ``probe`` never classify a conversation, never rewrite a request
 and never store anything: they only render what the middleware already holds.
@@ -30,8 +30,6 @@ USAGE = """Usage:
   /hae probe <text>                         Classify <text> once (prints score/label, stores nothing)
   /hae help                                 Show this help
 
-The original /hermes-adaptive-effort command remains available as an alias.
-
 Modes:
   off         do nothing (the default)
   recommend   classify, report the level it would use, rewrite nothing
@@ -43,8 +41,9 @@ Modes:
 A mode set here applies to future requests served by this process. It is not
 written to config.yaml (nothing here edits your files), so it does not survive a
 restart; persist it as plugins.entries.hermes-adaptive-effort.settings.mode instead.
-Probe asks the configured scorer for a rubric score on the text you typed — it does not use or
-store your session's conversation, and never writes to session state."""
+Probe asks the configured scorer for a rubric score on the text you typed, plus any optional
+configured classifier guidance — it does not use or store your session's conversation, and never
+writes to session state."""
 
 STATUS_SCHEMA = "hermes-adaptive-effort.status.v1"
 PROBE_SCHEMA = "hermes-adaptive-effort.probe.v1"
@@ -145,6 +144,11 @@ def _last_session(sessions: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 def _status_payload() -> Dict[str, Any]:
     settings = _middleware._settings()
     public_settings = dict(settings)
+    # Operator guidance is sent only to the selected scorer for a classification;
+    # never return its contents through status, Desktop polling, or CLI JSON.
+    configured_guidance = public_settings.pop("classification_instructions", "")
+    public_settings["classification_instructions_configured"] = bool(configured_guidance)
+    public_settings["classification_instructions_chars"] = len(configured_guidance)
     # A custom endpoint can carry harmless routing parameters (or, despite our
     # guidance, an accidentally embedded token). Never expose query values.
     public_settings["custom_endpoint"] = _scorers.safe_endpoint_display(
@@ -227,10 +231,14 @@ def _status_text() -> str:
         f"credential: {'present' if payload['credential'] else 'missing'}"
         if payload["credential_required"] else "credential: not required",
         f"scorer: {settings['scorer_provider']} model={settings['scorer_model_effective'] or 'unset'}",
-        f"prompt sharing: enabling routing authorizes task text to {settings['scorer_provider']}; probe sends only typed text",
+        f"prompt sharing: routing sends task text and optional guidance to {settings['scorer_provider']}; probe sends typed text and optional guidance",
         f"settings: timeout_s={settings['timeout_s']} "
         f"max_turns={settings['max_turns']} "
         f"max_prompt_chars={settings['prompt_chars']}",
+        f"classifier guidance: {'configured' if settings.get('classification_instructions_configured') else 'default'} "
+        f"(contents are private; limit={_middleware._rubric.MAX_CLASSIFICATION_INSTRUCTION_CHARS} chars)",
+        f"display: TUI={'on' if settings['show_tui_status'] else 'off'} "
+        f"Desktop popup={'on' if settings['show_desktop_popup'] else 'off'}",
         f"endpoint: {_endpoint_line(settings)}",
         f"counts: sessions={counts['sessions']} in_flight={counts['in_flight']} "
         f"requests={counts['requests']} probes={counts['probes']} "

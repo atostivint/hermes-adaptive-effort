@@ -66,6 +66,11 @@ def test_config_schema_types_and_defaults_match_middleware():
     assert schema["endpoint"]["type"] == "str"
     assert schema["cloudflare_account_id"]["type"] == "str"
     assert str(schema["endpoint"]["default"]) == str(middleware.DEFAULTS["endpoint"])
+    assert schema["classification_instructions"]["default"] == ""
+    assert "2000" in schema["classification_instructions"]["description"]
+    for key in ("show_tui_status", "show_desktop_popup"):
+        assert schema[key]["type"] == "bool"
+        assert schema[key]["default"] is middleware.DEFAULTS[key] is True
 
 
 def test_config_schema_declares_no_secret():

@@ -49,6 +49,7 @@ class OpenRouterClient:
 
     def __init__(self, *, model: str, api_key: str = "", timeout: float = DEFAULT_TIMEOUT_S,
                  max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+                 classification_instructions: str = "",
                  endpoint: str = DEFAULT_ENDPOINT,
                  transport: Optional[Callable[..., Any]] = None,
                  key_reader: Optional[Callable[[], str]] = None):
@@ -56,6 +57,8 @@ class OpenRouterClient:
         self.model = str(model or "").strip()
         self.timeout = float(timeout) if timeout else DEFAULT_TIMEOUT_S
         self.max_prompt_chars = int(max_prompt_chars or DEFAULT_MAX_PROMPT_CHARS)
+        self.classification_instructions = rubric.normalize_classification_instructions(
+            classification_instructions)
         self.endpoint = str(endpoint or DEFAULT_ENDPOINT).strip()
         self._transport = transport
         self._key_reader = key_reader
@@ -86,7 +89,8 @@ class OpenRouterClient:
         body = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "system", "content": rubric.chat_system_prompt(
+                    self.classification_instructions)},
                 {"role": "user", "content": truncate_prompt(prompt, self.max_prompt_chars)},
             ],
             "response_format": {"type": "json_object"},

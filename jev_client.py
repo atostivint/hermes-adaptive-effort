@@ -119,6 +119,7 @@ class JevClient:
     def __init__(self, *, api_key: str = "", endpoint: str = DEFAULT_ENDPOINT,
                  model: str = JEV_MODEL, timeout: float = DEFAULT_TIMEOUT_S,
                  max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+                 classification_instructions: str = "",
                  transport: Optional[Callable[..., Any]] = None,
                  key_reader: Optional[Callable[[], str]] = None):
         self.api_key = (api_key or "").strip()
@@ -126,6 +127,8 @@ class JevClient:
         self.model = model or JEV_MODEL
         self.timeout = float(timeout) if timeout else DEFAULT_TIMEOUT_S
         self.max_prompt_chars = int(max_prompt_chars or DEFAULT_MAX_PROMPT_CHARS)
+        self.classification_instructions = rubric.normalize_classification_instructions(
+            classification_instructions)
         self._transport = transport
         self._key_reader = key_reader
 
@@ -146,7 +149,7 @@ class JevClient:
         """``(score, failure)`` — the same call as :meth:`classify`, plus the reason.
 
         ``failure`` is ``None`` when a score came back, otherwise one of the
-        documented codes below. That is what ``/hermes-adaptive-effort status`` reports, and
+        documented codes below. That is what ``/hae status`` reports, and
         it is a *reason code* only: prompt text never reaches it.
 
         ================  =======================================================
@@ -171,7 +174,7 @@ class JevClient:
         body = {
             "state": {"prompt": truncate_prompt(prompt, self.max_prompt_chars)},
             "model": self.model,
-            "questions": QUESTIONS,
+            "questions": rubric.questions_for(self.classification_instructions),
         }
         request = urllib.request.Request(
             self.endpoint,
@@ -239,7 +242,7 @@ def credential_present(key_reader: Optional[Callable[[], str]] = None) -> bool:
     """True when a Jev credential resolves.
 
     Opens nothing, sends nothing and never returns the secret itself — it only
-    answers "would a request be built at all?", for ``/hermes-adaptive-effort status``.
+    answers "would a request be built at all?", for ``/hae status``.
     """
     try:
         reader = key_reader or _default_key_reader

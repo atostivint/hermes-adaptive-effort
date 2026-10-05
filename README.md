@@ -90,7 +90,7 @@ Select the `custom` scorer and point it at a local OpenAI-compatible server. No 
 
 Local-model caveats, measured on one Windows/RTX 4070 Ti box (not a recommendation): Kev 0.8B agreed with the synthetic fixed labels 50% of the time, Kev 4B 60%, and neither predicted `high`; the first 4B call hit the default 3-second timeout while the model loaded, then warmed calls answered in ~80–125 ms. If your model loads slowly, raise `timeout_s`. See the [full report](docs/reviews/local-scorer-benchmark-20261005T090911Z.md).
 
-Use `/hae status` to check readiness — it reports key presence without exposing values (`credential: present/missing`) and names the effective endpoint. The original `/hermes-adaptive-effort` command remains available as an alias. A missing key there means Hermes cannot see the variable: check the right `.env` file and restart.
+Use `/hae status` to check readiness — it reports key presence without exposing values (`credential: present/missing`) and names the effective endpoint. A missing key there means Hermes cannot see the variable: check the right `.env` file and restart.
 
 ### 2. Restart your Hermes session
 
@@ -111,7 +111,7 @@ Start by inspecting decisions without changing effort:
 /hae status
 ```
 
-The short command is `/hae` (“Hermes Adaptive Effort”); existing `/hermes-adaptive-effort` commands continue to work.
+`/hae` is the plugin's slash command for status, probing and mode changes.
 
 Send a normal message with reasoning enabled on a compatible route, then check `status` again. A `decided` entry shows the score and target. When you want decisions applied:
 
@@ -121,7 +121,7 @@ Send a normal message with reasoning enabled on a compatible route, then check `
 
 To keep that mode after a restart, save it in **Desktop → Capabilities → Plugins → Hermes Adaptive Effort → Mode**, or use the optional configuration below. Chat mode commands apply only to the current process.
 
-You can check the scorer independently with `/hae probe What is 2 + 2?`. It scores only that typed text and stores no decision. Scoring can incur provider charges.
+You can check the scorer independently with `/hae probe What is 2 + 2?`. It scores the text you type, plus any optional configured classifier guidance, and stores no decision. Scoring can incur provider charges.
 
 ### Prefer OpenRouter?
 
@@ -212,7 +212,7 @@ The repository root is the Hermes plugin payload. This is a Hermes plugin, not a
 
 | Mode | Behavior |
 | --- | --- |
-| `off` (default) | No scoring or rewriting |
+| `off` (default) | No scoring or request changes; bounded route metadata may still appear in the Desktop popup |
 | `recommend` | Score the task and report the target; keep the original effort |
 | `auto` | Score each user turn, rewrite an existing effort field, or inject on an exact verified model route when it is absent |
 | `cache_safe` | Score per turn on recognized cache-neutral routes; otherwise reuse a session decision while cached |
@@ -226,20 +226,26 @@ The repository root is the Hermes plugin payload. This is a Hermes plugin, not a
 /hae off|recommend|auto|cache_safe|inject
 ```
 
-`/hermes-adaptive-effort` remains an equivalent long-form alias.
-
 Mode commands are process-local and do not edit your config. Unknown commands or extra arguments return help without changing anything.
 
-## How it works
+## From installation to every turn
 
-1. Read the latest user text from the outgoing request, rather than the opening message or the whole conversation.
-2. Send a bounded excerpt to the selected scorer. A finite score from `0` to `2` becomes `low` below `0.5`, `medium` below `1.5`, or `high` otherwise.
-3. Map that label to the route's available effort values.
-4. Rewrite an existing effort slot, or add one only when the exact provider, model, API mode and carrier are listed in the [model compatibility matrix](docs/MODEL_COMPATIBILITY.md). Explicitly disabled reasoning stays disabled.
+Installing and enabling the plugin registers its request middleware and session cleanup hooks. **Installation does not classify anything.** The configured mode defaults to `off`, so the plugin leaves every request untouched and sends no task text to a scorer until you choose a routing mode. Selecting a scorer by itself also sends nothing. `/hae status` only reads status; `/hae probe <text>` is the explicit exception and scores the text you type, plus optional configured guidance.
 
-A tool loop reuses its turn's decision instead of calling the scorer for every model request. `auto` classifies new user turns separately, except an injected decision on a cache-unsafe route stays pinned while its session entry remains cached. A new classification does not necessarily change the effort: the existing value may match, or a route may offer only a narrow set of levels.
+When Hermes prepares a model request after a new user instruction, the plugin:
 
-Enabling a routing mode authorizes sending task text to the selected scorer; choosing a provider while leaving mode `off` sends nothing. A typed `probe` explicitly sends only its argument. The `prompt_chars` setting caps the text sent (4,000 characters by default); truncation does not guarantee provider non-retention. The plugin itself does not persist prompts or include them in logs or status. Provider retention policies are separate. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints; this does not keep the prompt from being processed by OpenRouter. This plugin cannot assure ZDR for Jev, Cloudflare or custom endpoints. Subagent goals are held transiently in memory and classified only when the independent `subagent_mode` setting permits it and the main mode is enabled.
+1. Checks the configured mode and the independent subagent gate. With `off`, it records only bounded route/status metadata for the Desktop popup, then returns without scoring or changing the request. `recommend` scores but never rewrites.
+2. Reads the latest user message from that request, not the opening message or the whole conversation. It first checks whether the route and request contain a supported writable effort field (or an exact verified injection route in `auto`/`inject`). Unsupported routes make no scorer call.
+3. Makes one request to the selected scorer for that user turn, sending the bounded latest-user-text excerpt plus optional operator guidance. The `prompt_chars` setting caps the user text at 4,000 characters by default; custom guidance is separately capped at 2,000 characters. During a tool loop, the same decision is reused instead of scoring every model request again.
+4. Converts a valid score from `0` to `2` into `low` (< `0.5`), `medium` (< `1.5`) or `high`, then clamps that label to the effort values supported by the current route.
+5. Changes an existing effort field, or injects one only on an exact verified route. It preserves explicitly disabled or malformed controls. If the chosen effort already matches, there is no rewrite or change notification.
+6. Fails open on scorer errors, missing credentials, malformed responses or unsupported request shapes: the original request continues unchanged. Applied changes are shown by enabled status surfaces; prompt and guidance contents are not written to logs, status, or the change feed.
+
+Enabling a routing mode authorizes sending task text and any configured classification guidance to the selected scorer. Provider retention policies are separate: truncation does not guarantee non-retention. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints, but OpenRouter still processes the prompt. This plugin cannot assure ZDR for Jev, Cloudflare or custom endpoints. Subagent goals are held transiently in memory and classified only when both the main mode and `subagent_mode` permit it.
+
+### What guides the classifier
+
+Anthropic's [Effort guide](https://platform.claude.com/docs/en/build-with-claude/effort) frames effort as a trade-off between thoroughness and token efficiency. Its typical examples associate lower effort with simple, scoped or speed-sensitive work; medium with balanced tasks; and higher effort with complex reasoning, difficult coding and agentic work. The recommendations vary by model, so this plugin uses them as qualitative cues rather than universal thresholds or a measured quality/cost promise. The built-in rubric considers task complexity, ambiguity, scope, number of reasoning steps, tool or research depth, and explicit speed/cost priorities. An operator can add bounded guidance in the plugin settings; it supplements the fixed `low` / `medium` / `high` score definitions.
 
 ## Settings
 
@@ -259,6 +265,11 @@ Enabling a routing mode authorizes sending task text to the selected scorer; cho
 | `timeout_s` | `3.0` | HTTP timeout for classification |
 | `max_turns` | `64` | Bounded decision-cache capacity per process |
 | `prompt_chars` | `4000` | Maximum task characters sent to the selected scorer; not a retention control |
+| `classification_instructions` | empty | Optional extra scoring guidance, capped at 2,000 characters; visible in Desktop plugin settings |
+| `show_tui_status` | `true` | Show or hide the Hermes terminal Effort status item |
+| `show_desktop_popup` | `true` | Show or hide the bottom-right Desktop effort chip, mode popup and its change notifications |
+
+Set `classification_instructions` in **Desktop → Capabilities → Plugins → Hermes Adaptive Effort** or under `plugins.entries.hermes-adaptive-effort.settings` in `config.yaml`. For example, `classification_instructions: "Prefer low for short, clearly scoped requests; reserve high for ambiguous, multi-step work."` adds a preference to the shared rubric. Leave it empty to use the built-in guidance only. Both display switches can be changed in that same Desktop settings form or configuration section.
 
 Jev accepts a full route, API base or bare host; `status` shows the effective URL. OpenRouter uses its fixed chat-completions endpoint and requests `provider.zdr=true` plus `data_collection=deny`; if no eligible route is available the request fails open rather than using a non-ZDR endpoint. Cloudflare uses the account-scoped Workers AI route for the selected `cloudflare_model` (`clef` or `clef-flash`); it requires `CLOUDFLARE_AUTH_TOKEN` and a valid account ID. The custom provider posts to the exact `custom_endpoint`, passes `scorer_model`, and supports System One (`state.prompt`, `questions`, and `answers.effort.score`) or Chat Completions (JSON response with a numeric score). `custom_auth: bearer` requires `CUSTOM_SCORER_API_KEY`; `none` does not inspect credentials. Status reports readiness without exposing keys and masks URL query values. Configured scorer failures leave requests unchanged and appear in status.
 
@@ -268,11 +279,11 @@ Cloudflare configuration failures use `account_missing` or `account_invalid`; tr
 
 ## A quiet interface
 
-The CLI reports actual applied changes, such as `Effort changed: high -> low`. On hosts with the CLI status-item API, it also shows the last applied effort.
+The CLI reports actual applied changes, such as `Effort changed: high -> low`. On hosts with the CLI status-item API, it also shows the last applied effort. Set `show_tui_status: false` to hide that status item; the setting is read on the next outgoing request.
 
-The optional Desktop extension provides a small effort chip, a details pane and mode controls. Enable it in Desktop's plugin controls after installing the package; if the host does not discover the package's `desktop/` extension, that extension must be deployed to the host's `desktop-plugins/hermes-adaptive-effort/` directory separately. The agent plugin must also be enabled for its backend to work.
+The optional Desktop extension provides a small effort chip, a mode-selection popup, a details pane and mode controls. The popup groups the active mode and its effect, the focused conversation's effort and route, scorer/model readiness, and whether extra classification guidance is configured. Enable the extension in Desktop's plugin controls after installing the package; if the host does not discover the package's `desktop/` extension, that extension must be deployed to the host's `desktop-plugins/hermes-adaptive-effort/` directory separately. The agent plugin must also be enabled for its backend to work. Set `show_desktop_popup: false` in **Capabilities → Plugins → Hermes Adaptive Effort** to hide the bottom-right chip, popup and its change notifications; the details pane remains available.
 
-The chip follows the focused conversation and backend/profile, including after a completed turn while its result remains cached. It shows `N/A` when there is no usable decision for that chat. Change notifications and the pane's latest transition reflect activity across conversations.
+The chip follows the focused conversation and backend/profile, including after a completed turn while its result remains cached. In `off`, the popup can still identify a route observed on that conversation; effort stays `N/A` until there is a usable decision. Change notifications and the pane's latest transition reflect activity across conversations.
 
 ## Compatibility and limits
 

@@ -1,4 +1,4 @@
-"""``/hae`` and ``/hermes-adaptive-effort`` commands use Hermes' verified plugin API.
+"""The ``/hae`` command uses Hermes' verified plugin API.
 
 The command is the operator-facing surface for the plugin: ``status`` renders the
 documented status payload, ``probe`` runs exactly one bounded classification.
@@ -58,9 +58,9 @@ def use_settings(monkeypatch, settings):
         middleware, "_settings_provider", lambda key, default=None: settings.get(key, default))
 
 
-def test_register_registers_short_and_compatibility_commands():
+def test_register_registers_hae_command():
     ctx = registered()
-    assert [c["name"] for c in ctx.commands] == ["hae", "hermes-adaptive-effort"]
+    assert [c["name"] for c in ctx.commands] == ["hae"]
     assert callable(ctx.commands[0]["handler"])
     assert ctx.commands[0]["description"].strip()
 
@@ -77,7 +77,7 @@ def test_register_registers_nothing_beyond_the_declared_surface():
     assert [k for k, _ in ctx.hooks] == [
         "on_session_end", "on_session_finalize", "on_session_reset",
         "subagent_start", "subagent_stop"]
-    assert [c["name"] for c in ctx.commands] == ["hae", "hermes-adaptive-effort"]
+    assert [c["name"] for c in ctx.commands] == ["hae"]
 
 
 def test_registered_handler_is_the_command_module_entry_point():
@@ -242,14 +242,20 @@ def test_status_json_reports_failure_reason_for_a_failed_session():
 
 
 def test_status_output_never_contains_prompt_text(monkeypatch):
+    guidance = "PRIVATE_CLASSIFIER_GUIDANCE_MARKER"
     monkeypatch.setattr(middleware, "_settings_provider",
-                        lambda key, default=None: {"mode": "auto"}.get(key, default))
+                        lambda key, default=None: {
+                            "mode": "auto", "classification_instructions": guidance,
+                        }.get(key, default))
     marker = "UNIQUE_STATUS_PROMPT_MARKER"
     middleware.reset_state()
     middleware._remember("s1", {"state": "decided", "label": "high", "target": "high",
                                 "prompt": marker}, 64)
     rendered = command.handle("status") + command.handle("status json")
     assert marker not in rendered
+    assert guidance not in rendered
+    payload = json.loads(command.handle("status json"))
+    assert payload["settings"]["classification_instructions_configured"] is True
     middleware.reset_state()
 
 

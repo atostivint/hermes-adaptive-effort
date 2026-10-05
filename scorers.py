@@ -26,6 +26,7 @@ def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]
                 timeout=settings["timeout_s"],
                 endpoint=settings["endpoint"],
                 max_prompt_chars=settings["prompt_chars"],
+                classification_instructions=settings.get("classification_instructions", ""),
             ), None
         except Exception:
             return None, "classifier_error"
@@ -38,6 +39,7 @@ def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]
                 model=model,
                 timeout=settings["timeout_s"],
                 max_prompt_chars=settings["prompt_chars"],
+                classification_instructions=settings.get("classification_instructions", ""),
             ), None
         except Exception:
             return None, "classifier_error"
@@ -52,6 +54,7 @@ def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]
                     "cloudflare_model", cloudflare_client.DEFAULT_MODEL_SELECTOR),
                 timeout=settings["timeout_s"],
                 max_prompt_chars=settings["prompt_chars"],
+                classification_instructions=settings.get("classification_instructions", ""),
             ), None
         except Exception:
             return None, "classifier_error"
@@ -67,6 +70,7 @@ def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]
                 auth=settings.get("custom_auth", "none"),
                 timeout=settings["timeout_s"],
                 max_prompt_chars=settings["prompt_chars"],
+                classification_instructions=settings.get("classification_instructions", ""),
             ), None
         except Exception:
             return None, "classifier_error"

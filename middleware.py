@@ -34,6 +34,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from . import cache_safety as _cache_safety
 from . import effort as _effort
 from . import jev_client as _jev_client
+from . import rubric as _rubric
 from . import scorers as _scorers
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,9 @@ DEFAULTS: Dict[str, Any] = {
     "custom_auth": "none",
     "cloudflare_account_id": "",
     "cloudflare_model": _scorers.cloudflare_client.DEFAULT_MODEL_SELECTOR,
+    "classification_instructions": "",
+    "show_tui_status": True,
+    "show_desktop_popup": True,
 }
 
 # Injected by register(ctx); None until a PluginContext exists (and in tests).
@@ -65,7 +69,7 @@ _classifier_factory: Optional[Callable[..., Any]] = None
 # live profile. Tests inject a hermetic reader so a unit run never depends on
 # (and never reads) whatever mode the live profile happens to carry.
 _config_reader: Optional[Callable[[], Dict[str, Any]]] = None
-# Mode chosen at runtime through ``/hermes-adaptive-effort off|recommend|auto|cache_safe|inject``.
+# Mode chosen at runtime through ``/hae off|recommend|auto|cache_safe|inject``.
 # Process-local by design: the plugin never writes the operator's config file,
 # and the command's reply says so. ``None`` means "use the configured mode".
 _MODE_OVERRIDE: Optional[str] = None
@@ -80,6 +84,7 @@ _CHANGE_STREAM_ID = uuid.uuid4().hex
 _CHANGE_SEQUENCE = 0
 _EFFORT_CHANGES: "deque[Dict[str, Any]]" = deque(maxlen=_CHANGE_HISTORY_LIMIT)
 _CLI_STATUS_HANDLE: Any = None
+_CLI_STATUS_TEXT = "Effort: N/A"
 #: Sessions with a classification running right now — at most one probe per
 #: session, claimed atomically so two concurrent requests cannot both call the scorer.
 _IN_FLIGHT: set = set()
@@ -99,6 +104,7 @@ def reset_state() -> None:
     mode", so no test can leak a mode into the next one.
     """
     global _MODE_OVERRIDE, _CHANGE_SEQUENCE, _CHANGE_STREAM_ID, _CLI_STATUS_HANDLE
+    global _CLI_STATUS_TEXT
     with _lock:
         _SESSIONS.clear()
         _IN_FLIGHT.clear()
@@ -107,10 +113,11 @@ def reset_state() -> None:
         _CHANGE_SEQUENCE = 0
         _CHANGE_STREAM_ID = uuid.uuid4().hex
         _CLI_STATUS_HANDLE = None
+        _CLI_STATUS_TEXT = "Effort: N/A"
         _MODE_OVERRIDE = None
 
 
-# ── runtime mode override (``/hermes-adaptive-effort off|recommend|auto|cache_safe|inject``) ──────
+# ── runtime mode override (``/hae off|recommend|auto|cache_safe|inject``) ────────────────────────
 
 def set_mode_override(mode: Any) -> Optional[str]:
     """Accept a runtime mode for FUTURE requests; ``None`` when it is not a mode.
@@ -183,6 +190,7 @@ def set_cli_status_handle(handle: Any) -> None:
     """Attach the optional host-provided CLI status item update handle."""
     global _CLI_STATUS_HANDLE
     _CLI_STATUS_HANDLE = handle
+    _sync_cli_status()
 
 
 def _record_effort_change(decision_key: str, before: Any, after: Any) -> Optional[Dict[str, Any]]:
@@ -207,15 +215,23 @@ def _record_effort_change(decision_key: str, before: Any, after: Any) -> Optiona
         return {key: event[key] for key in ("id", "from", "to", "at")}
 
 
-def _update_cli_status(value: str) -> None:
+def _sync_cli_status(settings: Optional[Dict[str, Any]] = None) -> None:
+    """Render the current status text only when its TUI display is enabled."""
     try:
         handle = _CLI_STATUS_HANDLE
         update = getattr(handle, "update", None)
         if not callable(update):
             return
-        update(value)
+        current = settings if settings is not None else _settings()
+        update(_CLI_STATUS_TEXT if current["show_tui_status"] else "")
     except Exception:
         logger.debug("hermes-adaptive-effort: CLI status item update failed", exc_info=True)
+
+
+def _update_cli_status(value: str) -> None:
+    global _CLI_STATUS_TEXT
+    _CLI_STATUS_TEXT = value
+    _sync_cli_status()
 
 
 def _notify_cli(text: str) -> None:
@@ -274,7 +290,7 @@ def _touch(key: str, settings: Dict[str, Any], mode: str,
 
     Every request that reaches the decision path is counted (``requests``), while
     ``probes`` only ever grows inside the claim — that difference is exactly what
-    ``/hermes-adaptive-effort status`` reports as "one scorer call per turn".
+    ``/hae status`` reports as "one scorer call per turn".
     """
     with _lock:
         entry = _SESSIONS.get(key)
@@ -436,7 +452,7 @@ def _settings() -> Dict[str, Any]:
         mode = "off"
     override = mode_override()
     if override is not None:
-        # A runtime choice outranks the file: /hermes-adaptive-effort just told the operator it
+        # A runtime choice outranks the file: /hae just told the operator it
         # applies to future requests, so it must.
         mode, mode_source = override, "override"
     # Independent gate: children are routed only when BOTH the session mode and
@@ -459,6 +475,20 @@ def _settings() -> Dict[str, Any]:
             return value if value > 0 else int(fallback)
         except Exception:
             return int(fallback)
+
+    def _bool(key: str, fallback: bool) -> bool:
+        value = _read_setting(key, fallback)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "yes", "on", "1"}:
+                return True
+            if normalized in {"false", "no", "off", "0", ""}:
+                return False
+        return fallback
 
     settings = {
         "mode": mode,
@@ -487,6 +517,11 @@ def _settings() -> Dict[str, Any]:
             "cloudflare_account_id", DEFAULTS["cloudflare_account_id"]) or "").strip(),
         "cloudflare_model": _scorers.cloudflare_client.normalize_model_selector(
             _read_setting("cloudflare_model", DEFAULTS["cloudflare_model"])),
+        "classification_instructions": _rubric.normalize_classification_instructions(
+            _read_setting("classification_instructions", DEFAULTS["classification_instructions"])),
+        "show_tui_status": _bool("show_tui_status", DEFAULTS["show_tui_status"]),
+        "show_desktop_popup": _bool(
+            "show_desktop_popup", DEFAULTS["show_desktop_popup"]),
     }
     settings["scorer_model_effective"] = _scorers.model_for(
         settings["scorer_provider"], settings["scorer_model"], settings["cloudflare_model"])
@@ -598,7 +633,7 @@ def _classify(prompt: str, settings: Dict[str, Any]) -> "Tuple[Optional[float], 
 
 def run_probe(prompt: str,
               settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Exactly one bounded classification for ``/hermes-adaptive-effort probe``.
+    """Exactly one bounded classification for ``/hae probe``.
 
     Deliberately touches **no** session state and claims no in-flight slot: a
     probe is an operator's question about a text they typed themselves, not a
@@ -905,10 +940,25 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
     settings = _settings()
+    _sync_cli_status(settings)
     mode = settings["mode"]
     parent_mode = mode
     if mode == "off":
-        return None  # byte-for-byte untouched: no state, no classification
+        session_id = str(kwargs.get("session_id") or "")
+        if session_id:
+            key = _decision_key(session_id, kwargs.get("turn_id"))
+            entry = _touch(
+                key, settings, mode, kwargs.get("provider"), kwargs.get("model"),
+                kwargs.get("api_mode"), conversation_id=session_id,
+            )
+            # The Desktop popup can name the active route while scoring is off.
+            # Keep only bounded request metadata; never classify or change payload.
+            with _lock:
+                entry.update(
+                    state="off", provider=kwargs.get("provider"), model=kwargs.get("model"),
+                    score=None, label=None, target=None, failure=None,
+                )
+        return None  # no classification or request change
 
     session_id = str(kwargs.get("session_id") or "")
     if not session_id:

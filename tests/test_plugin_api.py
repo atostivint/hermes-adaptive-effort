@@ -69,6 +69,25 @@ def test_status_payload_uses_stable_schema_and_allowlist():
         assert "conversation_id" in entry
 
 
+def test_status_payload_reports_the_active_route_while_mode_is_off(monkeypatch):
+    monkeypatch.setattr(
+        middleware, "_settings_provider",
+        lambda key, default=None: "off" if key == "mode" else default,
+    )
+    result = middleware.on_llm_request(
+        request={"model": "local-model"}, session_id="conversation-route",
+        turn_id="turn-1", provider="local-provider", model="local-model",
+        api_mode="chat_completions",
+    )
+    assert result is None
+
+    payload = api.get_status_payload()
+    entry = next(e for e in payload["sessions"] if e["conversation_id"] == "conversation-route")
+    assert (entry["state"], entry["provider"], entry["model"], entry["api_mode"]) == (
+        "off", "local-provider", "local-model", "chat_completions")
+    assert entry["probes"] == 0
+
+
 def test_set_mode_rejects_unknown_and_changes_nothing():
     before = middleware.mode_override()
     result = api.set_mode("turbo")
@@ -175,6 +194,10 @@ def test_desktop_plugin_static_contract():
     assert "useValue(host.state.focusedSessionId)" in text
     assert "useValue(host.state.focusedSessionOwner)" in text
     assert "effortForConversation(data, focusedSessionId)" in text
+    assert "routeForConversation(data, focusedSessionId)" in text
+    assert "Provider · model: ${route}" in chip
+    assert "route: ${route}" in chip
+    assert "show_desktop_popup === false" in chip
     assert "entry?.conversation_id === conversationId" in text
     assert "focusedOwner?.connectionId === activeConnectionId" in text
     assert "focusedOwner?.profile === activeProfile" in text

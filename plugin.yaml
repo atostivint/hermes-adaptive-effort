@@ -38,6 +38,9 @@ config_schema:
   timeout_s: {type: float, default: 3.0, label: Timeout (s), description: "Per-classification HTTP timeout; a timeout fails open", required: false}
   max_turns: {type: int, default: 64, label: Max turns, description: "Decision-cache entries kept per process", required: false}
   prompt_chars: {type: int, default: 4000, label: Prompt chars, description: "Maximum task characters sent when routing is enabled or probe is requested; truncation does not guarantee provider non-retention", required: false}
+  classification_instructions: {type: str, default: "", label: Extra classifier guidance, description: "Optional operator guidance for judging effort (up to 2000 characters); sent to the selected scorer only when a classification runs and does not replace the built-in score definitions", required: false}
+  show_tui_status: {type: bool, default: true, label: Show TUI effort status, description: "Show the Effort status item in the Hermes terminal interface", required: false}
+  show_desktop_popup: {type: bool, default: true, label: Show Desktop effort popup, description: "Show the bottom-right effort chip, mode-selection popup, and its change notifications in Hermes Desktop", required: false}
   endpoint: {type: str, default: "https://api.typesafe.ai/v1/systemone", label: Jev endpoint, description: "Jev scoring route or API base (a base gets /systemone appended); ignored by other scorers", required: false}
 requires:
   - llm_request middleware (capability: registering llm_request and session lifecycle hooks)

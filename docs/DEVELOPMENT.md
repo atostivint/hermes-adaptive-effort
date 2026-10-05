@@ -19,7 +19,7 @@ The Windows test runner discovers the Hermes source tree from `HERMES_SOURCE_ROO
 ```text
 ./                         the plugin payload installed as ~/.hermes/plugins/hermes-adaptive-effort
   plugin.yaml             manifest: id, commands, hooks, settings defaults + config_schema (Desktop form)
-  __init__.py              register(): /hae + /hermes-adaptive-effort aliases and llm_request middleware
+  __init__.py              register(): /hae command and llm_request middleware
   middleware.py            settings, decision cache, request rewrite, session state + effort-change feed
   effort.py                pure score -> label -> wire-effort mapping (no I/O)
   jev_client.py            Jev adapter; openrouter_client.py is the OpenRouter adapter
@@ -28,7 +28,7 @@ The Windows test runner discovers the Hermes source tree from `HERMES_SOURCE_ROO
   rubric.py                shared scorer question and score validation
   scorers.py               explicit scorer registry, credential and endpoint selection
   cache_safety.py          is an effort change cache-neutral on this route?
-  command.py               /hae (also /hermes-adaptive-effort): help, status, probe, mode verbs
+  command.py               /hae: help, status, probe, mode verbs
   dashboard/               backend: GET /status, GET /changes, POST /mode, POST /probe
   desktop/plugin.js        desktop half: effort chip, pane, change toasts, palette (opt-in)
 tests/                    217 tests, one module per contract
@@ -46,7 +46,7 @@ Test modules, by contract:
 | `test_middleware.py` | 36 | settings, scorer selection, gating, rewrites, applied-change feed |
 | `test_subagent.py` | 17 | child routing, child goals, inheritance |
 | `test_jev_client.py` | 18 | transport, credential probe, failure modes, endpoint normalization |
-| `test_command.py` | 23 | `/hae` and long-form alias rendering, schemas, scorer/route identity, no prompt leak |
+| `test_command.py` | 23 | `/hae` rendering, schemas, scorer/route identity, no prompt leak |
 | `test_cache_safety.py` | 11 | cache-neutral vs cache-hostile routes |
 | `test_command_modes.py` | 10 | the `off`/`recommend`/`auto`/`cache_safe` verbs |
 | `test_turn_scope.py` | 14 | the `(session_id, turn_id)` decision key, current prompt selection with full history |
@@ -59,6 +59,7 @@ Test modules, by contract:
 | `test_plugin_api.py` | 12 | dashboard backend (status/mode/probe/changes, no prompt leak) + desktop static contract |
 | `test_openrouter_client.py` | 15 | bounded OpenRouter request, strict scores, credentials, and fail-open errors |
 | `test_scorers.py` | 6 | Jev default and explicit provider selection without cross-provider fallback |
+| `test_rubric.py` | 3 | shared effort rubric, fixed score contract and bounded operator guidance |
 
 ## Running the tests
 
