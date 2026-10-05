@@ -7,7 +7,7 @@ import urllib.error
 
 import pytest
 
-from conftest import import_plugin
+from tests.conftest import import_plugin
 
 client_module = import_plugin("openrouter_client")
 

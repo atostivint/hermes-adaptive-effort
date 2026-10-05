@@ -18,7 +18,7 @@ import json
 
 import pytest
 
-from conftest import import_plugin
+from tests.conftest import import_plugin
 
 command = import_plugin("command")
 middleware = import_plugin("middleware")

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from conftest import import_plugin
+from tests.conftest import import_plugin
 
 jev_client = import_plugin("jev_client")
 openrouter_client = import_plugin("openrouter_client")

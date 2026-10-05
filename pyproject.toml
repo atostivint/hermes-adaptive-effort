@@ -6,9 +6,11 @@
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# importlib mode avoids importing the plugin's root __init__.py as an unqualified test package;
+# tests import plugin modules explicitly as hermes_plugin_adaptive_effort in tests/conftest.py.
 # No `-q` here on purpose: the per-test dots are fine, but the final "N passed" line is
 # the number worth seeing in a handoff, and a second -q on the command line silences it.
-addopts = "-ra"
+addopts = "-ra --import-mode=importlib"
 # tests/conftest.py puts the Hermes source tree (agent/, hermes_cli/) on sys.path, so the
 # real-dispatcher integration test runs instead of skipping itself. Set HERMES_SOURCE_ROOT
 # when Hermes lives somewhere else; see scripts/bootstrap_test_env.sh for the venv.

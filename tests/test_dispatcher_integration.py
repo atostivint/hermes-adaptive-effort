@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import PLUGIN_DIR
+from tests.conftest import PLUGIN_DIR
 
 pytest.importorskip(
     "hermes_cli.plugins",

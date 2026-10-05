@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import import_plugin
+from tests.conftest import import_plugin
 
 middleware = import_plugin("middleware")
 cache = import_plugin("cache_safety")
