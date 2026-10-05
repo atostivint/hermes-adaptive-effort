@@ -8,6 +8,7 @@ Start with the [project README](../README.md) for installation, configuration an
 | --- | --- |
 | [Design choices](DESIGN.md) | Maintainer intent and the reasons behind the scope and safety rules |
 | [Runtime contracts](CONTRACTS.md) | Decision scope, wire mapping, failure behavior, privacy and APIs |
+| [Model compatibility](MODEL_COMPATIBILITY.md) | Exact route evidence, all current OpenCode Go catalog IDs, and injection/no-op outcomes |
 | [Automated checks](CI.md) | GitHub Actions test matrix, integration gate, security scans and their limits |
 | [Development](DEVELOPMENT.md) | Layout, test contracts and Windows/Linux verification |
 | [Contributor instructions](../AGENTS.md) | Rules to follow when changing the implementation |

@@ -108,6 +108,7 @@ def test_status_json_returns_the_documented_payload():
     assert payload["mode"] in ("off", "recommend", "auto")
     for key in ("settings", "credential", "counts", "sessions", "last"):
         assert key in payload
+    assert payload["settings"]["force_injection_models"] == []
 
 
 def test_status_reports_selected_scorer_and_active_endpoint(monkeypatch):

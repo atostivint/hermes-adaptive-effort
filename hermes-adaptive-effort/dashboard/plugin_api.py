@@ -34,7 +34,7 @@ PLUGIN_ID = "hermes-adaptive-effort"
 STATUS_SCHEMA = "hermes-adaptive-effort.status.v1"
 PROBE_SCHEMA = "hermes-adaptive-effort.probe.v1"
 CHANGES_SCHEMA = "hermes-adaptive-effort.changes.v1"
-VALID_MODES = ("off", "recommend", "auto", "cache_safe")
+VALID_MODES = ("off", "recommend", "auto", "cache_safe", "inject")
 MAX_PROBE_CHARS = 4000
 
 try:  # FastAPI exists in the serve/gateway env, not in the plugin's unit venv.
@@ -242,7 +242,7 @@ def run_probe(text: Any) -> Dict[str, Any]:
 if _HAS_HTTP and router is not None:  # pragma: no cover - needs serve env
 
     class ModeBody(BaseModel):
-        mode: str = Field(description="off|recommend|auto|cache_safe")
+        mode: str = Field(description="off|recommend|auto|cache_safe|inject")
         persist: bool = Field(default=False, description="also write settings.mode")
 
     class ProbeBody(BaseModel):

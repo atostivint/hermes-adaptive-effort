@@ -94,11 +94,10 @@ def import_plugin(stem: str):
 
 
 def settings_with_prompt_consent(settings):
-    """Opt a test into the configured scorer without changing hermetic defaults.
+    """Pass settings through with the legacy consent key defaulted.
 
-    Tests that expect classification call this explicitly through their local
-    settings helper. Negative consent cases can pass ``none`` or a mismatched
-    provider and retain that explicit value.
+    The plugin ignores ``prompt_sharing_provider`` (enabling a routing mode
+    authorizes sharing); this only keeps older test settings accepted.
     """
     values = dict(settings)
     scorer = str(values.get("scorer_provider", "jev") or "jev").strip().lower()

@@ -1,0 +1,14 @@
+# OpenCode Muse effort injection probe
+
+Status: rejected; exactly one conversation request was sent, with no retry.
+
+- Route: OpenCode Go Responses API (`https://opencode.ai/zen/go/v1/responses`)
+- Model: `muse-spark-1.3-contributor` (the OpenCode Go model catalog lists this slug for that Responses endpoint)
+- Request body fields: `reasoning.effort=low`, input `Reply with OK`, `max_output_tokens=16`
+- Credential source: local OpenCode auth store, `opencode-go` provider key, read inside the subprocess; credential value was not displayed or persisted.
+- HTTP status: `403`
+- Exact rejection body: `error code: 1010\n`
+- Completion: no successful model completion.
+- Original Zen free model `muse-spark-1.3-contributor-free`: unverified on this route. The Go probe used its separately cataloged Go model slug.
+
+The request disabled redirects and made no follow-up calls. OpenCode's Go model catalog: https://opencode.ai/docs/go/ (lists Muse Spark 1.3 Contributor, `muse-spark-1.3-contributor`, at the Go Responses endpoint).
