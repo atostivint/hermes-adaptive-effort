@@ -1,0 +1,30 @@
+# Draft for NousResearch/hermes-agent/plugin-catalog/hermes-adaptive-effort.yaml
+# Pinned to the implementation commit; update sha and version together for releases.
+name: hermes-adaptive-effort
+repo: https://github.com/atostivint/hermes-adaptive-effort
+sha: 3e2bd41f785efc8b57ce058fdbf8c40a79084823
+subdir: hermes-adaptive-effort
+description: Choose a separate scorer to set the reasoning effort of each Hermes request.
+maintainer: atostivint
+tier: community
+category: models
+docs_url: https://github.com/atostivint/hermes-adaptive-effort
+version: "0.2.0"
+readme: true
+# TODO before submission: add real GitHub-hosted screenshots of the Desktop settings/UI.
+screenshots: []
+platforms: []
+title: Hermes Adaptive Effort
+capabilities:
+  provides_tools: []
+  provides_hooks:
+    - on_session_end
+    - on_session_finalize
+    - on_session_reset
+    - subagent_start
+    - subagent_stop
+  provides_middleware:
+    - llm_request
+  # Provider credentials are conditional on the selected scorer, so none is
+  # unconditionally required to load or use the plugin with a local endpoint.
+  requires_env: []
