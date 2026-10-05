@@ -10,6 +10,8 @@ from conftest import import_plugin
 
 middleware = import_plugin("middleware")
 
+MUSE = "muse-spark-1.3-contributor-free"
+
 
 class FakeClassifier:
     def __init__(self, score: "float | None" = 1.0, error=None):
@@ -80,6 +82,209 @@ def ctx(session="s1", provider="openrouter", model="openrouter/x/y", **extra):
 
 def call(kw):
     return middleware.on_llm_request(**kw)
+
+
+def configure_injection(monkeypatch, score=0.1, error=None, mode="inject"):
+    monkeypatch.setattr(middleware, "_config_reader", lambda: {
+        "plugins": {"entries": {middleware.PLUGIN_ID: {"settings": {
+            "mode": mode,
+        }}}},
+    })
+    factory = RecordingClassifierFactory(score=score, error=error)
+    use_classifier(monkeypatch, factory)
+    return factory
+
+
+def muse_request(**extra):
+    return {"model": MUSE, "instructions": "Be concise", "store": False,
+            "input": [{"role": "user", "content": "Reply with OK"}], **extra}
+
+
+def muse_call(request, turn="t1", **extra):
+    route = dict(request=request, provider="opencode", model=MUSE,
+                 api_mode="codex_responses", turn_id=turn)
+    route.update(extra)
+    return call(ctx(**route))
+
+
+@pytest.mark.parametrize("score,target", [(0.0, "low"), (1.0, "medium"), (2.0, "high")])
+def test_inject_first_responses_request_copy_on_write(monkeypatch, score, target):
+    configure_injection(monkeypatch, score)
+    req = muse_request(reasoning={"summary": "auto"}, extra_body={"other": True})
+    out = muse_call(req)
+    assert out["request"]["reasoning"] == {"summary": "auto", "effort": target}
+    assert req["reasoning"] == {"summary": "auto"}
+    assert out["request"] is not req
+    assert out["request"]["reasoning"] is not req["reasoning"]
+    assert out["request"]["extra_body"] is req["extra_body"]
+    assert out["request"]["input"] is req["input"]
+    assert "reasoning_effort" not in out["request"]
+    entry = middleware.session_state()["s1/t1"]
+    assert (entry["state"], entry["label"], entry["target"], entry["provider"], entry["model"]) == (
+        "decided", target, target, "opencode", MUSE)
+    assert entry["probes"] == 1
+    assert middleware.effort_change_state()["latest"]["from"] == "absent"
+
+
+def test_inject_keeps_pinned_effort_across_three_turns_when_cache_unsafe(monkeypatch):
+    factory = configure_injection(monkeypatch)
+    # A transport with a verified shape can be marked unsafe by the shared table.
+    monkeypatch.setattr(middleware._cache_safety, "effort_is_cache_safe", lambda *args: False)
+    for turn in ("t1", "t2", "t3"):
+        req = muse_request()
+        assert muse_call(req, turn)["request"]["reasoning"]["effort"] == "low"
+        assert "reasoning" not in req
+        assert middleware.session_state()["s1"]["probes"] == 1
+    assert len(factory.instances) == 1
+    assert middleware.session_state()["s1"]["requests"] == 3
+    assert len(middleware.effort_change_state()["events"]) == 1
+
+
+def test_inject_safe_route_reclassifies_new_turn_but_not_tool_loop(monkeypatch):
+    factory = configure_injection(monkeypatch)
+    for _ in range(3):
+        assert muse_call(muse_request())["request"]["reasoning"]["effort"] == "low"
+    assert len(factory.instances) == 1
+    factory.kwargs["score"] = 2.0
+    assert muse_call(muse_request(), "t2")["request"]["reasoning"]["effort"] == "high"
+    assert len(factory.instances) == 2
+    applied = muse_call(muse_request(), "t2")["request"]
+    assert muse_call(applied, "t2") is None
+    assert len(factory.instances) == 2
+
+
+@pytest.mark.parametrize("mode", ["off", "recommend", "auto", "cache_safe"])
+def test_legacy_modes_do_not_inject_muse(monkeypatch, mode):
+    factory = configure_injection(monkeypatch, mode=mode)
+    assert muse_call(muse_request()) is None
+    assert factory.instances == []
+
+
+@pytest.mark.parametrize("overrides", [
+    {"model": "gpt-4o"}, {"model": "muse-spark-unknown"},
+    {"provider": "unknown"}, {"api_mode": "unknown"}, {"api_mode": "anthropic_messages"},
+])
+def test_inject_ineligible_route_is_silent_noop(monkeypatch, overrides):
+    factory = configure_injection(monkeypatch)
+    req = muse_request()
+    assert muse_call(req, **overrides) is None
+    assert "reasoning" not in req
+    assert factory.instances == []
+
+
+@pytest.mark.parametrize("fields", [
+    {"reasoning": {"effort": "none"}}, {"reasoning_effort": "none"},
+    {"reasoning": {"enabled": False}}, {"reasoning": {"effort": "high", "enabled": False}},
+    {"extra_body": {"reasoning": {"enabled": False}}},
+    {"reasoning": "bad"}, {"reasoning": {"effort": 1}}, {"reasoning_effort": None},
+    {"extra_body": "bad"}, {"thinking": {"type": "disabled"}},
+])
+def test_inject_never_overwrites_disabled_or_malformed_controls(monkeypatch, fields):
+    factory = configure_injection(monkeypatch)
+    assert muse_call(muse_request(**fields)) is None
+    assert factory.instances == []
+
+
+@pytest.mark.parametrize("score,error", [(None, RuntimeError("classifier failed")),
+                                          (float("nan"), None), (True, None), (3.0, None)])
+def test_inject_classifier_failure_is_fail_open_and_memoized(monkeypatch, score, error):
+    factory = configure_injection(monkeypatch, score, error)
+    req = muse_request()
+    assert muse_call(req) is None
+    assert muse_call(req) is None
+    assert "reasoning" not in req
+    assert len(factory.instances) == 1
+    assert middleware.session_state()["s1/t1"]["state"] == "failed"
+
+
+@pytest.mark.parametrize("payload", [None, [], "bad", {"input": [None, {"role": "user", "content": 1}]}])
+def test_inject_malformed_payload_fails_open(monkeypatch, payload):
+    factory = configure_injection(monkeypatch)
+    assert muse_call(payload) is None
+    assert factory.instances == []
+
+
+def test_enabling_inject_authorizes_selected_scorer_without_separate_consent(monkeypatch):
+    factory = configure_injection(monkeypatch)
+    assert muse_call(muse_request())["request"]["reasoning"]["effort"] == "low"
+    assert len(factory.instances) == 1
+    assert "prompt_sharing_provider" not in middleware.DEFAULTS
+
+
+def test_inject_container_follows_actual_api_mode(monkeypatch):
+    configure_injection(monkeypatch)
+    req = request_with(model=MUSE)
+    out = muse_call(req, api_mode="chat_completions")
+    assert out["request"]["reasoning_effort"] == "low"
+    assert "reasoning" not in out["request"]
+    assert "reasoning_effort" not in req
+
+
+def test_inject_rewrites_existing_effort_and_pins_unknown_api_mode(monkeypatch):
+    factory = configure_injection(monkeypatch)
+    req = request_with(model=MUSE, reasoning={"effort": "medium"})
+    first = muse_call(req, "t1", api_mode="future_api_mode")
+    assert first["request"]["reasoning"]["effort"] == "low"
+    assert muse_call(request_with(model=MUSE), "t2", api_mode="future_api_mode") is None
+    assert len(factory.instances) == 1
+    assert middleware.session_state()["s1"]["probes"] == 1
+
+
+def test_child_effective_mode_controls_cache_key_and_injection(monkeypatch):
+    factory = configure_injection(monkeypatch)
+    monkeypatch.setattr(middleware, "_config_reader", lambda: {
+        "plugins": {"entries": {middleware.PLUGIN_ID: {"settings": {
+            "mode": "inject", "subagent_mode": "auto",
+        }}}},
+    })
+    middleware.on_subagent_start(parent_session_id="parent", child_session_id="s1",
+                                 child_goal="Refactor this module")
+    first = muse_request(reasoning={"effort": "medium"})
+    assert muse_call(first, "t1", api_mode="unknown")["request"]["reasoning"]["effort"] == "low"
+    factory.kwargs["score"] = 2.0
+    second = muse_request(reasoning={"effort": "medium"})
+    assert muse_call(second, "t2", api_mode="unknown")["request"]["reasoning"]["effort"] == "high"
+    assert len(factory.instances) == 2
+    assert {key for key in middleware.session_state() if key.startswith("s1/")} == {
+        "s1/t1", "s1/t2"}
+
+
+def test_child_inject_mode_uses_unsafe_route_session_pin(monkeypatch):
+    factory = configure_injection(monkeypatch, mode="auto")
+    monkeypatch.setattr(middleware, "_config_reader", lambda: {
+        "plugins": {"entries": {middleware.PLUGIN_ID: {"settings": {
+            "mode": "auto", "subagent_mode": "inject",
+        }}}},
+    })
+    monkeypatch.setattr(middleware._cache_safety, "effort_is_cache_safe", lambda *args: False)
+    middleware.on_subagent_start(parent_session_id="parent", child_session_id="s1",
+                                 child_goal="Refactor this module")
+    for turn in ("t1", "t2"):
+        request = muse_request()
+        assert muse_call(request, turn, api_mode="codex_responses")["request"]["reasoning"]["effort"] == "low"
+    assert len(factory.instances) == 1
+    assert middleware.session_state()["s1"]["probes"] == 1
+
+
+def test_inject_survives_responses_builder_and_preflight(monkeypatch, tmp_path):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    from agent.codex_responses_adapter import _preflight_codex_api_kwargs
+    from agent.transports import codex
+
+    monkeypatch.setattr(codex, "_profile_declared_efforts", lambda *args: ())
+
+    configure_injection(monkeypatch)
+    request = codex.ResponsesApiTransport().build_kwargs(
+        model=MUSE,
+        messages=[{"role": "user", "content": "Reply with OK"}],
+        instructions="Be concise",
+        provider="opencode",
+    )
+    assert "reasoning" not in request
+    out = muse_call(request)
+    assert out["request"]["reasoning"]["effort"] == "low"
+    prepared = _preflight_codex_api_kwargs(out["request"])
+    assert prepared["reasoning"] == {"effort": "low"}
 
 
 def test_default_off_never_classifies(monkeypatch, no_network):

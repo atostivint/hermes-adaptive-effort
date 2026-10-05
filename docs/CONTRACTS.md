@@ -22,7 +22,7 @@ The memo key is `(session_id, turn_id)`:
 
 These guarantees apply while a decision remains cached; eviction or state reset removes that memory.
 
-`cache_safe` narrows the key further, to the session, when an effort change would
+`cache_safe` and `inject` narrow the key further, to the session, when an effort change would
 invalidate the prompt cache (see below).
 
 ## Route vocabulary: what may be written where
@@ -37,6 +37,7 @@ because an `llm_request` hook runs **after** the transport clamp.
 | Kimi K2-era slugs detected by Hermes | `low`, `medium`, `high` | Hermes' Kimi detection distinguishes these from K3 |
 | `glm-5.2*` | `high`, `max` | `low` and `medium` are not offered by this route |
 | `glm-5.3*` | `low`, `medium`, `high`, `max` | graded scale, monotonic in reasoning tokens |
+| `muse-spark-1.3-contributor-free` | `minimal`, `low`, `medium`, `high`, `xhigh` | rubric labels map verbatim; other Muse tiers are not inferred |
 | any other non-Codex route | `route_supported_efforts(provider, model)` | for an unknown route this is the widest OpenAI-compatible set |
 | `openai-codex` | `route_supported_efforts(...)` | the narrow `wire_efforts` table is skipped for this provider |
 
@@ -47,8 +48,7 @@ EFFORT_LADDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ul
 OPENAI_COMPAT_WIRE_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 ```
 
-`ultra` is Hermes-internal and appears in no wire set. Unset stays unset: the plugin
-never introduces an effort where the request had none.
+`ultra` is Hermes-internal and appears in no wire set. Unset stays unset in the existing four modes. `inject` may add an effort only on the explicitly eligible route described in the README, with copy-on-write of the request and reasoning container. Disabled/malformed controls remain untouched. Injection transitions use `absent` as the prior value in the applied-change feed.
 
 ### Residual risk: Ox Alpha / `x-preview-f-free`
 
@@ -128,8 +128,12 @@ The CLI uses the optional host `register_cli_status_item` API to show the last a
 
 ## Failure codes
 
-Existing codes remain stable: `invalid_prompt`, `credential_missing`, `http_error`, `timeout`, `transport_error`, `malformed_response`, `unexpected_error`, `classifier_error`. Scorer selection adds `model_missing`, `unsupported_provider` and `prompt_consent_required`. Failed decisions are not retried within their retained scope. Missing consent or credentials perform no HTTP call, even though the ledger records a classification attempt.
+Existing codes remain stable: `invalid_prompt`, `credential_missing`, `http_error`, `timeout`, `transport_error`, `malformed_response`, `unexpected_error`, `classifier_error`. Scorer selection adds `model_missing`, `unsupported_provider` . Failed decisions are not retried within their retained scope. Missing credentials perform no HTTP call, even though the ledger records a classification attempt.
 
 ## Privacy boundary
 
-Normal turns send at most `prompt_chars` characters of the latest user text only when `prompt_sharing_provider` matches the selected scorer; the conversation history and tool results are not sent as task text. Child scoring uses the parent-written goal and the same consent gate. Without matching consent, no scorer call is made and the decision fails open with `prompt_consent_required`. Prompts are not persisted or emitted in logs, reasons, status, probe output or the applied-change feed. Child goals necessarily exist transiently in memory. These are plugin guarantees, not statements about a scoring provider's retention policy. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints; the prompt is still processed by OpenRouter. Jev and Cloudflare have no ZDR guarantee from this plugin. `prompt_chars` limits the excerpt only and is not a retention control.
+Enabling routing authorizes task text to the selected scorer. Normal turns send at most `prompt_chars` characters of the latest user text; the conversation history and tool results are not sent as task text. Child scoring uses the parent-written goal and requires the independent subagent mode to be enabled. Explicit probe commands send only operator-typed text, even when routing is off. The removed `prompt_sharing_provider` setting is ignored for legacy configurations. Prompts are not persisted or emitted in logs, reasons, status, probe output or the applied-change feed. Child goals necessarily exist transiently in memory. These are plugin guarantees, not statements about a scoring provider's retention policy. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints; the prompt is still processed by OpenRouter. Jev and Cloudflare have no ZDR guarantee from this plugin. `prompt_chars` limits the excerpt only and is not a retention control.
+
+## Verified Muse transport path
+
+The local Hermes source (`agent/transports/codex.py`, module-level `_reasoning_fields()`, called by `ResponsesApiTransport.build_kwargs()`) builds `fields["reasoning"] = {"effort": effort, "summary": "auto"}`. `build_kwargs` merges those fields into top-level kwargs. `agent/codex_responses_adapter.py` lists `("reasoning", lambda v: isinstance(v, dict), None)` among retained optional fields and preflight copies it with `normalized[key] = coerce(value) if coerce else value`. `agent/turn_api_request.py` applies request middleware after preflight and uses its returned payload. Thus injection belongs in top-level `reasoning.effort`, not `extra_body` or `reasoning_effort` on a Responses request. OpenCode model routing selects `codex_responses` for the `muse-spark` prefix. The chat-profile `ox_alpha_reasoning_extras` no-op alone does not prove the Responses transport omits effort; the local Responses builder can emit its own reasoning field independently.

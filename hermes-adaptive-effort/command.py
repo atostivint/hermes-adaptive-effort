@@ -2,7 +2,7 @@
 
 ``status`` and ``probe`` never classify a conversation, never rewrite a request
 and never store anything: they only render what the middleware already holds.
-``off|recommend|auto|cache_safe`` set the mode for FUTURE requests of this
+``off|recommend|auto|cache_safe|inject`` set the mode for FUTURE requests of this
 process — the plugin never edits the operator's config file, and the reply says
 so. Every command runs through the plugin dispatcher's argument split, so
 `handle()` receives a string, not a list.
@@ -26,7 +26,7 @@ MODES = _middleware.VALID_MODES
 USAGE = """Usage:
   /hermes-adaptive-effort status            Show mode, settings, credential, session counts
   /hermes-adaptive-effort status json       Machine-readable status payload
-  /hermes-adaptive-effort off|recommend|auto|cache_safe
+  /hermes-adaptive-effort off|recommend|auto|cache_safe|inject
                               Set the mode used by future requests
   /hermes-adaptive-effort probe <text>      Classify <text> once (prints score/label, stores nothing)
   /hermes-adaptive-effort help              Show this help
@@ -37,6 +37,7 @@ Modes:
   auto        classify and rewrite an existing reasoning-effort field
   cache_safe  route per turn only on routes where an effort change keeps the
               prompt cache; elsewhere pin one level for the whole session
+  inject      cache_safe routing plus effort injection on eligible Muse routes
 
 A mode set here applies to future requests served by this process. It is not
 written to config.yaml (nothing here edits your files), so it does not survive a
@@ -213,7 +214,7 @@ def _status_text() -> str:
         f"cache safety: {payload['cache_safety']}",
         f"credential: {'present' if payload['credential'] else 'missing'}",
         f"scorer: {settings['scorer_provider']} model={settings['scorer_model_effective'] or 'unset'}",
-        f"prompt sharing: {'opted in for ' + settings['scorer_provider'] if settings['prompt_sharing_provider'] == settings['scorer_provider'] else 'not opted in; set prompt_sharing_provider=' + settings['scorer_provider']}",
+        f"prompt sharing: enabling routing authorizes task text to {settings['scorer_provider']}; probe sends only typed text",
         f"settings: timeout_s={settings['timeout_s']} "
         f"max_turns={settings['max_turns']} "
         f"max_prompt_chars={settings['prompt_chars']}",

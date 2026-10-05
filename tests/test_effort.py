@@ -27,6 +27,19 @@ def test_labels_are_the_normalized_three():
     assert effort.EFFORT_LABELS == ("low", "medium", "high")
 
 
+def test_muse_contributor_free_wire_vocabulary_and_policy():
+    model = "muse-spark-1.3-contributor-free"
+    expected = ("minimal", "low", "medium", "high", "xhigh")
+    for slug in (model, "opencode/" + model):
+        assert effort.wire_efforts("opencode", slug) == expected
+        assert effort.supported_efforts("opencode", slug) == expected
+        for label in effort.EFFORT_LABELS:
+            assert effort.map_effort(label, "opencode", slug) == label
+        for invalid in ("none", "max"):
+            assert effort.map_effort(invalid, "opencode", slug) is None
+    assert effort.wire_efforts("opencode", "muse-spark-unknown") == ()
+
+
 def test_map_effort_clamps_onto_route_vocabulary():
     # OpenAI-compatible route vocabulary accepts all three verbatim.
     assert effort.map_effort("high", "openrouter", "x/y") == "high"

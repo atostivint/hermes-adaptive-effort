@@ -22,6 +22,10 @@ EFFORT_LABELS: tuple[str, ...] = ("low", "medium", "high")
 LOW_MAX = 0.5
 MEDIUM_MAX = 1.5
 
+# Exact Contributor Free slug; other Muse tiers can have different ceilings.
+MUSE_CONTRIBUTOR_FREE = "muse-spark-1.3-contributor-free"
+MUSE_CONTRIBUTOR_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
+
 
 def score_to_label(score) -> Optional[str]:
     """Rubric score -> normalized label; ``None`` for anything invalid."""
@@ -52,6 +56,8 @@ def wire_efforts(provider: Optional[str], model: Optional[str]) -> tuple[str, ..
     bare = (model or "").strip().lower().rsplit("/", 1)[-1]
     if not bare:
         return ()
+    if bare == MUSE_CONTRIBUTOR_FREE:
+        return MUSE_CONTRIBUTOR_EFFORTS
     try:
         from agent import reasoning_effort as _core
     except Exception:

@@ -15,8 +15,8 @@ Contract (verified against ``hermes_cli/middleware.py`` and
 * Trace entries are recorded as ``middleware_trace`` on the request. Our reason
   strings carry effort values only — never prompt text.
 
-Scope rules enforced here: default mode is off; only an *existing* effort field
-is ever rewritten (no field is invented, thinking is never re-enabled); the new
+Scope rules enforced here: default mode is off; existing fields are rewritten,
+and ``inject`` can add a field on an explicitly eligible route; the new
 value is clamped onto the route's declared vocabulary and re-clamped whenever the
 route changes; one selected-scorer call per user TURN (and none when the field cannot
 be rewritten); no prompt text is stored.
@@ -39,7 +39,7 @@ from . import scorers as _scorers
 logger = logging.getLogger(__name__)
 
 PLUGIN_ID = "hermes-adaptive-effort"
-VALID_MODES: Tuple[str, ...] = ("off", "recommend", "auto", "cache_safe")
+VALID_MODES: Tuple[str, ...] = ("off", "recommend", "auto", "cache_safe", "inject")
 DEFAULTS: Dict[str, Any] = {
     "mode": "off",
     "subagent_mode": "off",
@@ -51,7 +51,6 @@ DEFAULTS: Dict[str, Any] = {
     "scorer_model": "",
     "cloudflare_account_id": "",
     "cloudflare_model": _scorers.cloudflare_client.DEFAULT_MODEL_SELECTOR,
-    "prompt_sharing_provider": "none",
 }
 
 # Injected by register(ctx); None until a PluginContext exists (and in tests).
@@ -62,7 +61,7 @@ _classifier_factory: Optional[Callable[..., Any]] = None
 # live profile. Tests inject a hermetic reader so a unit run never depends on
 # (and never reads) whatever mode the live profile happens to carry.
 _config_reader: Optional[Callable[[], Dict[str, Any]]] = None
-# Mode chosen at runtime through ``/hermes-adaptive-effort off|recommend|auto|cache_safe``.
+# Mode chosen at runtime through ``/hermes-adaptive-effort off|recommend|auto|cache_safe|inject``.
 # Process-local by design: the plugin never writes the operator's config file,
 # and the command's reply says so. ``None`` means "use the configured mode".
 _MODE_OVERRIDE: Optional[str] = None
@@ -107,7 +106,7 @@ def reset_state() -> None:
         _MODE_OVERRIDE = None
 
 
-# ── runtime mode override (``/hermes-adaptive-effort off|recommend|auto|cache_safe``) ──────
+# ── runtime mode override (``/hermes-adaptive-effort off|recommend|auto|cache_safe|inject``) ──────
 
 def set_mode_override(mode: Any) -> Optional[str]:
     """Accept a runtime mode for FUTURE requests; ``None`` when it is not a mode.
@@ -476,8 +475,6 @@ def _settings() -> Dict[str, Any]:
             "cloudflare_account_id", DEFAULTS["cloudflare_account_id"]) or "").strip(),
         "cloudflare_model": _scorers.cloudflare_client.normalize_model_selector(
             _read_setting("cloudflare_model", DEFAULTS["cloudflare_model"])),
-        "prompt_sharing_provider": str(_read_setting(
-            "prompt_sharing_provider", DEFAULTS["prompt_sharing_provider"]) or "none").strip().lower(),
     }
     settings["scorer_model_effective"] = _scorers.model_for(
         settings["scorer_provider"], settings["scorer_model"], settings["cloudflare_model"])
@@ -548,11 +545,6 @@ def _classify(prompt: str, settings: Dict[str, Any]) -> "Tuple[Optional[float], 
     injected client raised, was unavailable, or answered nothing at all). Every
     path fails open — this function never raises.
     """
-    provider = str(settings.get("scorer_provider") or _scorers.JEV).strip().lower()
-    if (provider in _scorers.PROVIDERS
-            and settings.get("prompt_sharing_provider", "none") != provider):
-        return None, "prompt_consent_required"
-
     factory = _classifier_factory
     if factory is None:
         client, build_failure = _scorers.build_client(settings)
@@ -738,6 +730,46 @@ def _apply(request: Dict[str, Any], slot: Tuple[Dict[str, Any], str, str],
 
 # ── route-aware reuse of a stored decision ──────────────────────────────────
 
+def _injection_path(request: Dict[str, Any], provider: Any, model: Any,
+                    api_mode: Any) -> Optional[str]:
+    """Explicit route opt-in, never the broad fallback effort vocabulary.
+
+    codex._reasoning_fields builds top-level ``reasoning``;
+    _preflight_codex_api_kwargs retains it. Chat Completions uses the SDK's
+    top-level ``reasoning_effort``. Unknown transports have no verified path.
+    Existing malformed/disabled controls are never an invitation to inject.
+    """
+    if str(provider or "").strip().lower() not in (
+            "opencode", "opencode-zen", "opencode_zen", "zen"):
+        return None
+    if str(model or "").strip().lower().rsplit("/", 1)[-1] != _effort.MUSE_CONTRIBUTOR_FREE:
+        return None
+    if "reasoning_effort" in request or "thinking" in request:
+        return None
+    extra = request.get("extra_body", {})
+    if not isinstance(extra, dict) or any(
+            key in extra for key in ("reasoning", "reasoning_effort", "thinking")):
+        return None
+    reasoning = request.get("reasoning", {})
+    if not isinstance(reasoning, dict) or "effort" in reasoning or reasoning.get("enabled") is False:
+        return None
+    mode = str(api_mode or "").strip().lower()
+    if mode == "codex_responses":
+        return "reasoning"
+    if mode == "chat_completions" and "reasoning" not in request:
+        return "reasoning_effort"
+    return None
+
+
+def _inject(request: Dict[str, Any], path: str, target: str) -> Dict[str, Any]:
+    """Copy only the owners of the new field, preserving caller-owned siblings."""
+    new = dict(request)
+    if path == "reasoning":
+        new["reasoning"] = dict(request.get("reasoning", {}), effort=target)
+    else:
+        new["reasoning_effort"] = target
+    return new
+
 def _target_for_route(entry: Dict[str, Any], provider: Any, model: Any) -> Optional[str]:
     """The wire target *entry* gets on the CURRENT route, or ``None``.
 
@@ -803,14 +835,10 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     # and therefore still costs a single scorer call.
     key = _decision_key(session_id, kwargs.get("turn_id"))
 
-    # `cache_safe` is per-turn routing where the route survives an effort change,
-    # and session-pinned routing where it does not. Verified per api_mode by
-    # cache_safety.effort_is_cache_safe(); an unknown route pins, never gambles.
-    if mode == "cache_safe":
-        safe = _cache_safety.effort_is_cache_safe(
-            provider, model, kwargs.get("api_mode"))
-        if not safe:
-            key = _decision_key(session_id, None)
+    # Preserve the established parent-mode cache scope for existing modes.
+    if mode == "cache_safe" and not _cache_safety.effort_is_cache_safe(
+            provider, model, kwargs.get("api_mode")):
+        key = _decision_key(session_id, None)
 
     # A subagent is classified from the goal its PARENT wrote, not from its own
     # first prompt. subagent_mode is a second, independent gate: the session mode
@@ -821,6 +849,14 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if child_goal is not None:
         mode = settings["subagent_mode"]
 
+    # The new inject mode scopes its key from the effective child mode. This keeps
+    # a parent's inject policy from pinning a child's legacy auto decision.
+    if settings["mode"] == "inject" or mode == "inject":
+        key = _decision_key(session_id, kwargs.get("turn_id"))
+        if mode in ("cache_safe", "inject") and not _cache_safety.effort_is_cache_safe(
+                provider, model, kwargs.get("api_mode")):
+            key = _decision_key(session_id, None)
+
     entry = _touch(
         key, settings, mode, provider, model, kwargs.get("api_mode"),
         conversation_id=session_id,
@@ -830,7 +866,13 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         # do not re-classify within this decision's scope (bounded scorer usage).
         return None
     slot = _effort_slot(request)
-    if slot is None:
+    if mode == "inject" and isinstance(request.get("reasoning"), dict):
+        if request["reasoning"].get("enabled") is False:
+            return None
+    injection_path = None
+    if slot is None and mode == "inject":
+        injection_path = _injection_path(request, provider, model, kwargs.get("api_mode"))
+    if slot is None and injection_path is None:
         # Nothing verifiable to rewrite: remember and stay silent.
         if entry.get("state") != "decided":
             entry["state"] = "unsupported"
@@ -889,7 +931,8 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             # safe answer, and the label is not re-classified in this turn.
             entry["state"] = "unsupported"
         return None
-    if target == slot[2]:
+    before = slot[2] if slot is not None else "absent"
+    if target == before:
         # The route already sits at the level the scorer picked: nothing to send, so we
         # report no decision at all rather than a rewrite identical to the input.
         return None
@@ -901,10 +944,11 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                       f"'{slot[2]}')",
         }
 
-    new_request = _apply(request, slot, target)
+    new_request = (_apply(request, slot, target) if slot is not None
+                   else _inject(request, injection_path, target))
     if new_request is request:
         return None
-    event = _record_effort_change(key, slot[2], target)
+    event = _record_effort_change(key, before, target)
     if event is not None:
         try:
             logger.info("Effort changed: %s -> %s", event["from"], event["to"])
@@ -916,5 +960,5 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {
         "request": new_request,
         "source": PLUGIN_ID,
-        "reason": f"auto {slot[2]} -> {target} ({entry.get('label')})",
+        "reason": f"{'inject' if injection_path else 'auto'} {before} -> {target} ({entry.get('label')})",
     }

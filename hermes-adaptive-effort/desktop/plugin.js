@@ -25,7 +25,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useEffect, useRef, useState } from 'react'
 
 const ID = 'hermes-adaptive-effort'
-const MODES = ['off', 'recommend', 'auto', 'cache_safe']
+const MODES = ['off', 'recommend', 'auto', 'cache_safe', 'inject']
 let rest = null
 
 function toneFor(mode, isError) {

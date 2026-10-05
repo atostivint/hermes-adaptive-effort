@@ -27,6 +27,16 @@ MODES = ("off", "recommend", "auto", "cache_safe")
 SESSION = "CMD-MODES"
 
 
+def test_inject_mode_command_is_explicit_and_override_only(monkeypatch):
+    before = middleware._live_config()
+    assert command.handle("inject") != command.USAGE
+    assert middleware.mode_override() == "inject"
+    assert middleware._live_config() == before
+    assert "inject" in command.USAGE
+    assert command.handle("inject extra") == command.USAGE
+    assert middleware.mode_override() == "inject"
+
+
 def make_request(effort="medium", text="Design a multi-region failover plan"):
     """Recorded OpenAI-compatible shape: reasoning already on, effort pinned."""
     return {
