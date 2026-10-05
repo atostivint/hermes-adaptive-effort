@@ -17,8 +17,9 @@ scorer; choosing a provider while mode is `off` sends nothing. `probe` sends onl
 
 Pipeline: read the outgoing request → score the prompt (`0 = low`, `1 = medium`,
 `2 = high`) → clamp the label onto **the route's own wire vocabulary** → write it into
-an existing effort field, or in `auto` / retained `inject` mode add one on an exact Muse
-OpenCode Zen or Go Responses route with documented effort support.
+an existing effort field, or in `auto` / retained `inject` mode add one on an exact documented
+provider/model/API route. An operator may separately assert exact model IDs with
+`force_injection_models` for the recognized Responses and Chat Completions carriers.
 
 It is fail-open by contract: any error, timeout, missing credential or unusable request
 shape leaves the request **byte-for-byte untouched**.
@@ -50,7 +51,9 @@ At the 2026-10-03 baseline, the Windows test suite passed **217 tests** and Ruff
 historical count predates the current Muse injection and prompt-sharing behavior. Current
 initial validation is recorded in `docs/reviews/muse-effort-inject-validation.txt`; follow-up
 validation after the auto-injection expansion is recorded in
-`docs/reviews/auto-injection-validation.txt`.
+`docs/reviews/auto-injection-validation.txt`. The current Go catalog and force-list work passes
+350 tests and Ruff; verbatim Windows command output is in
+`docs/reviews/model-compatibility-validation.txt`.
 GitHub `master` contains the prior implementation; Iris was reinstalled from the GitHub
 subdirectory on 2026-10-04.
 
@@ -59,6 +62,15 @@ The one authorized OpenCode Go Responses probe is documented in
 before a completion. This neither establishes whether the submitted effort field is accepted
 nor validates native OpenCode Zen's contributor-free route; that route remains unverified.
 No retry or code workaround followed.
+
+The expanded route registry and explicit no-op outcomes for all 43 IDs in the 2026-10-05
+OpenCode Go catalog snapshot are documented in [MODEL_COMPATIBILITY.md](MODEL_COMPATIBILITY.md).
+The matrix includes documented OpenAI, xAI, Kimi, Z.ai, DeepSeek and Muse effort routes when
+the exact carrier is known. Paired GLM-5.3/DeepSeek controls are eligible only when the request
+already enables thinking. The optional force list is exact, case-insensitive, comma/newline
+separated, and cross-provider by bare model ID; it is an operator assertion, not vendor proof.
+Only `codex_responses` and `chat_completions` have generic force-list carriers. All disabled or
+malformed controls remain untouched, and no thinking toggle is created.
 
 ### Current host installs
 
@@ -144,15 +156,15 @@ or restart before they import changed Python modules.
 ## 6. Architecture invariants — do not break these
 
 1. **Default mode is `off`.** `off` / `recommend` (classify, rewrite nothing) / `auto`
-   (rewrite existing fields and inject on positively supported routes) / `cache_safe`
+   (rewrite existing fields and inject on verified or operator-listed exact models) / `cache_safe`
    (per-turn where cache-neutral, else session-pinned) / `inject` (legacy cache-safe
    injection mode).
 2. **Missing-field injection is explicit and narrow.** `middleware._effort_slot` recognises
    `extra_body.reasoning.effort`, top-level `reasoning_effort`, and top-level
    `reasoning.effort` (codex_responses). `auto` and `inject` add a field only for exact
-   documented Muse model IDs on the matching OpenCode Zen/Go provider and `codex_responses`.
-   Never re-enable thinking or overwrite malformed/disabled controls. No eligible field ⇒
-   `unsupported`; unknown routes do not gain a control.
+   documented routes or exact model IDs in `force_injection_models`; force IDs use recognized
+   Responses/Chat Completions containers and are not vendor evidence. Never add a thinking
+   toggle or overwrite malformed/disabled controls. No eligible field ⇒ `unsupported`.
 3. **Clamp onto the route vocabulary.** `effort.map_effort` → `clamp_effort` plus narrow
    tables for Kimi K3 / GLM-5.2 / GLM-5.3; `openai-codex` skips the narrow table;
    unknown routes fall back to the widest OpenAI-compatible set.
@@ -185,9 +197,9 @@ or restart before they import changed Python modules.
 11. **Cache safety:** `cache_safety.effort_is_cache_safe()` returns `True` only for
    `chat_completions` / `codex_responses`; `anthropic_messages` and anything unknown →
    `False` (pin the session, never gamble the cache).
-12. **Muse wire set:** injection maps low/medium/high unchanged and permits only
-   the per-model documented set; all listed tiers exclude `none`, and only standard
-   Muse 1.3 includes `max`.
+12. **Injection wire sets:** exact model/API-specific vocabularies are listed in
+   `docs/MODEL_COMPATIBILITY.md`; paired controls require an already-enabled thinking toggle.
+   Unknown catalog entries remain no-op unless an operator explicitly force-lists the exact ID.
 
 ## 7. Desktop and CLI effort visibility
 

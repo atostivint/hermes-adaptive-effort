@@ -34,10 +34,10 @@ USAGE = """Usage:
 Modes:
   off         do nothing (the default)
   recommend   classify, report the level it would use, rewrite nothing
-  auto        classify and apply effort; inject only on verified Muse routes
+  auto        classify and apply effort; inject on verified or operator-listed exact models
   cache_safe  route per turn only on routes where an effort change keeps the
               prompt cache; elsewhere pin one level for the whole session
-  inject      cache_safe routing plus verified Muse effort injection (legacy mode)
+  inject      cache_safe routing plus exact-model effort injection (compatibility mode)
 
 A mode set here applies to future requests served by this process. It is not
 written to config.yaml (nothing here edits your files), so it does not survive a

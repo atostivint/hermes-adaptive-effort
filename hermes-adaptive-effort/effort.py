@@ -35,6 +35,30 @@ MUSE_INJECTION_EFFORTS = {
     "muse-spark-1.2-contributor": MUSE_CONTRIBUTOR_EFFORTS,
 }
 
+# Deliberately explicit Go route evidence. Each entry binds an exact model to
+# the field/container and wire vocabulary published for that route; generic
+# OpenAI-compatible fallback support is never sufficient to add a field.
+OPEN_CODE_GO_INJECTION_ROUTES = {
+    "codex_responses": {
+        "gpt-6-luna": ("reasoning", ("low", "medium", "high", "xhigh")),
+        "gpt-5.6-luna": ("reasoning", ("low", "medium", "high", "xhigh", "max")),
+        "grok-4.7": ("reasoning", ("low", "medium", "high", "xhigh")),
+        "grok-4.6": ("reasoning", ("low", "medium", "high", "xhigh")),
+        "grok-4.5": ("reasoning", ("low", "medium", "high")),
+        **{model: ("reasoning", values) for model, values in MUSE_INJECTION_EFFORTS.items()
+           if model.endswith("-contributor")},
+    },
+    "chat_completions": {
+        "glm-5.2": ("reasoning_effort", ("high", "max")),
+        "glm-5.3": ("paired_effort", ("low", "high", "max")),
+        "kimi-k3": ("reasoning_effort", ("low", "high", "max")),
+        "deepseek-v4-pro": ("paired_effort", ("low", "high", "max")),
+        "deepseek-v4-flash": ("paired_effort", ("low", "high", "max")),
+        "deepseek-v4.1-flash": ("paired_effort", ("low", "medium", "high", "max")),
+    },
+}
+_OPEN_CODE_GO_PROVIDERS = frozenset({"opencode-go", "opencode_go", "go", "opencode-go-sub"})
+
 
 def score_to_label(score) -> Optional[str]:
     """Rubric score -> normalized label; ``None`` for anything invalid."""
@@ -67,6 +91,11 @@ def wire_efforts(provider: Optional[str], model: Optional[str]) -> tuple[str, ..
         return ()
     if bare in MUSE_INJECTION_EFFORTS:
         return MUSE_INJECTION_EFFORTS[bare]
+    if (provider or "").strip().lower() in _OPEN_CODE_GO_PROVIDERS:
+        for route in OPEN_CODE_GO_INJECTION_ROUTES.values():
+            declared = route.get(bare)
+            if declared:
+                return declared[1]
     try:
         from agent import reasoning_effort as _core
     except Exception:
@@ -101,6 +130,10 @@ def wire_overrides(vocabulary: Sequence[str]) -> Optional[dict]:
             return dict(_core.GLM52_OVERRIDES)
         if tuple(vocabulary) == tuple(_core.GLM53_EFFORTS):
             return dict(_core.GLM53_OVERRIDES)
+        if tuple(vocabulary) == ("low", "high", "max"):
+            # Several exact vendor APIs omit a literal medium tier and document
+            # it as the next tier up; preserve that declared semantic mapping.
+            return {"medium": "high", "xhigh": "max"}
     except Exception:
         return None
     return None

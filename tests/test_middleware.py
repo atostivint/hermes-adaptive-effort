@@ -84,10 +84,10 @@ def call(kw):
     return middleware.on_llm_request(**kw)
 
 
-def configure_injection(monkeypatch, score=0.1, error=None, mode="inject"):
+def configure_injection(monkeypatch, score=0.1, error=None, mode="inject", force_models=""):
     monkeypatch.setattr(middleware, "_config_reader", lambda: {
         "plugins": {"entries": {middleware.PLUGIN_ID: {"settings": {
-            "mode": mode,
+            "mode": mode, "force_injection_models": force_models,
         }}}},
     })
     factory = RecordingClassifierFactory(score=score, error=error)
@@ -173,6 +173,199 @@ def test_auto_injects_exactly_supported_muse_responses_routes(monkeypatch, provi
     out = muse_call(request, provider=provider, model=model)
     assert out["request"]["reasoning"]["effort"] == "low"
     assert "reasoning" not in request
+
+
+GO_MODEL_API_MODES = {
+    "minimax-m3": "anthropic_messages", "minimax-m2.7": "anthropic_messages",
+    "minimax-m2.5": "anthropic_messages", "kimi-k3": "chat_completions",
+    "kimi-k2.7-code": "chat_completions", "kimi-k2.6": "chat_completions",
+    "longcat-2.0": "chat_completions", "kimi-k2.5": "chat_completions",
+    "glm-5.2": "chat_completions", "glm-5.3-flash": "chat_completions",
+    "glm-5.3": "chat_completions", "glm-5.1": "chat_completions",
+    "glm-5": "chat_completions", "deepseek-v4-pro": "chat_completions",
+    "deepseek-v4-flash": "chat_completions", "deepseek-flash": "chat_completions",
+    "deepseek-v4.1-flash": "chat_completions",
+    "deepseek-v4-flash-vision-exp": "chat_completions",
+    "qwen3.7-max": "anthropic_messages", "qwen3.8-max": "anthropic_messages",
+    "qwen3.8-flash": "anthropic_messages", "qwen3.7-plus": "anthropic_messages",
+    "qwen3.6-plus": "anthropic_messages", "qwen3.5-plus": "anthropic_messages",
+    "mimo-v2-pro": "chat_completions", "mimo-v2-omni": "chat_completions",
+    "mimo-v2.6-pro": "chat_completions", "mimo-v2.6-flash": "chat_completions",
+    "space-bunny-free": "chat_completions", "longcat-2.5-preview-free": "chat_completions",
+    "mimo-v2.5-pro": "chat_completions", "mimo-v2.5": "chat_completions",
+    "hy4-preview": "chat_completions", "hy3": "chat_completions",
+    "hy3-preview": "chat_completions", "gpt-5.6-luna": "codex_responses",
+    "grok-4.5": "codex_responses", "grok-4.7": "codex_responses",
+    "grok-4.6": "codex_responses",
+    "muse-spark-1.3-contributor": "codex_responses",
+    "muse-spark-1.2-contributor": "codex_responses",
+    "omen-alpha": "chat_completions", "gpt-6-luna": "codex_responses",
+}
+
+GO_INJECTION_MODELS = {
+    "gpt-5.6-luna", "gpt-6-luna", "grok-4.5", "grok-4.6", "grok-4.7",
+    "muse-spark-1.3-contributor", "muse-spark-1.2-contributor", "glm-5.2",
+    "glm-5.3", "kimi-k3", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4.1-flash",
+}
+
+
+@pytest.mark.parametrize("model,api_mode", sorted(GO_MODEL_API_MODES.items()))
+def test_every_published_go_model_has_an_explicit_injection_outcome(
+        monkeypatch, model, api_mode):
+    factory = configure_injection(monkeypatch, mode="auto")
+    extra = {"thinking": {"type": "enabled"}} if model in {
+        "glm-5.3", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4.1-flash",
+    } else {}
+    request = ({"model": model, "input": [{"role": "user", "content": "Reply OK"}]}
+               if api_mode == "codex_responses" else
+               {"model": model, "messages": [{"role": "user", "content": "Reply OK"}]})
+    if extra:
+        request["extra_body"] = extra
+    result = call(ctx(request=request, provider="opencode-go", model=model,
+                      api_mode=api_mode))
+    if model in GO_INJECTION_MODELS:
+        assert result is not None, model
+        changed = result["request"]
+        if api_mode == "codex_responses":
+            assert changed["reasoning"]["effort"] == "low", model
+        else:
+            assert changed["reasoning_effort"] in {"low", "high"}, model
+        assert len(factory.instances) == 1, model
+    else:
+        assert result is None, model
+        assert len(factory.instances) == 0, model
+
+
+@pytest.mark.parametrize("model", ["glm-5.3", "deepseek-v4-pro", "deepseek-v4-flash",
+                                    "deepseek-v4.1-flash"])
+def test_go_paired_controls_must_already_be_enabled_and_are_preserved(monkeypatch, model):
+    factory = configure_injection(monkeypatch, mode="auto")
+    for index, extra in enumerate(({}, {"thinking": {"type": "disabled"}},
+                                   {"thinking": "bad"})):
+        request = {"model": model, "messages": [{"role": "user", "content": "Reply OK"}],
+                   "extra_body": extra}
+        assert call(ctx(request=request, provider="opencode-go", model=model,
+                        api_mode="chat_completions", session=f"bad-{index}")) is None
+        assert "reasoning_effort" not in request
+    assert factory.instances == []
+
+    for index, disabled_or_bad in enumerate(({"enabled": False}, "bad")):
+        request = {"model": model, "messages": [{"role": "user", "content": "Reply OK"}],
+                   "reasoning": disabled_or_bad,
+                   "extra_body": {"thinking": {"type": "enabled"}}}
+        assert call(ctx(request=request, provider="opencode-go", model=model,
+                        api_mode="chat_completions", session=f"disabled-{index}")) is None
+    assert factory.instances == []
+
+    extra = {"thinking": {"type": "enabled"}, "provider_option": "keep"}
+    request = {"model": model, "messages": [{"role": "user", "content": "Reply OK"}],
+               "extra_body": extra}
+    out = call(ctx(request=request, provider="opencode-go", model=model,
+                   api_mode="chat_completions"))
+    assert out["request"]["reasoning_effort"] == "low"
+    assert out["request"]["extra_body"] is extra
+    assert extra == {"thinking": {"type": "enabled"}, "provider_option": "keep"}
+    assert "reasoning_effort" not in request
+    assert len(factory.instances) == 1
+
+
+def test_auto_go_responses_injection_pins_unsafe_route_across_applied_requests(monkeypatch):
+    factory = configure_injection(monkeypatch, mode="auto")
+    monkeypatch.setattr(middleware._cache_safety, "effort_is_cache_safe", lambda *args: False)
+
+    def go_call(request, turn):
+        return call(ctx(request=request, provider="opencode-go", model="grok-4.7",
+                        api_mode="codex_responses", turn_id=turn))
+
+    first = go_call({"model": "grok-4.7", "input": [{"role": "user", "content": "Do it"}]}, "t1")
+    second = go_call({"model": "grok-4.7", "input": [{"role": "user", "content": "Again"}]}, "t2")
+    assert second["request"]["reasoning"]["effort"] == "low"
+    assert go_call(first["request"], "t3") is None
+    assert len(factory.instances) == 1
+
+
+def test_forced_injection_models_support_exact_operator_list_and_known_containers(monkeypatch):
+    factory = configure_injection(monkeypatch, mode="auto",
+                                  force_models="custom/model-one,\n model-two ")
+    response_request = {"model": "model-one", "input": [{"role": "user", "content": "Do it"}],
+                        "reasoning": {"summary": "auto"}}
+    out = call(ctx(request=response_request, provider="custom-provider", model="model-one",
+                   api_mode="codex_responses"))
+    assert out["request"]["reasoning"] == {"summary": "auto", "effort": "low"}
+    assert response_request["reasoning"] == {"summary": "auto"}
+
+    chat_request = {"model": "model-two", "messages": [{"role": "user", "content": "Do it"}]}
+    out = call(ctx(request=chat_request, provider="custom-provider", model="model-two",
+                   api_mode="chat_completions"))
+    assert out["request"]["reasoning_effort"] == "low"
+    assert "reasoning_effort" not in chat_request
+    assert len(factory.instances) == 1
+    near_miss = {"model": "model-one-extra",
+                 "messages": [{"role": "user", "content": "Do it"}]}
+    assert call(ctx(request=near_miss, provider="custom-provider", model="model-one-extra",
+                    api_mode="chat_completions")) is None
+    assert "reasoning_effort" not in near_miss
+    assert len(factory.instances) == 1
+
+
+def test_force_injection_models_default_empty_and_normalize_exact_tokens():
+    assert middleware.DEFAULTS["force_injection_models"] == ""
+    assert middleware._normalize_forced_models(" provider/Model-A,\nmodel-b ") == (
+        "model-a", "model-b")
+    assert middleware._normalize_forced_models(["model-a"]) == ()
+
+
+@pytest.mark.parametrize("mode", ["off", "recommend", "cache_safe"])
+def test_forced_injection_does_not_change_modes_outside_auto_or_inject(monkeypatch, mode):
+    factory = configure_injection(monkeypatch, mode=mode, force_models="manual-model")
+    request = {"model": "manual-model", "messages": [{"role": "user", "content": "Do it"}]}
+    assert call(ctx(request=request, provider="custom", model="manual-model",
+                    api_mode="chat_completions")) is None
+    assert "reasoning_effort" not in request
+    assert factory.instances == []
+
+
+@pytest.mark.parametrize("overrides", [
+    {"api_mode": "unknown"},
+    {"request": {"model": "manual-model", "messages": [{"role": "user", "content": "Do it"}],
+                  "reasoning": {"enabled": False}}},
+    {"request": {"model": "manual-model", "messages": [{"role": "user", "content": "Do it"}],
+                  "extra_body": {"thinking": {"type": "disabled"}}}},
+    {"request": {"model": "manual-model", "messages": [{"role": "user", "content": "Do it"}],
+                  "reasoning_effort": None}},
+])
+def test_forced_injection_still_requires_known_shape_and_enabled_controls(monkeypatch, overrides):
+    factory = configure_injection(monkeypatch, mode="auto", force_models="manual-model")
+    request = {"model": "manual-model", "messages": [{"role": "user", "content": "Do it"}]}
+    request.update(overrides.pop("request", {}))
+    assert call(ctx(request=request, provider="custom", model="manual-model",
+                    api_mode=overrides.pop("api_mode", "chat_completions"))) is None
+    assert factory.instances == []
+
+
+@pytest.mark.parametrize("enabled", ["false", 0])
+def test_forced_injection_rejects_malformed_reasoning_enabled_flag(monkeypatch, enabled):
+    factory = configure_injection(monkeypatch, mode="auto", force_models="manual-model")
+    request = {"model": "manual-model", "messages": [{"role": "user", "content": "Do it"}],
+               "reasoning": {"enabled": enabled}}
+    result = call(ctx(request=request, provider="custom", model="manual-model",
+                      api_mode="chat_completions"))
+    assert result is None
+    assert request["reasoning"] == {"enabled": enabled}
+    assert "reasoning_effort" not in request
+    assert factory.instances == []
+
+
+@pytest.mark.parametrize("mode", ["auto", "inject"])
+def test_existing_effort_is_not_rewritten_when_thinking_is_disabled(monkeypatch, mode):
+    factory = configure_injection(monkeypatch, mode=mode, force_models="manual-model")
+    request = {"model": "manual-model", "messages": [{"role": "user", "content": "Do it"}],
+               "reasoning_effort": "high", "extra_body": {"thinking": {"type": "disabled"}}}
+    assert call(ctx(request=request, provider="custom", model="manual-model",
+                    api_mode="chat_completions")) is None
+    assert request["reasoning_effort"] == "high"
+    assert request["extra_body"]["thinking"]["type"] == "disabled"
+    assert factory.instances == []
 
 
 @pytest.mark.parametrize("overrides", [

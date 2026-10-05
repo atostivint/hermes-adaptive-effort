@@ -55,6 +55,31 @@ def test_muse_injection_vocabulary_matches_exact_tier(model, includes_max):
     assert effort.map_effort("high", "opencode-zen", model) == "high"
 
 
+@pytest.mark.parametrize(("model", "vocabulary"), [
+    ("gpt-5.6-luna", ("low", "medium", "high", "xhigh", "max")),
+    ("gpt-6-luna", ("low", "medium", "high", "xhigh")),
+    ("grok-4.5", ("low", "medium", "high")),
+    ("grok-4.6", ("low", "medium", "high", "xhigh")),
+    ("grok-4.7", ("low", "medium", "high", "xhigh")),
+    ("glm-5.2", ("high", "max")),
+    ("glm-5.3", ("low", "high", "max")),
+    ("kimi-k3", ("low", "high", "max")),
+    ("deepseek-v4-pro", ("low", "high", "max")),
+    ("deepseek-v4-flash", ("low", "high", "max")),
+    ("deepseek-v4.1-flash", ("low", "medium", "high", "max")),
+])
+def test_go_injection_routes_use_documented_wire_vocabulary(model, vocabulary):
+    assert effort.wire_efforts("opencode-go", model) == vocabulary
+    assert "none" not in vocabulary
+    if model not in {"glm-5.2", "kimi-k3"}:
+        assert effort.wire_efforts("openrouter", model) != vocabulary
+
+
+@pytest.mark.parametrize("model", ["glm-5.3", "deepseek-v4-pro", "deepseek-v4-flash"])
+def test_go_vendor_medium_maps_to_high_when_wire_set_omits_medium(model):
+    assert effort.map_effort("medium", "opencode-go", model) == "high"
+
+
 def test_map_effort_clamps_onto_route_vocabulary():
     # OpenAI-compatible route vocabulary accepts all three verbatim.
     assert effort.map_effort("high", "openrouter", "x/y") == "high"

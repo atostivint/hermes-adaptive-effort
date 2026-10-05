@@ -2,11 +2,11 @@
 
 [![CI](https://github.com/atostivint/hermes-adaptive-effort/actions/workflows/ci.yml/badge.svg)](https://github.com/atostivint/hermes-adaptive-effort/actions/workflows/ci.yml) [![Security](https://github.com/atostivint/hermes-adaptive-effort/actions/workflows/security.yml/badge.svg)](https://github.com/atostivint/hermes-adaptive-effort/actions/workflows/security.yml)
 
-A small Hermes plugin that chooses reasoning effort for each user turn, using an external scorer. It changes an existing effort setting and can fill a missing effort field on a short allowlist of verified Muse routes.
+A small Hermes plugin that chooses reasoning effort for each user turn, using an external scorer. It changes an existing effort setting and can fill a missing field on exact, documented model routes.
 
 Built for everyday use: one focused job, a quiet interface, and a scorer you can choose. In the committed release, Jev (TypeSafe) is the default; OpenRouter is an explicit alternative with a model you configure. The scorer and the model answering your conversation are separate choices.
 
-The plugin is opt-in and starts **off**. If scoring fails, your original request continues unchanged. It does not switch your conversation model or add tools; only `inject` on its narrowly allowlisted route can add a reasoning setting.
+The plugin is opt-in and starts **off**. If scoring fails, your original request continues unchanged. It does not switch your conversation model or add tools; `auto` and `inject` add a reasoning setting only on exact supported routes or exact operator-listed model IDs.
 
 ## Quick install
 
@@ -117,9 +117,9 @@ The `#hermes-adaptive-effort` URL fragment selects the payload directory inside 
 | --- | --- |
 | `off` (default) | No scoring or rewriting |
 | `recommend` | Score the task and report the target; keep the original effort |
-| `auto` | Score each user turn, rewrite an existing effort field, or inject on an exact verified Muse route when it is absent |
+| `auto` | Score each user turn, rewrite an existing effort field, or inject on an exact verified model route when it is absent |
 | `cache_safe` | Score per turn on recognized cache-neutral routes; otherwise reuse a session decision while cached |
-| `inject` | Legacy mode: cache-safe policy plus injection on exact verified Muse routes |
+| `inject` | Compatibility mode: cache-safe policy plus exact-route injection |
 
 ```text
 /hermes-adaptive-effort help
@@ -136,7 +136,7 @@ Mode commands are process-local and do not edit your config. Unknown commands or
 1. Read the latest user text from the outgoing request, rather than the opening message or the whole conversation.
 2. Send a bounded excerpt to the selected scorer. A finite score from `0` to `2` becomes `low` below `0.5`, `medium` below `1.5`, or `high` otherwise.
 3. Map that label to the route's available effort values.
-4. Rewrite an existing `reasoning.effort` or `reasoning_effort` slot, or inject on an exact verified Muse Responses route when the field is absent. Explicitly disabled reasoning stays disabled.
+4. Rewrite an existing effort slot, or add one only when the exact provider, model, API mode and carrier are listed in the [model compatibility matrix](docs/MODEL_COMPATIBILITY.md). Explicitly disabled reasoning stays disabled.
 
 A tool loop reuses its turn's decision instead of calling the scorer for every model request. `auto` classifies new user turns separately, except an injected decision on a cache-unsafe route stays pinned while its session entry remains cached. A new classification does not necessarily change the effort: the existing value may match, or a route may offer only a narrow set of levels.
 
@@ -147,6 +147,7 @@ Enabling a routing mode authorizes sending task text to the selected scorer; cho
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `mode` | `off` | Main routing mode |
+| `force_injection_models` | empty | Optional exact model IDs separated by commas or newlines; asserts support for known Responses/Chat Completions shapes in `auto`/`inject` only |
 | `subagent_mode` | `off` | Independent child-agent mode |
 | `scorer_provider` | `jev` | `jev`, `openrouter` or `cloudflare`; no automatic fallback |
 | `scorer_model` | empty | Required OpenRouter model slug; ignored by Jev and Cloudflare |
@@ -173,7 +174,7 @@ The chip follows the focused conversation and backend/profile, including after a
 
 ## Compatibility and limits
 
-A reasoning-capable model is not enough: its vendor must accept an effort control on the exact route. `unsupported` with zero probes usually means there is no field to change. OpenCode Go's `space-bunny-free` profile remains outside the injection list. `auto` and the retained `inject` mode only add a field for the exact Muse models listed below, on their matching OpenCode Zen or Go provider and `codex_responses` route. Unknown models and generic OpenAI-compatible fallbacks are not treated as proof of effort support.
+A reasoning-capable model is not enough: its vendor must accept an effort control on the exact route. `unsupported` with zero probes usually means there is no field to change. OpenCode Go's `space-bunny-free` profile remains outside the verified injection list. `auto` and the retained `inject` mode add fields only for exact routes in the compatibility matrix, or for exact IDs an operator manually lists in `force_injection_models`. That list is an operator assertion, never vendor evidence; it uses no wildcards and works only with known Responses or Chat Completions containers. Generic OpenAI-compatible fallback does not prove route support.
 
 The route vocabulary comes from Hermes plus narrow mappings for Kimi K3, GLM-5.2/5.3 and the exact Muse tiers listed below. Unknown routes use Hermes' broad OpenAI-compatible vocabulary for existing-field rewrites, which cannot guarantee vendor acceptance and never makes a route eligible for injection. **Known gap:** Ox Alpha / `x-preview-f-free` can reject `medium` with HTTP 400. That gap is documented rather than silently remapped.
 
@@ -206,6 +207,7 @@ If you used `jev-auto-effort`, install the new payload, move your old settings f
 
 - [Design choices](docs/DESIGN.md): purpose, scope and trade-offs.
 - [Runtime contracts](docs/CONTRACTS.md): route mappings, cache scope, failure states and public APIs.
+- [Model compatibility](docs/MODEL_COMPATIBILITY.md): exact route evidence and OpenCode Go catalog injection/no-op outcomes.
 - [Automated checks](docs/CI.md): Linux/Windows tests, required Hermes integration, security scans and their limits.
 - [Development](docs/DEVELOPMENT.md): repository layout, network-free tests and lint commands.
 - [Documentation index](docs/README.md): current references and dated review history.
@@ -213,15 +215,13 @@ If you used `jev-auto-effort`, install the new payload, move your old settings f
 
 The Windows suite last verified for the prior implementation had 217 passing tests, including real Hermes plugin discovery/dispatcher integration. Tests use fake scorer transports and block network access. See the development guide to reproduce them.
 
-### Muse injection
+### Exact-route effort injection
 
-The plugin remains globally off by default. In `auto`, missing effort is injected only for these exact routes; `inject` remains available for compatibility and applies the same allowlist:
+The plugin remains globally off by default. In `auto`, missing effort is injected only for positively verified routes or exact model IDs explicitly listed in `force_injection_models`; `inject` applies the same rules with cache-safe routing. The current OpenCode Go registry includes exact Responses models, effort-only Chat Completions models, and paired controls only when the request already enables thinking. Every model published in the current Go catalog has an explicit tested injection/no-op outcome in the [compatibility matrix](docs/MODEL_COMPATIBILITY.md).
 
 | Provider | Exact model IDs | `api_mode` | Wire values |
 | --- | --- | --- | --- |
-| OpenCode Zen (`opencode-zen`, `opencode`, `opencode_zen`, `zen`) | `muse-spark-1.3` | `codex_responses` | `minimal, low, medium, high, xhigh, max` |
-| OpenCode Zen | `muse-spark-1.2` | `codex_responses` | `minimal, low, medium, high, xhigh` |
-| OpenCode Zen | `muse-spark-1.3-contributor-free` | `codex_responses` | `minimal, low, medium, high, xhigh` |
-| OpenCode Go (`opencode-go`, `opencode_go`, `go`, `opencode-go-sub`) | `muse-spark-1.3-contributor`, `muse-spark-1.2-contributor` | `codex_responses` | `minimal, low, medium, high, xhigh` |
+| OpenCode Zen (`opencode-zen`, `opencode`, `opencode_zen`, `zen`) | `muse-spark-1.3`, `muse-spark-1.2`, `muse-spark-1.3-contributor-free` | `codex_responses` | model-tier-specific Muse vocabulary; see matrix |
+| OpenCode Go (`opencode-go`, `opencode_go`, `go`, `opencode-go-sub`) | exact catalog entries in the compatibility matrix | `codex_responses`, `chat_completions` | route-specific; includes effort-only and already-enabled paired controls |
 
-Injection writes top-level `reasoning.effort`, matching Hermes' Responses builder and preflight carrier. Chat Completions, unknown models, other providers and generic OpenAI-compatible fallbacks receive no injection. `none` is excluded because Meta returns HTTP 400; `max` is allowed only for standard Muse 1.3. Disabled controls and malformed containers remain untouched. If the shared cache-safety table marks an injected route unsafe, the decision stays session-pinned while cached, including when a later request already carries the injected field. Injection events use `from: absent`. Cache benefits remain unmeasured, and the plugin cannot catch a downstream provider rejection.
+Responses injection writes top-level `reasoning.effort`; Chat Completions injection writes top-level `reasoning_effort`. Paired routes require an already present `extra_body.thinking.type="enabled"`; the plugin never adds that toggle. The optional force list accepts exact bare model IDs, comma or newline separated, with an optional provider prefix stripped for matching; it applies to any provider on `codex_responses` or `chat_completions`. It does not authorize Anthropic or unknown API modes, alter cache-safe/recommend/off behavior, or bypass disabled/malformed-control checks. It is an operator assertion, not evidence that the route accepts the field. If the shared cache-safety table marks an injected route unsafe, the decision stays session-pinned while cached, including when a later request already carries the injected field. Injection events use `from: absent`. Cache benefits remain unmeasured, and the plugin cannot catch a downstream provider rejection.

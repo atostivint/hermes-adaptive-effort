@@ -8,7 +8,7 @@ version: 0.1.0
 description: >
   Opt-in per-request reasoning-effort router. Reads the LLM request in the
   llm_request middleware, asks the selected scorer (Jev, OpenRouter, or Cloudflare Clef) for an
-  effort level, and rewrites an existing field or injects on eligible Muse routes.
+  effort level, and rewrites an existing field or injects on exact verified or operator-listed routes.
   Default mode is off and Jev remains the default scorer.
 provides: []
 provides_middleware:
@@ -28,7 +28,8 @@ config_schema:
   scorer_model: {type: str, default: "", label: Scorer model, description: "OpenRouter model slug (required when scorer_provider is openrouter)", required: false}
   cloudflare_account_id: {type: str, default: "", label: Cloudflare account ID, description: "32-character hexadecimal Cloudflare account ID (required when scorer_provider is cloudflare)", required: false}
   cloudflare_model: {type: str, choices: [clef, clef-flash], default: clef, label: Cloudflare model, description: "Workers AI Clef model selector; choose clef or clef-flash", required: false}
-  mode: {type: str, choices: [off, recommend, auto, cache_safe, inject], default: off, label: Mode, description: "off=no-op (default), recommend=classify only, auto=apply effort and inject only on verified Muse routes, cache_safe=per-turn where cache-neutral else session-pinned, inject=cache_safe routing plus verified Muse field injection", required: false}
+  mode: {type: str, choices: [off, recommend, auto, cache_safe, inject], default: off, label: Mode, description: "off=no-op (default), recommend=classify only, auto=apply effort and inject on verified or operator-listed exact models, cache_safe=per-turn where cache-neutral else session-pinned, inject=cache_safe routing plus exact-model injection", required: false}
+  force_injection_models: {type: str, default: "", label: Force injection models, description: "Optional exact model IDs separated by commas or newlines. Asserts effort support for known Responses/Chat Completions containers; no wildcards. Keep empty unless you verified the route.", required: false}
   subagent_mode: {type: str, choices: [off, recommend, auto, cache_safe, inject], default: off, label: Subagent mode, description: "Independent gate for child sessions classified from the parent-written goal", required: false}
   timeout_s: {type: float, default: 3.0, label: Timeout (s), description: "Per-classification HTTP timeout; a timeout fails open", required: false}
   max_turns: {type: int, default: 64, label: Max turns, description: "Decision-cache entries kept per process", required: false}

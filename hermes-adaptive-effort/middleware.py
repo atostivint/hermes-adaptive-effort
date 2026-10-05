@@ -46,6 +46,7 @@ DEFAULTS: Dict[str, Any] = {
     "timeout_s": _jev_client.DEFAULT_TIMEOUT_S,
     "max_turns": 64,
     "prompt_chars": _jev_client.DEFAULT_MAX_PROMPT_CHARS,
+    "force_injection_models": "",
     "endpoint": _jev_client.DEFAULT_ENDPOINT,
     "scorer_provider": _scorers.JEV,
     "scorer_model": "",
@@ -463,6 +464,8 @@ def _settings() -> Dict[str, Any]:
         "timeout_s": _num("timeout_s", DEFAULTS["timeout_s"]),
         "max_turns": _int("max_turns", DEFAULTS["max_turns"]),
         "prompt_chars": _int("prompt_chars", DEFAULTS["prompt_chars"]),
+        "force_injection_models": _normalize_forced_models(
+            _read_setting("force_injection_models", DEFAULTS["force_injection_models"])),
         "endpoint": str(_read_setting("endpoint", DEFAULTS["endpoint"])),
         # The URL the client will actually POST to: the setting above may name the
         # API base instead of the scoring route, and a mismatch is invisible until
@@ -487,6 +490,19 @@ def _settings() -> Dict[str, Any]:
     # preserve that meaning even when OpenRouter is selected.
     settings["endpoint_effective"] = settings["scorer_endpoint_effective"]
     return settings
+
+
+def _normalize_forced_models(raw: Any) -> Tuple[str, ...]:
+    """Parse exact operator-declared model IDs; malformed setting types are ignored."""
+    if not isinstance(raw, str):
+        return ()
+    models = set()
+    for line in raw.replace("\r", "\n").split("\n"):
+        for item in line.split(","):
+            model = item.strip().lower().rsplit("/", 1)[-1]
+            if model:
+                models.add(model)
+    return tuple(sorted(models))
 
 
 def _classifies(client: Any) -> bool:
@@ -697,6 +713,31 @@ def _effort_slot(request: Dict[str, Any]) -> Optional[Tuple[Dict[str, Any], str,
     return None
 
 
+def _reasoning_is_explicitly_disabled(request: Dict[str, Any]) -> bool:
+    """Do not rewrite or insert effort when a host control disables or malforms thinking."""
+    reasoning = request.get("reasoning")
+    if isinstance(reasoning, dict):
+        if reasoning.get("enabled") is False:
+            return True
+        if "enabled" in reasoning and not isinstance(reasoning.get("enabled"), bool):
+            return True
+    thinking = request.get("thinking")
+    if isinstance(thinking, dict) and thinking.get("type") == "disabled":
+        return True
+    extra = request.get("extra_body")
+    if isinstance(extra, dict):
+        reasoning = extra.get("reasoning")
+        if isinstance(reasoning, dict):
+            if reasoning.get("enabled") is False:
+                return True
+            if "enabled" in reasoning and not isinstance(reasoning.get("enabled"), bool):
+                return True
+        thinking = extra.get("thinking")
+        if isinstance(thinking, dict) and thinking.get("type") == "disabled":
+            return True
+    return False
+
+
 def _apply(request: Dict[str, Any], slot: Tuple[Dict[str, Any], str, str],
            target: str) -> Dict[str, Any]:
     """Full replacement payload with exactly one value changed.
@@ -737,39 +778,53 @@ _MUSE_GO_PROVIDERS = frozenset({"opencode-go", "opencode_go", "go", "opencode-go
 
 
 def _injection_path(request: Dict[str, Any], provider: Any, model: Any,
-                    api_mode: Any) -> Optional[str]:
+                    api_mode: Any, forced_models: Tuple[str, ...] = ()) -> Optional[str]:
     """Verified provider/model/API combinations; never use the generic fallback.
 
-    codex._reasoning_fields builds top-level ``reasoning``;
-    _preflight_codex_api_kwargs retains it. Chat Completions uses the SDK's
-    top-level ``reasoning_effort`` but the verified Muse Zen/Go catalog routes
-    use Responses only. Existing malformed/disabled controls are never an
-    invitation to inject.
+    The registry binds exact provider-family routes to a writable field shape.
+    Existing malformed/disabled controls are never an invitation to inject.
     """
     provider_name = str(provider or "").strip().lower()
     bare_model = str(model or "").strip().lower().rsplit("/", 1)[-1]
-    if str(api_mode or "").strip().lower() != "codex_responses":
-        return None
-    if provider_name in _MUSE_ZEN_PROVIDERS:
-        eligible = bare_model in {
-            "muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.3-contributor-free",
-        }
+    api = str(api_mode or "").strip().lower()
+    if provider_name in _MUSE_ZEN_PROVIDERS and api == "codex_responses":
+        if bare_model in {"muse-spark-1.3", "muse-spark-1.2",
+                          "muse-spark-1.3-contributor-free"}:
+            route = ("reasoning", _effort.MUSE_INJECTION_EFFORTS.get(bare_model))
+        else:
+            route = None
     elif provider_name in _MUSE_GO_PROVIDERS:
-        eligible = bare_model in {"muse-spark-1.3-contributor", "muse-spark-1.2-contributor"}
+        route = _effort.OPEN_CODE_GO_INJECTION_ROUTES.get(api, {}).get(bare_model)
     else:
-        eligible = False
-    if not eligible or bare_model not in _effort.MUSE_INJECTION_EFFORTS:
+        route = None
+    if route is None and bare_model in forced_models:
+        if api == "codex_responses":
+            route = ("reasoning", ())
+        elif api == "chat_completions":
+            route = ("reasoning_effort", ())
+        else:
+            return None
+    if route is None:
         return None
+    path, _vocabulary = route
     if "reasoning_effort" in request or "thinking" in request:
-        return None
-    extra = request.get("extra_body", {})
-    if not isinstance(extra, dict) or any(
-            key in extra for key in ("reasoning", "reasoning_effort", "thinking")):
         return None
     reasoning = request.get("reasoning", {})
     if not isinstance(reasoning, dict) or "effort" in reasoning or reasoning.get("enabled") is False:
         return None
-    return "reasoning"
+    extra = request.get("extra_body", {})
+    if not isinstance(extra, dict):
+        return None
+    if path == "paired_effort":
+        thinking = extra.get("thinking")
+        if not isinstance(thinking, dict) or thinking.get("type") != "enabled":
+            return None
+        if any(key in extra for key in ("reasoning", "reasoning_effort")):
+            return None
+        return "reasoning_effort"
+    if any(key in extra for key in ("reasoning", "reasoning_effort", "thinking")):
+        return None
+    return path
 
 
 def _has_pinned_injection(session_id: str, provider: Any, model: Any,
@@ -873,7 +928,8 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     slot = _effort_slot(request)
     injection_path = None
     if slot is None and mode in ("auto", "inject"):
-        injection_path = _injection_path(request, provider, model, kwargs.get("api_mode"))
+        injection_path = _injection_path(
+            request, provider, model, kwargs.get("api_mode"), settings["force_injection_models"])
 
     # The new inject mode scopes its key from the effective child mode. This keeps
     # a parent's inject policy from pinning a child's legacy auto decision.
@@ -896,9 +952,10 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         # A failed attempt, or a request with nothing writable: stay silent and
         # do not re-classify within this decision's scope (bounded scorer usage).
         return None
-    if mode in ("auto", "inject") and isinstance(request.get("reasoning"), dict):
-        if request["reasoning"].get("enabled") is False:
-            return None
+    if mode in ("auto", "inject") and _reasoning_is_explicitly_disabled(request):
+        if entry.get("state") != "decided":
+            entry["state"] = "unsupported"
+        return None
     if slot is None and injection_path is None:
         # Nothing verifiable to rewrite: remember and stay silent.
         if entry.get("state") != "decided":
