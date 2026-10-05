@@ -45,16 +45,28 @@ function useEffortChanges() {
   })
 }
 
-function effortForConversation(data, conversationId) {
-  if (typeof conversationId !== 'string' || !conversationId) return 'N/A'
+function entryForConversation(data, conversationId) {
+  if (typeof conversationId !== 'string' || !conversationId) return null
   const sessions = Array.isArray(data?.sessions) ? data.sessions : []
-  const latest = sessions
+  return sessions
     .filter(entry => entry?.conversation_id === conversationId)
     .reduce((best, entry) => {
       const updatedAt = Number(entry?.updated_at) || 0
       return !best || updatedAt >= (Number(best.updated_at) || 0) ? entry : best
     }, null)
+}
+
+function effortForConversation(data, conversationId) {
+  const latest = entryForConversation(data, conversationId)
   return latest?.state === 'decided' && typeof latest.target === 'string' ? latest.target : 'N/A'
+}
+
+function routeForConversation(data, conversationId) {
+  const latest = entryForConversation(data, conversationId)
+  if (!latest) return 'N/A'
+  return [latest.provider, latest.model]
+    .filter(value => typeof value === 'string' && value.length > 0)
+    .join(' · ') || 'N/A'
 }
 
 function ChangeNotifications({ query }) {
@@ -135,6 +147,7 @@ function AdaptiveEffortChip() {
   const ownerMatchesBackend = focusedOwner?.connectionId === activeConnectionId &&
     focusedOwner?.profile === activeProfile
   const effort = ownerMatchesBackend ? effortForConversation(data, focusedSessionId) : 'N/A'
+  const route = ownerMatchesBackend ? routeForConversation(data, focusedSessionId) : 'N/A'
   const label = `Effort: ${effort}`
   const tone = toneFor(mode, query.isError)
 
@@ -151,7 +164,7 @@ function AdaptiveEffortChip() {
             className: `inline-flex h-full items-center gap-1 px-1.5 text-[0.6875rem] ${tone} hover:text-(--ui-text-primary)`,
             title: query.isError
               ? 'Scoring backend unavailable — enable the plugin in config (plugins.enabled) and Desktop'
-              : `Hermes Adaptive Effort: ${mode || 'loading'} · focused conversation effort: ${effort} — click to switch`,
+              : `Hermes Adaptive Effort: ${mode || 'loading'} · focused conversation effort: ${effort} · route: ${route} — click to switch`,
             children: [jsx(Codicon, { name: 'zap', className: 'text-[0.75rem]' }), label]
           })
         }),
@@ -174,6 +187,10 @@ function AdaptiveEffortChip() {
               className: 'space-y-2',
               children: [
                 jsx('div', { className: 'text-xs font-medium', children: `Mode: ${mode || '…'}` }),
+                jsx('div', {
+                  className: 'text-xs text-(--ui-text-secondary)',
+                  children: `Provider · model: ${route}`
+                }),
                 jsx(ModeButtons, { mode, query, compact: true }),
                 jsx('div', {
                   className: 'text-[0.625rem] text-(--ui-text-quaternary)',
@@ -241,7 +258,7 @@ function AdaptiveEffortPane() {
             last
               ? jsx('div', {
                 className: 'text-xs text-(--ui-text-tertiary)',
-                children: `most recent status (all conversations): state=${last.state} label=${last.label ?? 'N/A'} target=${last.target ?? 'N/A'} scorer=${last.scorer_provider ?? 'N/A'} model=${last.scorer_model ?? 'N/A'} score=${last.score ?? 'N/A'}`
+                children: `most recent status (all conversations): state=${last.state} route=${last.provider ?? 'N/A'} · ${last.model ?? 'N/A'} effort=${last.target ?? 'N/A'} scorer=${last.scorer_provider ?? 'N/A'} model=${last.scorer_model ?? 'N/A'} score=${last.score ?? 'N/A'}`
               })
               : jsx('div', { className: 'text-xs text-(--ui-text-quaternary)', children: 'last: none' }),
             jsx('div', {

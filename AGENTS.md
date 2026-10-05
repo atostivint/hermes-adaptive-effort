@@ -32,7 +32,7 @@ docs/                     design, contracts, development, dated reviews + operat
 ## Commands (use these exactly)
 
 ```bash
-./scripts/run_tests.sh   # .venv/bin/python -m pytest tests (~248 tests, ~1s, network-free)
+./scripts/run_tests.sh   # .venv/bin/python -m pytest tests (~380 tests, network-free)
 ./scripts/run_lint.sh    # .venv/bin/ruff check . (ruff 0.16.9)
 ./scripts/bootstrap_test_env.sh  # fresh machine: python3 -m venv --system-site-packages .venv + install + test
 ```
@@ -58,7 +58,7 @@ Windows PowerShell equivalents:
 
 ## Architecture invariants (do not break)
 
-1. **Default mode is `off`.** Modes: `off` (no-op) / `recommend` (classify, rewrite nothing) / `auto` (rewrite existing fields and inject on exact verified or operator-listed models) / `cache_safe` (per-turn on cache-safe routes, session-pinned otherwise) / `inject` (compatibility cache-safe injection mode).
+1. **Default mode is `auto`.** Enabling the plugin authorizes bounded task-text sharing with the selected scorer on eligible routes; mode `off` retains bounded status metadata, including provider/model/API mode for the Desktop route display, but does not classify or change the request. Modes: `off` / `recommend` (classify, rewrite nothing) / `auto` (rewrite existing fields and inject on exact verified or operator-listed models) / `cache_safe` (per-turn on cache-safe routes, session-pinned otherwise) / `inject` (compatibility cache-safe injection mode).
 2. **Existing fields are preferred.** Shapes in `middleware._effort_slot`: `extra_body.reasoning.effort`, top-level `reasoning_effort`, top-level `reasoning.effort` (codex_responses). Missing fields may be added only for exact registry entries, or exact IDs in `force_injection_models`, and only to known Responses/Chat Completions carriers. The force list is an operator assertion, not proof; it cannot authorize Anthropic or unknown API modes. Unknown generic OpenAI-compatible routes are never evidence. Never add a thinking toggle, overwrite malformed/disabled controls, or touch `"none"` / `enabled: false`.
 3. **Clamp onto the route vocabulary.** `effort.map_effort` → `agent.reasoning_effort.clamp_effort` + narrow `wire_efforts`/`wire_overrides` for Kimi K3 / GLM-5.2 / GLM-5.3. `openai-codex` skips the narrow table. Unknown routes fall back to the widest OpenAI-compatible set. Known gap: Ox Alpha `medium` → 400 (do NOT silently work around; see README "Residual risk").
 4. **One selected-scorer call per turn.** Memo key `(session_id, turn_id)`; `failed`/`unsupported` not retried in-turn; concurrent probes claimed via `_IN_FLIGHT`; re-clamp stored target on route change (`_target_for_route`).
@@ -77,7 +77,7 @@ Windows PowerShell equivalents:
 - `no_network` (session autouse): any `socket.socket` / `create_connection` fails the run. Inject fakes via `_classifier_factory` or `transport=` / `key_reader=`, never real HTTP.
 - `hermetic_plugin_settings` (function autouse): `_config_reader = lambda: {}`, `_settings_provider = None`, `_classifier_factory = None`, `reset_state()` before/after. Never read `~/.hermes/config.yaml` in unit tests.
 - `test_dispatcher_integration.py` boots a throwaway `HERMES_HOME` + real `PluginManager.discover_and_load()` + `apply_llm_request_middleware`; it runs in `run_tests.sh` and `run_tests.ps1`, never skipped there. `run_tests.ps1` locates the Hermes source tree (`HERMES_SOURCE_ROOT`, then `$env:HERMES_HOME\hermes-agent`, a sibling `hermes-agent/` checkout, `$env:LOCALAPPDATA\hermes`) and falls back to a scratch `--basetemp` when `%TEMP%\pytest-of-<user>` or `.pytest_cache` has a foreign ACL — without either, ~40 mapping tests and every `tmp_path` test error out for unrelated-looking reasons.
-- Settings under test live in `middleware.DEFAULTS` (`mode=off`, `subagent_mode=off`, `force_injection_models=""`, `endpoint=https://api.typesafe.ai/v1/systemone`, `scorer_provider=jev`, `scorer_model=""`, `custom_endpoint=""`, `custom_api_format=systemone`, `custom_auth=none`, `cloudflare_account_id=""`, `cloudflare_model=clef`, `timeout_s=3.0`, `max_turns=64`, `prompt_chars=4000`); Jev's model is fixed, Cloudflare's model is selected, and OpenRouter/custom models are configured.
+- Settings under test live in `middleware.DEFAULTS` (`mode=auto`, `subagent_mode=off`, `force_injection_models=""`, `endpoint=https://api.typesafe.ai/v1/systemone`, `scorer_provider=jev`, `scorer_model=""`, `custom_endpoint=""`, `custom_api_format=systemone`, `custom_auth=none`, `cloudflare_account_id=""`, `cloudflare_model=clef`, `timeout_s=3.0`, `max_turns=64`, `prompt_chars=4000`); Jev's model is fixed, Cloudflare's model is selected, and OpenRouter/custom models are configured.
 
 ## Hermes plugin development (canonical)
 

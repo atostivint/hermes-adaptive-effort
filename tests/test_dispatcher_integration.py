@@ -202,7 +202,11 @@ def test_real_dispatcher_leaves_the_request_untouched_when_mode_is_off(dispatche
     assert result.payload["extra_body"]["reasoning"]["effort"] == "medium"
     assert result.trace == []
     assert calls["n"] == 0          # off means *no* scorer call, not a silent one
-    assert middleware.session_state() == {}
+    off_entry = middleware.session_state()["sess-int-off"]
+    assert (off_entry["state"], off_entry["provider"], off_entry["model"],
+            off_entry["api_mode"]) == (
+        "off", "openrouter", "openrouter/meta/llama-3.3-70b-instruct", "chat")
+    assert off_entry["probes"] == 0
 
 
 # ── criterion 3: one decision per TURN, re-clamped when the route changes ───

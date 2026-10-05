@@ -171,6 +171,7 @@ def test_session_end_clears_only_that_session(monkeypatch):
 
 def test_child_default_off_never_classifies(monkeypatch):
     use_classifier(monkeypatch, Factory())
+    start_child()
     req = child_request()
     assert middleware.on_llm_request(**ctx(request=req)) is None
     assert req["reasoning"]["effort"] == "medium"

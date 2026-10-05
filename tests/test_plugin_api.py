@@ -61,12 +61,30 @@ def test_status_payload_uses_stable_schema_and_allowlist():
     payload = api.get_status_payload()
     assert payload["schema"] == "hermes-adaptive-effort.status.v1"
     assert payload["plugin"] == "hermes-adaptive-effort"
-    assert payload["mode"] == "off"  # hermetic defaults; live profile must not leak in
+    assert payload["mode"] == "auto"  # hermetic defaults; live profile must not leak in
     assert isinstance(payload["counts"], dict)
     assert isinstance(payload["sessions"], list)
     for entry in payload["sessions"]:
         assert "session_id" in entry
         assert "conversation_id" in entry
+
+
+def test_status_payload_reports_conversation_route_while_mode_is_off(monkeypatch):
+    monkeypatch.setattr(
+        middleware, "_settings_provider",
+        lambda key, default=None: "off" if key == "mode" else default,
+    )
+    result = middleware.on_llm_request(
+        request={"model": "local-model"}, session_id="conversation-route",
+        turn_id="turn-1", provider="local-provider", model="local-model",
+        api_mode="chat_completions",
+    )
+    assert result is None
+    payload = api.get_status_payload()
+    entry = next(e for e in payload["sessions"] if e["conversation_id"] == "conversation-route")
+    assert (entry["state"], entry["provider"], entry["model"], entry["api_mode"]) == (
+        "off", "local-provider", "local-model", "chat_completions")
+    assert entry["probes"] == 0
 
 
 def test_set_mode_rejects_unknown_and_changes_nothing():
@@ -82,7 +100,7 @@ def test_set_mode_runtime_only_by_default():
     try:
         assert result["ok"] is True
         assert result["mode"] == "auto"
-        assert result["before"] == "off"
+        assert result["before"] == "auto"
         assert "persisted" not in result
         assert middleware.mode_override() == "auto"
     finally:
@@ -175,6 +193,9 @@ def test_desktop_plugin_static_contract():
     assert "useValue(host.state.focusedSessionId)" in text
     assert "useValue(host.state.focusedSessionOwner)" in text
     assert "effortForConversation(data, focusedSessionId)" in text
+    assert "routeForConversation(data, focusedSessionId)" in text
+    assert "Provider · model: ${route}" in chip
+    assert "route: ${route}" in chip
     assert "entry?.conversation_id === conversationId" in text
     assert "focusedOwner?.connectionId === activeConnectionId" in text
     assert "focusedOwner?.profile === activeProfile" in text

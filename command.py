@@ -32,9 +32,9 @@ USAGE = """Usage:
   /hermes-adaptive-effort help              Show this help
 
 Modes:
-  off         do nothing (the default)
+  off         do not score or change requests; route stays visible in Desktop
   recommend   classify, report the level it would use, rewrite nothing
-  auto        classify and apply effort; inject on verified or operator-listed exact models
+  auto        classify and apply effort (the default); inject on verified or operator-listed exact models
   cache_safe  route per turn only on routes where an effort change keeps the
               prompt cache; elsewhere pin one level for the whole session
   inject      cache_safe routing plus exact-model effort injection (compatibility mode)

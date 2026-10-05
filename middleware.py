@@ -15,8 +15,9 @@ Contract (verified against ``hermes_cli/middleware.py`` and
 * Trace entries are recorded as ``middleware_trace`` on the request. Our reason
   strings carry effort values only — never prompt text.
 
-Scope rules enforced here: default mode is off; existing fields are rewritten,
-and ``inject`` can add a field on an explicitly eligible route; the new
+Scope rules enforced here: default mode is auto; off mode may retain bounded route
+metadata for the Desktop indicator but never classifies or changes a request;
+existing fields are rewritten, and ``inject`` can add a field on an explicitly eligible route; the new
 value is clamped onto the route's declared vocabulary and re-clamped whenever the
 route changes; one selected-scorer call per user TURN (and none when the field cannot
 be rewritten); no prompt text is stored.
@@ -41,7 +42,7 @@ logger = logging.getLogger(__name__)
 PLUGIN_ID = "hermes-adaptive-effort"
 VALID_MODES: Tuple[str, ...] = ("off", "recommend", "auto", "cache_safe", "inject")
 DEFAULTS: Dict[str, Any] = {
-    "mode": "off",
+    "mode": "auto",
     "subagent_mode": "off",
     "timeout_s": _jev_client.DEFAULT_TIMEOUT_S,
     "max_turns": 64,
@@ -398,8 +399,8 @@ def _live_config() -> Dict[str, Any]:
     """The operator's profile config, or ``{}`` when it cannot be read.
 
     ``_config_reader`` is the seam a test run injects so it never reads the live
-    profile: a profile carrying ``mode: auto`` used to make this plugin's own
-    "the default is off" tests fail once the Hermes core was importable. In
+    profile: a live profile must not affect the default-mode assertions once the
+    Hermes core is importable. In
     production the reader is ``None`` and the real config is read per call.
     """
     reader = _config_reader
@@ -908,7 +909,21 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     mode = settings["mode"]
     parent_mode = mode
     if mode == "off":
-        return None  # byte-for-byte untouched: no state, no classification
+        session_id = str(kwargs.get("session_id") or "")
+        if session_id:
+            key = _decision_key(session_id, kwargs.get("turn_id"))
+            entry = _touch(
+                key, settings, mode, kwargs.get("provider"), kwargs.get("model"),
+                kwargs.get("api_mode"), conversation_id=session_id,
+            )
+            # The Desktop chip can identify the active route while scoring is
+            # off. Keep request metadata only; never classify or change the payload.
+            with _lock:
+                entry.update(
+                    state="off", provider=kwargs.get("provider"), model=kwargs.get("model"),
+                    score=None, label=None, target=None, failure=None,
+                )
+        return None  # no classification or request change
 
     session_id = str(kwargs.get("session_id") or "")
     if not session_id:

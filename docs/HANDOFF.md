@@ -94,7 +94,7 @@ separated, and cross-provider by bare model ID; it is an operator assertion, not
 Only `codex_responses` and `chat_completions` have generic force-list carriers. All disabled or
 malformed controls remain untouched, and no thinking toggle is created.
 
-On 2026-10-05, the custom-provider implementation passed the current Windows suite (**248 tests**), Ruff, and Hermes catalog validation (`validate_plugin_dir`, all checks passed). The Zenon setup installed the pinned Windows CUDA builds llama.cpp b11396 and llama-swap v262, verified both GGUF SHA-256 hashes, validated the two-model config, and exercised sequential model switching. Both Kev models returned System One scores through the plugin's `custom` provider. During the live run, 60 synthetic bilingual prompts were classified three times per model; all 180 warmed calls per model succeeded. Fixed-label agreement was **50%** for Kev 0.8B and **60%** for Kev 4B, with no `high` predictions from either model. Kev 4B's cold plugin probe hit the configured 3-second timeout; after loading, its warmup and measured calls succeeded. The observed GPU reached 58% utilization and 8,753 MiB used during the final run. These are exploratory synthetic results, not human-gold labels or a Jev comparison. See [the local scorer report](reviews/local-scorer-benchmark-20261005T090911Z.md).
+On 2026-10-05, the custom-provider implementation passed the Windows suite (**380 tests**), Ruff, and Hermes catalog validation (`validate_plugin_dir`, all checks passed). The Zenon setup installed the pinned Windows CUDA builds llama.cpp b11396 and llama-swap v262, verified both GGUF SHA-256 hashes, validated the two-model config, and exercised sequential model switching. Both Kev models returned System One scores through the plugin's `custom` provider. During the live run, 60 synthetic bilingual prompts were classified three times per model; all 180 warmed calls per model succeeded. Fixed-label agreement was **50%** for Kev 0.8B and **60%** for Kev 4B, with no `high` predictions from either model. Kev 4B's cold plugin probe hit the configured 3-second timeout; after loading, its warmup and measured calls succeeded. The observed GPU reached 58% utilization and 8,753 MiB used during the final run. These are exploratory synthetic results, not human-gold labels or a Jev comparison. See [the local scorer report](reviews/local-scorer-benchmark-20261005T090911Z.md).
 
 ### Current host installs
 
@@ -103,8 +103,10 @@ On 2026-10-05, the custom-provider implementation passed the current Windows sui
 under `%LOCALAPPDATA%\hermes\desktop-plugins\hermes-adaptive-effort` points to the payload's
 `desktop/` folder. `%USERPROFILE%\.hermes\desktop-plugins\hermes-adaptive-effort\plugin.js`
 is the matching standalone copy. The enabled ID and config entry were migrated to
-`hermes-adaptive-effort`; the previous entry had no mode setting, so the new install keeps
-the default `off`. Plugin Doctor passed with five hooks registered. The old profile Desktop
+`hermes-adaptive-effort`; the previous entry had no mode setting. The then-installed payload
+resolved that to `off`; this change makes the unset-mode default `auto`, so the live agent
+needs the updated payload and a restart to route requests. Plugin Doctor passed with five
+hooks registered. The old profile Desktop
 copy is preserved under `%LOCALAPPDATA%\Temp\hermes-adaptive-effort-migration-20261003-110504`.
 
 **Iris.** `/root/.hermes/plugins/hermes-adaptive-effort` and
@@ -146,7 +148,8 @@ hermes plugins install 'atostivint/hermes-adaptive-effort' --enable
 
 ## 3. Live configuration
 
-Windows uses the default `mode: off`. Iris remains `mode: auto` with
+The running Windows install currently resolves its unset mode to `off`; the updated payload
+will default it to `auto`. Iris remains `mode: auto` with
 `endpoint: https://api.typesafe.ai/v1/systemone`. Its plugin settings currently contain no
 `scorer_provider`, `cloudflare_account_id`, or `cloudflare_model`; the effective scorer is Jev.
 Because the live mode is `auto`, its task text is sent to Jev for scoring. OpenRouter requires
@@ -187,7 +190,7 @@ or restart before they import changed Python modules.
 
 ## 6. Architecture invariants — do not break these
 
-1. **Default mode is `off`.** `off` / `recommend` (classify, rewrite nothing) / `auto`
+1. **Default mode is `auto`.** `off` / `recommend` (classify, rewrite nothing) / `auto`
    (rewrite existing fields and inject on verified or operator-listed exact models) / `cache_safe`
    (per-turn where cache-neutral, else session-pinned) / `inject` (legacy cache-safe
    injection mode).
@@ -266,13 +269,15 @@ The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separ
   restarts). Degrades to a `503 agent_plugin_not_loaded` / `changes_failed` payload
   like `/status`.
 * **`desktop/plugin.js`** — opt-in desktop plugin (`defaultEnabled: false`): a status-bar
-  chip `Effort: <focused conversation's latest decided effort>`, a `Adaptive Effort` pane with
+  chip `Effort: <focused conversation's latest decided effort>`, with its focused route's
+  provider/model in the details, and an `Adaptive Effort` pane with
   the global latest transition, and one toast per newly observed applied change. Toasts apply across conversations because the feed has no session id.
   The changes feed and chip status poll every 2 s;
   the chip reads `host.state.focusedSessionId` and matches `conversation_id` exactly, so
   another chat's activity cannot change its effort. A focused chat with no decision,
-  an unsupported request, or an in-flight classification shows `Effort: N/A`; the
-  global changes feed never supplies a fallback effort. Initial history is treated as
+  an unsupported request, or an in-flight classification shows `Effort: N/A`. Mode `off`
+  records provider/model/API-mode metadata for route display but never classifies or
+  rewrites. The global changes feed never supplies a fallback effort. Initial history is treated as
   a baseline, not replayed as toasts. Pane status/mode polling remains every 15 s.
   Shows `Effort: N/A` when the backend is absent.
 * **Interactive CLI status bar** — the plugin registers `Effort: —` through the generic

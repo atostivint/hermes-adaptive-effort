@@ -24,7 +24,7 @@ The scorer receives bounded task text rather than the whole conversation. This l
 
 ## Preserve operator intent
 
-Installation does not authorize automatic changes: the default mode is `off`. `recommend` allows inspection before rewriting. Subagents have their own default-off gate because enabling the parent should not silently enable child rewrites.
+The plugin is opt-in, and enabling it starts the main mode at `auto`: eligible requests are classified and receive the selected effort. This also authorizes sharing the bounded latest-user-text excerpt with the configured scorer; choosing `off` stops scoring and request changes. `recommend` allows inspection before rewriting. Subagents have their own default-off gate because enabling the parent should not silently enable child rewrites.
 
 The middleware rewrites only a field already present in the request. It does not enable reasoning, invent an effort field or modify explicit `none`/disabled thinking. Model capability alone is insufficient; the route must expose usable control.
 
