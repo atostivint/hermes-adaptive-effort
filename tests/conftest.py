@@ -93,18 +93,6 @@ def import_plugin(stem: str):
     return module
 
 
-def settings_with_prompt_consent(settings):
-    """Pass settings through with the legacy consent key defaulted.
-
-    The plugin ignores ``prompt_sharing_provider`` (enabling a routing mode
-    authorizes sharing); this only keeps older test settings accepted.
-    """
-    values = dict(settings)
-    scorer = str(values.get("scorer_provider", "jev") or "jev").strip().lower()
-    values.setdefault("prompt_sharing_provider", scorer)
-    return values
-
-
 class _NoNetwork:
     """Raise on any attempt to open a socket; records nothing else."""
 

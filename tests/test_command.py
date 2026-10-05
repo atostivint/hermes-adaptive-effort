@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from conftest import import_plugin, settings_with_prompt_consent
+from conftest import import_plugin
 
 init_module = import_plugin("__init__")
 command = import_plugin("command")
@@ -54,7 +54,6 @@ def registered():
 
 
 def use_settings(monkeypatch, settings):
-    settings = settings_with_prompt_consent(settings)
     monkeypatch.setattr(
         middleware, "_settings_provider", lambda key, default=None: settings.get(key, default))
 
@@ -149,8 +148,8 @@ def test_custom_scorer_status_redacts_endpoint_query_values(monkeypatch):
 
 def test_cloudflare_status_and_probe_show_only_safe_provider_details(monkeypatch):
     account_id = "0123456789abcdef0123456789abcdef"
-    configured = settings_with_prompt_consent({
-        "scorer_provider": "cloudflare", "cloudflare_account_id": account_id})
+    configured = {
+        "scorer_provider": "cloudflare", "cloudflare_account_id": account_id}
     use_settings(monkeypatch, configured)
     monkeypatch.setattr(middleware, "_classifier_factory",
                         lambda **_kwargs: type("Scorer", (), {

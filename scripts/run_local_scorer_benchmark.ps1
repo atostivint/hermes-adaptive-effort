@@ -166,7 +166,7 @@ def call(model, prompt):
       "scorer_provider": "custom", "scorer_model": model,
       "custom_endpoint": os.environ["LOCAL_SCORER_ENDPOINT"],
       "custom_api_format": "systemone", "custom_auth": "none",
-      "prompt_sharing_provider": "custom", "timeout_s": 3.0,
+      "timeout_s": 3.0,
       "prompt_chars": 4000, "mode": "auto",
     })
     return middleware.run_probe(prompt, settings)

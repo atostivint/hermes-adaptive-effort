@@ -87,7 +87,7 @@ def dispatched(tmp_path_factory):
             "plugins": {
                 "enabled": ["hermes-adaptive-effort"],
                 "entries": {"hermes-adaptive-effort": {"settings": {
-                    "mode": "auto", "prompt_sharing_provider": "jev"}}},
+                    "mode": "auto"}}},
             },
         }),
         encoding="utf-8",

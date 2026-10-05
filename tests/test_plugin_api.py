@@ -120,7 +120,7 @@ def test_probe_never_echoes_prompt_text(monkeypatch):
     canary = "pinecone-xyzzy canary"
     monkeypatch.setattr(
         middleware, "_settings_provider",
-        lambda key, default=None: "jev" if key == "prompt_sharing_provider" else default)
+        lambda key, default=None: default)
     monkeypatch.setattr(middleware, "_classifier_factory",
                         lambda **kw: type("C", (), {"classify": lambda self, p: 1.0})())
     result = api.run_probe(f"how do I rotate a token {canary}")

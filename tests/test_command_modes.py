@@ -76,7 +76,7 @@ def use_mode(monkeypatch, mode):
     monkeypatch.setattr(
         middleware, "_settings_provider",
         lambda key, default=None: {
-            "mode": mode, "prompt_sharing_provider": "jev"}.get(key, default))
+            "mode": mode}.get(key, default))
 
 
 # ── the verbs do what the banner says ───────────────────────────────────────

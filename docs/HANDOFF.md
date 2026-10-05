@@ -52,8 +52,7 @@ The payload directory, plugin ID, slash command, dashboard route and Desktop ide
 `hermes-adaptive-effort`. Jev remains the default scorer. OpenRouter is explicit opt-in,
 requires a configured model and `OPENROUTER_API_KEY`; Cloudflare requires a valid account ID,
 `CLOUDFLARE_AUTH_TOKEN`, and can select `clef` or `clef-flash`. Providers never fall back to
-Jev. Enabling a routing mode sends task text to the selected scorer. The removed
-`prompt_sharing_provider` setting is ignored for legacy configurations. OpenRouter requests
+Jev. Enabling a routing mode sends task text to the selected scorer. OpenRouter requests
 require ZDR endpoints and deny data-collecting endpoints; the plugin cannot assure ZDR for
 Jev, Cloudflare, or custom endpoints. The custom provider implementation
 supports exact HTTP(S) endpoint URLs with `systemone` or `chat_completions` formats and
@@ -206,7 +205,7 @@ or restart before they import changed Python modules.
    the independent `subagent_mode`. `status` performs no classification; `probe` scores only operator-typed text and stores no decision.
 8. **Enabling a routing mode authorizes prompt sharing with the selected scorer.**
    Provider selection alone while mode is `off` sends nothing; `probe` sends only typed text.
-   Legacy `prompt_sharing_provider` values are ignored. `prompt_chars` caps the excerpt and
+   `prompt_chars` caps the excerpt and
    says nothing about provider retention. OpenRouter requests require ZDR endpoints and deny
    data-collecting endpoints. The plugin gives no ZDR guarantee for Jev, Cloudflare, or
    custom endpoints. Prompts are not persisted or included in logs/reasons/traces. Effort-change

@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from conftest import import_plugin, settings_with_prompt_consent
+from conftest import import_plugin
 
 middleware = import_plugin("middleware")
 
@@ -48,7 +48,6 @@ def clean_middleware(monkeypatch):
 
 
 def use_settings(monkeypatch, settings):
-    settings = settings_with_prompt_consent(settings)
     monkeypatch.setattr(
         middleware, "_settings_provider", lambda key, default=None: settings.get(key, default))
 
@@ -455,11 +454,10 @@ def test_inject_malformed_payload_fails_open(monkeypatch, payload):
     assert factory.instances == []
 
 
-def test_enabling_inject_authorizes_selected_scorer_without_separate_consent(monkeypatch):
+def test_enabling_inject_authorizes_selected_scorer(monkeypatch):
     factory = configure_injection(monkeypatch)
     assert muse_call(muse_request())["request"]["reasoning"]["effort"] == "low"
     assert len(factory.instances) == 1
-    assert "prompt_sharing_provider" not in middleware.DEFAULTS
 
 
 def test_inject_rejects_unlisted_chat_api_mode(monkeypatch):
@@ -566,19 +564,6 @@ def test_recommend_records_but_does_not_mutate(monkeypatch):
     assert out["source"] == "hermes-adaptive-effort"
     assert "high" in out["reason"] and "not applied" in out["reason"]
     assert factory.instances[0].calls == ["first user prompt"]
-
-
-@pytest.mark.parametrize("legacy_consent", ["none", "openrouter", "jev"])
-def test_legacy_consent_value_is_ignored(monkeypatch, legacy_consent):
-    use_settings(monkeypatch, {"mode": "auto", "prompt_sharing_provider": legacy_consent})
-    factory = RecordingClassifierFactory(score=1.9)
-    use_classifier(monkeypatch, factory)
-
-    out = call(ctx(request=supported_request()))
-
-    assert out["request"]["extra_body"]["reasoning"]["effort"] == "high"
-    assert factory.instances[0].calls == ["first user prompt"]
-    assert middleware.session_state()["s1/turn"]["probes"] == 1
 
 
 def test_auto_rewrites_only_the_effort_value(monkeypatch, no_network):
@@ -877,7 +862,7 @@ def test_cloudflare_adapter_success_rewrites_the_existing_field(monkeypatch):
     assert entry["probes"] == 1
 
 
-def test_custom_chat_completions_scorer_rewrites_without_separate_consent(monkeypatch):
+def test_custom_chat_completions_scorer_rewrites(monkeypatch):
     use_settings(monkeypatch, {
         "mode": "auto",
         "scorer_provider": "custom",
