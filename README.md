@@ -32,7 +32,34 @@ Hermes handles installation; you do not need to clone this repo or install a Pyt
 
 ### 1. Make your scorer key available
 
-Jev is the default. If `TYPESAFE_API_KEY` is already available to Hermes, skip this step. Otherwise, for a local session:
+Scorer keys are **not** pre-installed: you must provide the key for whichever scorer you select. Keys resolve through Hermes' secret scope (your profile's `.env` file) first, then the process environment. Without the key, every classification fails open with `credential_missing` and your request continues unchanged. Never put keys in `config.yaml`.
+
+#### Where to get each key
+
+| Scorer | Key | Where to get it |
+| --- | --- | --- |
+| Jev (default) | `TYPESAFE_API_KEY` | From your TypeSafe account — the same key used by the Jev approvals plugin against `https://api.typesafe.ai`. No model to choose: the scorer is fixed to `jev-latest`. |
+| OpenRouter | `OPENROUTER_API_KEY` | Create one at [openrouter.ai/keys](https://openrouter.ai/keys). You must also set `scorer_model` to the exact model slug you want to pay for (e.g. a small cheap classifier). The adapter requests ZDR-only routing and refuses data-collecting endpoints. |
+| Cloudflare | `CLOUDFLARE_AUTH_TOKEN` + 32-hex account ID | In the Cloudflare dashboard: copy the **Account ID** from the Workers & Pages overview (it is the 32-character hexadecimal `cloudflare_account_id` setting), then create an API token under **My Profile → API Tokens** with Workers AI permission and use it as `CLOUDFLARE_AUTH_TOKEN`. Choose `clef` or `clef-flash` as `cloudflare_model`. |
+| Custom (hosted) | `CUSTOM_SCORER_API_KEY` only when `custom_auth: bearer` | From whoever runs the endpoint. The plugin posts to your exact `custom_endpoint` with your `scorer_model`; there is no fallback to another scorer. |
+| Custom (local) | No key (`custom_auth: none`) | No key needed — see "No key? Use a local model" below. |
+
+#### Option A — Hermes `.env` file (persistent, recommended)
+
+Add the line to your Hermes home's `.env` file, then restart Hermes so the serving process picks it up:
+
+- Linux / macOS: `~/.hermes/.env`
+- Windows: `%LOCALAPPDATA%\hermes\.env`
+
+```text
+TYPESAFE_API_KEY=YOUR_KEY
+```
+
+One line per scorer if you run several (`OPENROUTER_API_KEY=…`, `CLOUDFLARE_AUTH_TOKEN=…`, `CUSTOM_SCORER_API_KEY=…`). For a gateway service, use its environment or service `EnvironmentFile` instead — a key exported in your terminal does not reach an already-running service.
+
+#### Option B — shell export (this terminal session only)
+
+For a local session without touching the file:
 
 **Linux / macOS**
 
@@ -46,7 +73,30 @@ export TYPESAFE_API_KEY="YOUR_KEY"
 $env:TYPESAFE_API_KEY = "YOUR_KEY"
 ```
 
-Set the key before launching Hermes. These variables last for the terminal session. For a gateway service, use its environment or Hermes' secret scope. Keep keys out of `config.yaml`.
+Set the key before launching Hermes from the same terminal. Substitute the variable name for another scorer.
+
+#### Option C — secrets manager (Bitwarden / 1Password / vault)
+
+Any manager works as long as the value ends up in the Hermes process environment (or `.env`) before launch — the plugin never talks to the manager directly. Examples:
+
+```bash
+export TYPESAFE_API_KEY="$(bw get password hermes/TYPESAFE_API_KEY)"
+export OPENROUTER_API_KEY="$(op read 'op://Private/hermes/OPENROUTER_API_KEY')"
+```
+
+Launch Hermes from that same shell afterwards. If you sync `.env` from a manager, keep the file readable only by you and never commit it.
+
+#### No key? Use a local model (no account, no token)
+
+Select the `custom` scorer and point it at a local OpenAI-compatible server. No key is looked up when `custom_auth: none`:
+
+1. Start a local server that serves either System One or Chat Completions — e.g. `llama-server` directly, or `llama-swap` when you switch between models. Note the exact URL and the model name the server exposes.
+2. In the plugin's Desktop settings (or `config.yaml`), set `scorer_provider: custom`, `custom_endpoint` to the **exact** URL (nothing is appended; a tested llama-swap example is `http://127.0.0.1:8099/v1/systemone`), `scorer_model` to the served name (e.g. `effort-kev-08b`), and `custom_api_format` to `systemone` or `chat_completions` to match your server. Keep `custom_auth: none`.
+3. Set **Prompt sharing consent** to `custom` — the same consent gate as hosted scorers; prompts stay on your machine but are still only sent after explicit consent.
+
+Local-model caveats, measured on one Windows/RTX 4070 Ti box (not a recommendation): Kev 0.8B agreed with the synthetic fixed labels 50% of the time, Kev 4B 60%, and neither predicted `high`; the first 4B call hit the default 3-second timeout while the model loaded, then warmed calls answered in ~80–125 ms. If your model loads slowly, raise `timeout_s`. See the [full report](docs/reviews/local-scorer-benchmark-20261005T090911Z.md).
+
+Check readiness at any time with `/hermes-adaptive-effort status` — it reports key presence without exposing values (`credential: present/missing`) and names the effective endpoint. A missing key there means Hermes cannot see the variable: check the right `.env` file and restart.
 
 ### 2. Restart your Hermes session
 
