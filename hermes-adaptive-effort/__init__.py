@@ -53,7 +53,7 @@ def register(ctx: Any) -> None:
         handler=_command.handle,
         description=(
             "Hermes Adaptive Effort reasoning-effort router: status, bounded probe, and "
-            "off|recommend|auto|cache_safe for future requests"
+            "off|recommend|auto|cache_safe|inject for future requests"
         ),
-        args_hint="<status|status json|probe <text>|off|recommend|auto|cache_safe>",
+        args_hint="<status|status json|probe <text>|off|recommend|auto|cache_safe|inject>",
     )

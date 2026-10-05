@@ -211,6 +211,19 @@ def test_subagent_mode_off_leaves_children_alone(monkeypatch):
     assert factory.instances == []
 
 
+def test_parent_cache_safe_keeps_legacy_child_auto_session_key(monkeypatch):
+    use_settings(monkeypatch, {"mode": "cache_safe", "subagent_mode": "auto"})
+    monkeypatch.setattr(middleware._cache_safety, "effort_is_cache_safe", lambda *args: False)
+    factory = Factory(score=1.9)
+    use_classifier(monkeypatch, factory)
+    start_child()
+    for turn in ("t1", "t2"):
+        result = middleware.on_llm_request(**ctx(request=child_request(), turn_id=turn))
+        assert result["request"]["reasoning"]["effort"] == "high"
+    assert len(factory.instances) == 1
+    assert middleware.session_state()["child-1"]["probes"] == 1
+
+
 def test_parent_session_is_unaffected_by_subagent_mode(monkeypatch):
     """subagent_mode only gates children: the parent keeps the session's own mode."""
     use_settings(monkeypatch, {"mode": "auto", "subagent_mode": "off"})

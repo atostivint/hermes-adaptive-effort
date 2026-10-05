@@ -22,7 +22,7 @@ The memo key is `(session_id, turn_id)`:
 
 These guarantees apply while a decision remains cached; eviction or state reset removes that memory.
 
-`cache_safe` narrows the key further, to the session, when an effort change would
+`cache_safe`, `inject`, and an unsafe `auto` injection narrow the key further, to the session, when an effort change would
 invalidate the prompt cache (see below).
 
 ## Route vocabulary: what may be written where
@@ -37,8 +37,14 @@ because an `llm_request` hook runs **after** the transport clamp.
 | Kimi K2-era slugs detected by Hermes | `low`, `medium`, `high` | Hermes' Kimi detection distinguishes these from K3 |
 | `glm-5.2*` | `high`, `max` | `low` and `medium` are not offered by this route |
 | `glm-5.3*` | `low`, `medium`, `high`, `max` | graded scale, monotonic in reasoning tokens |
+| `muse-spark-1.3` | `minimal`, `low`, `medium`, `high`, `xhigh`, `max` | OpenCode Zen Responses; standard 1.3 only supports `max` |
+| `muse-spark-1.2` | `minimal`, `low`, `medium`, `high`, `xhigh` | OpenCode Zen Responses |
+| `muse-spark-1.3-contributor-free` | `minimal`, `low`, `medium`, `high`, `xhigh` | OpenCode Zen Responses; contributor tiers exclude `max` |
+| `muse-spark-1.3-contributor`, `muse-spark-1.2-contributor` | `minimal`, `low`, `medium`, `high`, `xhigh` | OpenCode Go Responses |
 | any other non-Codex route | `route_supported_efforts(provider, model)` | for an unknown route this is the widest OpenAI-compatible set |
 | `openai-codex` | `route_supported_efforts(...)` | the narrow `wire_efforts` table is skipped for this provider |
+
+Missing-field injection has its own exact provider/model/API registry, separate from this route clamp. Its current OpenCode Go entries and the no-op outcome for each published catalog model are listed in the [model compatibility matrix](MODEL_COMPATIBILITY.md). The optional `force_injection_models` setting is an empty-by-default, comma/newline-separated exact model-ID list. It strips a leading namespace for matching and authorizes the selected model on any provider only for known `codex_responses` or `chat_completions` containers. It is an operator assertion, not vendor evidence; no globbing, Anthropic shape inference, or unknown API-mode injection is allowed. Recognized per-model vocabulary and paired-control guards still apply.
 
 Hermes effort ladder used by the verified host:
 
@@ -47,8 +53,7 @@ EFFORT_LADDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ul
 OPENAI_COMPAT_WIRE_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 ```
 
-`ultra` is Hermes-internal and appears in no wire set. Unset stays unset: the plugin
-never introduces an effort where the request had none.
+`ultra` is Hermes-internal and appears in no wire set. Unset stays unset for `off`, `recommend`, and `cache_safe`. `auto` and the retained `inject` mode may add an effort only on an exact registry route or for an operator-listed model on the two recognized OpenAI-compatible carriers, with copy-on-write of the request and reasoning container. Disabled/malformed controls remain untouched. Injection transitions use `absent` as the prior value in the applied-change feed.
 
 ### Residual risk: Ox Alpha / `x-preview-f-free`
 
@@ -71,7 +76,7 @@ Cloudflare returns the shared `0..2` score from `result.answers.effort.score` on
 | no credential | unchanged | `failed` (`credential_missing`) | 0 HTTP calls |
 | classifier timeout / transport error | unchanged | `failed`, one probe | 1 (never retried in the turn) |
 | score out of `0..2`, non-finite, non-numeric | unchanged | `failed`, one probe | 1 |
-| no writable effort field (e.g. reasoning disabled) | unchanged | `unsupported` | 0 |
+| no field and route lacks positive injection support (or reasoning disabled) | unchanged | `unsupported` | 0 |
 | label has no legal level on the route | unchanged | `unsupported` | possibly 1; the score may already exist |
 | any internal exception in the plugin | unchanged | — | — |
 
@@ -101,6 +106,10 @@ What is **not** measured: the real effect on `cache_read_tokens` / cost on this 
 would need an A/B run against the live provider; no such measurement was performed, and
 nothing in this repository claims a number for it.
 
+When `auto` injects on an eligible but cache-unsafe route, it uses the same session pin. The
+injection marker keeps that decision pinned even if later requests already carry the injected
+field and would otherwise follow the ordinary per-turn `auto` key.
+
 ## Subagents
 
 Registered child sessions are classified from the goal written by their parent. `subagent_mode` is an independent gate and defaults to `off`; setting the main mode to `auto` does not enable child rewrites. The main mode must also be enabled, since its `off` gate exits before child handling. Child goals are held transiently in a separate bounded in-memory registry and removed on child stop or session cleanup; they are not logged or exposed in status. Child decisions use their own session/turn identity.
@@ -128,8 +137,12 @@ The CLI uses the optional host `register_cli_status_item` API to show the last a
 
 ## Failure codes
 
-Existing codes remain stable: `invalid_prompt`, `credential_missing`, `http_error`, `timeout`, `transport_error`, `malformed_response`, `unexpected_error`, `classifier_error`. Scorer selection adds `model_missing`, `unsupported_provider` and `prompt_consent_required`. Failed decisions are not retried within their retained scope. Missing consent or credentials perform no HTTP call, even though the ledger records a classification attempt.
+Existing codes remain stable: `invalid_prompt`, `credential_missing`, `http_error`, `timeout`, `transport_error`, `malformed_response`, `unexpected_error`, `classifier_error`. Scorer selection adds `model_missing`, `unsupported_provider` . Failed decisions are not retried within their retained scope. Missing credentials perform no HTTP call, even though the ledger records a classification attempt.
 
 ## Privacy boundary
 
-Normal turns send at most `prompt_chars` characters of the latest user text only when `prompt_sharing_provider` matches the selected scorer; the conversation history and tool results are not sent as task text. Child scoring uses the parent-written goal and the same consent gate. Without matching consent, no scorer call is made and the decision fails open with `prompt_consent_required`. Prompts are not persisted or emitted in logs, reasons, status, probe output or the applied-change feed. Child goals necessarily exist transiently in memory. These are plugin guarantees, not statements about a scoring provider's retention policy. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints; the prompt is still processed by OpenRouter. Jev and Cloudflare have no ZDR guarantee from this plugin. `prompt_chars` limits the excerpt only and is not a retention control.
+Enabling routing authorizes task text to the selected scorer. Normal turns send at most `prompt_chars` characters of the latest user text; the conversation history and tool results are not sent as task text. Child scoring uses the parent-written goal and requires the independent subagent mode to be enabled. Explicit probe commands send only operator-typed text, even when routing is off. The removed `prompt_sharing_provider` setting is ignored for legacy configurations. Prompts are not persisted or emitted in logs, reasons, status, probe output or the applied-change feed. Child goals necessarily exist transiently in memory. These are plugin guarantees, not statements about a scoring provider's retention policy. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints; the prompt is still processed by OpenRouter. Jev and Cloudflare have no ZDR guarantee from this plugin. `prompt_chars` limits the excerpt only and is not a retention control.
+
+## Verified transport paths
+
+For Responses, local Hermes `agent/transports/codex.py` module-level `_reasoning_fields()` (called by `ResponsesApiTransport.build_kwargs()`) builds `fields["reasoning"] = {"effort": effort, "summary": "auto"}`. The adapter and preflight retain the optional top-level object, and `turn_api_request.py` applies middleware after preflight. Thus the Responses carrier is top-level `reasoning.effort`. For Chat Completions, the verified carriers are top-level `reasoning_effort`; DeepSeek V4 and GLM-5.3 entries additionally require that the incoming request already has `extra_body.thinking.type="enabled"`. The plugin never adds that toggle. The [model compatibility matrix](MODEL_COMPATIBILITY.md) records exact OpenCode Zen/Go model outcomes and primary sources; broad OpenAI-compatible fallback alone never enables injection.

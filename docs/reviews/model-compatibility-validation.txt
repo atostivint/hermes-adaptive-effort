@@ -1,0 +1,33 @@
+PowerShell: $env:HERMES_SOURCE_ROOT = '%USERPROFILE%/Projets/hermes-agent'; .\scripts\run_tests.ps1
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0
+rootdir: %USERPROFILE%\Projets\jev-auto-effort\.worktrees\muse-effort-inject
+configfile: pyproject.toml
+plugins: anyio-4.14.2
+collected 350 items
+
+tests\test_cache_safety.py ...........                                   [  3%]
+tests\test_cloudflare_client.py ...................                      [  8%]
+tests\test_command.py .......................                            [ 15%]
+tests\test_command_modes.py ...........                                  [ 18%]
+tests\test_config_schema.py .....                                        [ 19%]
+tests\test_decision_cache.py .......                                     [ 21%]
+tests\test_dispatcher_integration.py ......                              [ 23%]
+tests\test_effort.py ..........................                          [ 30%]
+tests\test_jev_client.py ..................                              [ 36%]
+tests\test_middleware.py ............................................... [ 49%]
+........................................................................ [ 70%]
+............................                                             [ 78%]
+tests\test_openrouter_client.py ...............                          [ 82%]
+tests\test_plugin_api.py ............                                    [ 85%]
+tests\test_plugin_registration.py ....                                   [ 86%]
+tests\test_review_fixes.py ........                                      [ 89%]
+tests\test_scorers.py ......                                             [ 90%]
+tests\test_subagent.py ..................                                [ 96%]
+tests\test_turn_scope.py ..............                                  [100%]
+
+============================= 350 passed in 1.13s =============================
+
+PowerShell: $env:HERMES_SOURCE_ROOT = '%USERPROFILE%/Projets/hermes-agent'; .\scripts\run_lint.ps1
+All checks passed!
+

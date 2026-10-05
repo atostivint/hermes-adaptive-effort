@@ -12,12 +12,14 @@ what the project is, what is verified today, what is *not* finished, and recorde
 A Hermes plugin that lets a selected external rubric scorer choose the
 **reasoning effort** of each LLM request. Jev (TypeSafe) remains the default;
 OpenRouter and Cloudflare are explicit opt-in providers; Cloudflare's `clef` and `clef-flash`
-models are selectable. Prompt sharing also requires `prompt_sharing_provider` to match the
-selected scorer.
+models are selectable. Enabling a routing mode authorizes sending task text to the selected
+scorer; choosing a provider while mode is `off` sends nothing. `probe` sends only its typed text.
 
 Pipeline: read the outgoing request → score the prompt (`0 = low`, `1 = medium`,
 `2 = high`) → clamp the label onto **the route's own wire vocabulary** → write it into
-the effort field **that already exists** in the request.
+an existing effort field, or in `auto` / retained `inject` mode add one on an exact documented
+provider/model/API route. An operator may separately assert exact model IDs with
+`force_injection_models` for the recognized Responses and Chat Completions carriers.
 
 It is fail-open by contract: any error, timeout, missing credential or unusable request
 shape leaves the request **byte-for-byte untouched**.
@@ -38,15 +40,37 @@ hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort
 The payload directory, plugin ID, slash command, dashboard route and Desktop identity are
 `hermes-adaptive-effort`. Jev remains the default scorer. OpenRouter is explicit opt-in,
 requires a configured model and `OPENROUTER_API_KEY`; Cloudflare requires a valid account ID,
-`CLOUDFLARE_AUTH_TOKEN`, and can select `clef` or `clef-flash`. Neither has a silent fallback
-to Jev. Prompt text is not sent until the matching `prompt_sharing_provider` opt-in is set.
-OpenRouter requests require ZDR endpoints and deny data-collecting endpoints; the plugin cannot
-assure ZDR for Jev or Cloudflare.
+`CLOUDFLARE_AUTH_TOKEN`, and can select `clef` or `clef-flash`. Providers never fall back to
+Jev.
+Enabling a routing mode sends task text to the selected scorer. The removed
+`prompt_sharing_provider` setting is ignored for legacy configurations. OpenRouter requests
+require ZDR endpoints and deny data-collecting endpoints; the plugin cannot assure ZDR for Jev
+or Cloudflare.
 
-At the 2026-10-03 baseline, the Windows test suite passed **217 tests** and Ruff passed.
-The prompt-consent and Cloudflare model-selector changes were not tested in this checkout.
-GitHub `master` contains the implementation; Iris was reinstalled from the GitHub subdirectory
-on 2026-10-04.
+At the 2026-10-03 baseline, the Windows test suite passed **217 tests** and Ruff passed. That
+historical count predates the current Muse injection and prompt-sharing behavior. Current
+initial validation is recorded in `docs/reviews/muse-effort-inject-validation.txt`; follow-up
+validation after the auto-injection expansion is recorded in
+`docs/reviews/auto-injection-validation.txt`. The current Go catalog and force-list work passes
+350 tests and Ruff; verbatim Windows command output is in
+`docs/reviews/model-compatibility-validation.txt`.
+GitHub `master` contains the prior implementation; Iris was reinstalled from the GitHub
+subdirectory on 2026-10-04.
+
+The one authorized OpenCode Go Responses probe is documented in
+`docs/reviews/muse-effort-inject-probe.txt`. It returned HTTP 403 with a generic edge response
+before a completion. This neither establishes whether the submitted effort field is accepted
+nor validates native OpenCode Zen's contributor-free route; that route remains unverified.
+No retry or code workaround followed.
+
+The expanded route registry and explicit no-op outcomes for all 43 IDs in the 2026-10-05
+OpenCode Go catalog snapshot are documented in [MODEL_COMPATIBILITY.md](MODEL_COMPATIBILITY.md).
+The matrix includes documented OpenAI, xAI, Kimi, Z.ai, DeepSeek and Muse effort routes when
+the exact carrier is known. Paired GLM-5.3/DeepSeek controls are eligible only when the request
+already enables thinking. The optional force list is exact, case-insensitive, comma/newline
+separated, and cross-provider by bare model ID; it is an operator assertion, not vendor proof.
+Only `codex_responses` and `chat_completions` have generic force-list carriers. All disabled or
+malformed controls remain untouched, and no thinking toggle is created.
 
 ### Current host installs
 
@@ -100,12 +124,11 @@ hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort
 
 Windows uses the default `mode: off`. Iris remains `mode: auto` with
 `endpoint: https://api.typesafe.ai/v1/systemone`. Its plugin settings currently contain no
-`scorer_provider`, `cloudflare_account_id`, `cloudflare_model`, or
-`prompt_sharing_provider`; the effective scorer is Jev, and the consent default is `none`,
-so no scorer prompt is sent. OpenRouter requires `scorer_provider: openrouter`, `scorer_model`,
-and `prompt_sharing_provider: openrouter`. Cloudflare requires `scorer_provider: cloudflare`,
-`cloudflare_account_id`, a `cloudflare_model` choice, and
-`prompt_sharing_provider: cloudflare`.
+`scorer_provider`, `cloudflare_account_id`, or `cloudflare_model`; the effective scorer is Jev.
+Because the live mode is `auto`, its task text is sent to Jev for scoring. OpenRouter requires
+`scorer_provider: openrouter`, `scorer_model`, and `OPENROUTER_API_KEY`. Cloudflare requires
+`scorer_provider: cloudflare`, `cloudflare_account_id`, a `cloudflare_model` choice, and
+`CLOUDFLARE_AUTH_TOKEN`.
 
 The endpoint is the full scoring route, retained from the prior install. Do not simplify it
 to `https://api.typesafe.ai/v1`; `jev_client.normalize_endpoint()` handles base URLs, but
@@ -133,13 +156,15 @@ or restart before they import changed Python modules.
 ## 6. Architecture invariants — do not break these
 
 1. **Default mode is `off`.** `off` / `recommend` (classify, rewrite nothing) / `auto`
-   (rewrite an existing field) / `cache_safe` (per-turn where cache-neutral, else
-   session-pinned).
-2. **Rewrite only a field that already exists.** `middleware._effort_slot` recognises
+   (rewrite existing fields and inject on verified or operator-listed exact models) / `cache_safe`
+   (per-turn where cache-neutral, else session-pinned) / `inject` (legacy cache-safe
+   injection mode).
+2. **Missing-field injection is explicit and narrow.** `middleware._effort_slot` recognises
    `extra_body.reasoning.effort`, top-level `reasoning_effort`, and top-level
-   `reasoning.effort` (codex_responses). Never invent a field; never re-enable thinking;
-   never touch `"none"` or `enabled: false`. No writable field ⇒ `unsupported`, **zero**
-   scorer calls.
+   `reasoning.effort` (codex_responses). `auto` and `inject` add a field only for exact
+   documented routes or exact model IDs in `force_injection_models`; force IDs use recognized
+   Responses/Chat Completions containers and are not vendor evidence. Never add a thinking
+   toggle or overwrite malformed/disabled controls. No eligible field ⇒ `unsupported`.
 3. **Clamp onto the route vocabulary.** `effort.map_effort` → `clamp_effort` plus narrow
    tables for Kimi K3 / GLM-5.2 / GLM-5.3; `openai-codex` skips the narrow table;
    unknown routes fall back to the widest OpenAI-compatible set.
@@ -149,20 +174,20 @@ or restart before they import changed Python modules.
 5. **Rubric:** score `0..2` → `low` (<0.5) / `medium` (<1.5) / `high`. Out of range,
    NaN/inf, bool, non-numeric → `None` → fail open.
 6. **Fail-open everywhere.** `on_llm_request` catches all exceptions. Stable reason codes:
-   `invalid_prompt`, `prompt_consent_required`, `credential_missing`, `http_error`,
+   `invalid_prompt`, `credential_missing`, `http_error`,
    `timeout`, `transport_error`, `malformed_response`, `unexpected_error`,
    `classifier_error`, plus scorer-selection codes `model_missing`, `account_missing`,
    `account_invalid` and `unsupported_provider`.
 7. **Subagents** are classified from the parent-written goal (`subagent_start`), gated by
    the independent `subagent_mode`. `status` performs no classification; `probe` scores only operator-typed text and stores no decision.
-8. **Prompt sharing requires provider-specific consent.** `prompt_sharing_provider`
-   must match the selected scorer before any scorer request is made; otherwise the
-   decision fails open with `prompt_consent_required`. `prompt_chars` only caps the
-   excerpt and says nothing about provider retention. OpenRouter requests require
-   ZDR endpoints and deny data-collecting endpoints. This plugin makes no ZDR
-   guarantee for Jev or Cloudflare. The plugin itself does not persist prompts or
-   include them in logs/reasons/traces. Effort-change notices log only old and new
-   effort values; `command._ENTRY_FIELDS` is the only rendered session allowlist.
+8. **Enabling a routing mode authorizes prompt sharing with the selected scorer.**
+   Provider selection alone while mode is `off` sends nothing; `probe` sends only typed text.
+   Legacy `prompt_sharing_provider` values are ignored. `prompt_chars` caps the excerpt and
+   says nothing about provider retention. OpenRouter requests require ZDR endpoints and deny
+   data-collecting endpoints. The plugin gives no ZDR guarantee for Jev or Cloudflare. Prompts
+   are not persisted or included in logs/reasons/traces. Effort-change
+   notices log only effort values; injection records `from: absent`. `command._ENTRY_FIELDS` is
+   the only rendered session allowlist.
 9. **Never write the operator's config from a chat command.** `/hermes-adaptive-effort <mode>`
    sets an in-process `_MODE_OVERRIDE` only; the persist path is
    `plugins.entries.hermes-adaptive-effort.settings.mode`.
@@ -170,8 +195,11 @@ or restart before they import changed Python modules.
     `hermes-adaptive-effort.probe.v1`, and `hermes-adaptive-effort.changes.v1`. Field names and reason
     codes are not free to rename.
 11. **Cache safety:** `cache_safety.effort_is_cache_safe()` returns `True` only for
-    `chat_completions` / `codex_responses`; `anthropic_messages` and anything unknown →
-    `False` (pin the session, never gamble the cache).
+   `chat_completions` / `codex_responses`; `anthropic_messages` and anything unknown →
+   `False` (pin the session, never gamble the cache).
+12. **Injection wire sets:** exact model/API-specific vocabularies are listed in
+   `docs/MODEL_COMPATIBILITY.md`; paired controls require an already-enabled thinking toggle.
+   Unknown catalog entries remain no-op unless an operator explicitly force-lists the exact ID.
 
 ## 7. Desktop and CLI effort visibility
 
