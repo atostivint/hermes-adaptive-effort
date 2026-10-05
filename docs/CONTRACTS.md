@@ -22,7 +22,7 @@ The memo key is `(session_id, turn_id)`:
 
 These guarantees apply while a decision remains cached; eviction or state reset removes that memory.
 
-`cache_safe` and `inject` narrow the key further, to the session, when an effort change would
+`cache_safe`, `inject`, and an unsafe `auto` injection narrow the key further, to the session, when an effort change would
 invalidate the prompt cache (see below).
 
 ## Route vocabulary: what may be written where
@@ -37,7 +37,10 @@ because an `llm_request` hook runs **after** the transport clamp.
 | Kimi K2-era slugs detected by Hermes | `low`, `medium`, `high` | Hermes' Kimi detection distinguishes these from K3 |
 | `glm-5.2*` | `high`, `max` | `low` and `medium` are not offered by this route |
 | `glm-5.3*` | `low`, `medium`, `high`, `max` | graded scale, monotonic in reasoning tokens |
-| `muse-spark-1.3-contributor-free` | `minimal`, `low`, `medium`, `high`, `xhigh` | rubric labels map verbatim; other Muse tiers are not inferred |
+| `muse-spark-1.3` | `minimal`, `low`, `medium`, `high`, `xhigh`, `max` | OpenCode Zen Responses; standard 1.3 only supports `max` |
+| `muse-spark-1.2` | `minimal`, `low`, `medium`, `high`, `xhigh` | OpenCode Zen Responses |
+| `muse-spark-1.3-contributor-free` | `minimal`, `low`, `medium`, `high`, `xhigh` | OpenCode Zen Responses; contributor tiers exclude `max` |
+| `muse-spark-1.3-contributor`, `muse-spark-1.2-contributor` | `minimal`, `low`, `medium`, `high`, `xhigh` | OpenCode Go Responses |
 | any other non-Codex route | `route_supported_efforts(provider, model)` | for an unknown route this is the widest OpenAI-compatible set |
 | `openai-codex` | `route_supported_efforts(...)` | the narrow `wire_efforts` table is skipped for this provider |
 
@@ -48,7 +51,7 @@ EFFORT_LADDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ul
 OPENAI_COMPAT_WIRE_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 ```
 
-`ultra` is Hermes-internal and appears in no wire set. Unset stays unset in the existing four modes. `inject` may add an effort only on the explicitly eligible route described in the README, with copy-on-write of the request and reasoning container. Disabled/malformed controls remain untouched. Injection transitions use `absent` as the prior value in the applied-change feed.
+`ultra` is Hermes-internal and appears in no wire set. Unset stays unset for `off`, `recommend`, and `cache_safe`. `auto` and the retained `inject` mode may add an effort only on the exact provider/model/API routes in the README, with copy-on-write of the request and reasoning container. Disabled/malformed controls remain untouched. Injection transitions use `absent` as the prior value in the applied-change feed.
 
 ### Residual risk: Ox Alpha / `x-preview-f-free`
 
@@ -71,7 +74,7 @@ Cloudflare returns the shared `0..2` score from `result.answers.effort.score` on
 | no credential | unchanged | `failed` (`credential_missing`) | 0 HTTP calls |
 | classifier timeout / transport error | unchanged | `failed`, one probe | 1 (never retried in the turn) |
 | score out of `0..2`, non-finite, non-numeric | unchanged | `failed`, one probe | 1 |
-| no writable effort field (e.g. reasoning disabled) | unchanged | `unsupported` | 0 |
+| no field and route lacks positive injection support (or reasoning disabled) | unchanged | `unsupported` | 0 |
 | label has no legal level on the route | unchanged | `unsupported` | possibly 1; the score may already exist |
 | any internal exception in the plugin | unchanged | — | — |
 
@@ -100,6 +103,10 @@ therefore:
 What is **not** measured: the real effect on `cache_read_tokens` / cost on this box. That
 would need an A/B run against the live provider; no such measurement was performed, and
 nothing in this repository claims a number for it.
+
+When `auto` injects on an eligible but cache-unsafe route, it uses the same session pin. The
+injection marker keeps that decision pinned even if later requests already carry the injected
+field and would otherwise follow the ordinary per-turn `auto` key.
 
 ## Subagents
 
@@ -136,4 +143,4 @@ Enabling routing authorizes task text to the selected scorer. Normal turns send 
 
 ## Verified Muse transport path
 
-The local Hermes source (`agent/transports/codex.py`, module-level `_reasoning_fields()`, called by `ResponsesApiTransport.build_kwargs()`) builds `fields["reasoning"] = {"effort": effort, "summary": "auto"}`. `build_kwargs` merges those fields into top-level kwargs. `agent/codex_responses_adapter.py` lists `("reasoning", lambda v: isinstance(v, dict), None)` among retained optional fields and preflight copies it with `normalized[key] = coerce(value) if coerce else value`. `agent/turn_api_request.py` applies request middleware after preflight and uses its returned payload. Thus injection belongs in top-level `reasoning.effort`, not `extra_body` or `reasoning_effort` on a Responses request. OpenCode model routing selects `codex_responses` for the `muse-spark` prefix. The chat-profile `ox_alpha_reasoning_extras` no-op alone does not prove the Responses transport omits effort; the local Responses builder can emit its own reasoning field independently.
+The local Hermes source (`agent/transports/codex.py`, module-level `_reasoning_fields()`, called by `ResponsesApiTransport.build_kwargs()`) builds `fields["reasoning"] = {"effort": effort, "summary": "auto"}`. `build_kwargs` merges those fields into top-level kwargs. `agent/codex_responses_adapter.py` retains `reasoning` as an optional dict and preflight copies it unchanged. `agent/turn_api_request.py` applies request middleware after preflight and uses its returned payload. Thus injection belongs in top-level `reasoning.effort`. The allowlist combines that verified Hermes container with exact OpenCode Zen/Go model IDs whose vendor docs declare an effort control; it does not authorize Chat Completions or infer support from the broad OpenAI-compatible fallback.

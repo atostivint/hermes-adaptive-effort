@@ -1,0 +1,31 @@
+$env:HERMES_SOURCE_ROOT = '%USERPROFILE%/Projets/hermes-agent'; .\scripts\run_tests.ps1
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0
+rootdir: %USERPROFILE%\Projets\jev-auto-effort\.worktrees\muse-effort-inject
+configfile: pyproject.toml
+plugins: anyio-4.14.2
+collected 275 items
+
+tests\test_cache_safety.py ...........                                   [  4%]
+tests\test_cloudflare_client.py ...................                      [ 10%]
+tests\test_command.py .......................                            [ 19%]
+tests\test_command_modes.py ...........                                  [ 23%]
+tests\test_config_schema.py .....                                        [ 25%]
+tests\test_decision_cache.py .......                                     [ 27%]
+tests\test_dispatcher_integration.py ......                              [ 29%]
+tests\test_effort.py ............                                        [ 34%]
+tests\test_jev_client.py ..................                              [ 40%]
+tests\test_middleware.py ............................................... [ 57%]
+.......................................                                  [ 72%]
+tests\test_openrouter_client.py ...............                          [ 77%]
+tests\test_plugin_api.py ............                                    [ 81%]
+tests\test_plugin_registration.py ....                                   [ 83%]
+tests\test_review_fixes.py ........                                      [ 86%]
+tests\test_scorers.py ......                                             [ 88%]
+tests\test_subagent.py ..................                                [ 94%]
+tests\test_turn_scope.py ..............                                  [100%]
+
+============================= 275 passed in 1.08s =============================
+
+$env:HERMES_SOURCE_ROOT = '%USERPROFILE%/Projets/hermes-agent'; .\scripts\run_lint.ps1
+All checks passed!

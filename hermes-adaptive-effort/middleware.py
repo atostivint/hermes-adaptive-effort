@@ -688,6 +688,8 @@ def _effort_slot(request: Dict[str, Any]) -> Optional[Tuple[Dict[str, Any], str,
     # a silent no-op, because the parent session never uses it.
     reasoning = request.get("reasoning")
     if isinstance(reasoning, dict):
+        if reasoning.get("enabled") is False:
+            return None
         value = reasoning.get("effort")
         if (isinstance(value, str) and value.strip()
                 and value.strip().lower() != "none"):
@@ -730,19 +732,33 @@ def _apply(request: Dict[str, Any], slot: Tuple[Dict[str, Any], str, str],
 
 # ── route-aware reuse of a stored decision ──────────────────────────────────
 
+_MUSE_ZEN_PROVIDERS = frozenset({"opencode", "opencode-zen", "opencode_zen", "zen"})
+_MUSE_GO_PROVIDERS = frozenset({"opencode-go", "opencode_go", "go", "opencode-go-sub"})
+
+
 def _injection_path(request: Dict[str, Any], provider: Any, model: Any,
                     api_mode: Any) -> Optional[str]:
-    """Explicit route opt-in, never the broad fallback effort vocabulary.
+    """Verified provider/model/API combinations; never use the generic fallback.
 
     codex._reasoning_fields builds top-level ``reasoning``;
     _preflight_codex_api_kwargs retains it. Chat Completions uses the SDK's
-    top-level ``reasoning_effort``. Unknown transports have no verified path.
-    Existing malformed/disabled controls are never an invitation to inject.
+    top-level ``reasoning_effort`` but the verified Muse Zen/Go catalog routes
+    use Responses only. Existing malformed/disabled controls are never an
+    invitation to inject.
     """
-    if str(provider or "").strip().lower() not in (
-            "opencode", "opencode-zen", "opencode_zen", "zen"):
+    provider_name = str(provider or "").strip().lower()
+    bare_model = str(model or "").strip().lower().rsplit("/", 1)[-1]
+    if str(api_mode or "").strip().lower() != "codex_responses":
         return None
-    if str(model or "").strip().lower().rsplit("/", 1)[-1] != _effort.MUSE_CONTRIBUTOR_FREE:
+    if provider_name in _MUSE_ZEN_PROVIDERS:
+        eligible = bare_model in {
+            "muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.3-contributor-free",
+        }
+    elif provider_name in _MUSE_GO_PROVIDERS:
+        eligible = bare_model in {"muse-spark-1.3-contributor", "muse-spark-1.2-contributor"}
+    else:
+        eligible = False
+    if not eligible or bare_model not in _effort.MUSE_INJECTION_EFFORTS:
         return None
     if "reasoning_effort" in request or "thinking" in request:
         return None
@@ -753,12 +769,19 @@ def _injection_path(request: Dict[str, Any], provider: Any, model: Any,
     reasoning = request.get("reasoning", {})
     if not isinstance(reasoning, dict) or "effort" in reasoning or reasoning.get("enabled") is False:
         return None
-    mode = str(api_mode or "").strip().lower()
-    if mode == "codex_responses":
-        return "reasoning"
-    if mode == "chat_completions" and "reasoning" not in request:
-        return "reasoning_effort"
-    return None
+    return "reasoning"
+
+
+def _has_pinned_injection(session_id: str, provider: Any, model: Any,
+                          api_mode: Any) -> bool:
+    """An unsafe auto-injection decision stays pinned when its field is replayed."""
+    with _lock:
+        entry = _SESSIONS.get(session_id)
+        return bool(
+            entry and entry.get("_injected") is True and entry.get("state") == "decided"
+            and (entry.get("provider"), entry.get("model"), entry.get("api_mode"))
+            == (provider, model, api_mode)
+        )
 
 
 def _inject(request: Dict[str, Any], path: str, target: str) -> Dict[str, Any]:
@@ -818,6 +841,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     settings = _settings()
     mode = settings["mode"]
+    parent_mode = mode
     if mode == "off":
         return None  # byte-for-byte untouched: no state, no classification
 
@@ -829,15 +853,12 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     provider = kwargs.get("provider")
     model = kwargs.get("model")
 
-    # One decision per USER TURN, not per session: a "hey" opening a long
-    # session must not freeze `low` onto every later question. turn_id is minted
-    # per user message, so a tool loop inside one turn still reuses its decision
-    # and therefore still costs a single scorer call.
+    # Preserve the established cache key chosen by the main mode for legacy
+    # parent/child combinations.
     key = _decision_key(session_id, kwargs.get("turn_id"))
-
-    # Preserve the established parent-mode cache scope for existing modes.
-    if mode == "cache_safe" and not _cache_safety.effort_is_cache_safe(
-            provider, model, kwargs.get("api_mode")):
+    unsafe_route = not _cache_safety.effort_is_cache_safe(
+        provider, model, kwargs.get("api_mode"))
+    if parent_mode == "cache_safe" and unsafe_route:
         key = _decision_key(session_id, None)
 
     # A subagent is classified from the goal its PARENT wrote, not from its own
@@ -849,13 +870,23 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if child_goal is not None:
         mode = settings["subagent_mode"]
 
+    slot = _effort_slot(request)
+    injection_path = None
+    if slot is None and mode in ("auto", "inject"):
+        injection_path = _injection_path(request, provider, model, kwargs.get("api_mode"))
+
     # The new inject mode scopes its key from the effective child mode. This keeps
     # a parent's inject policy from pinning a child's legacy auto decision.
     if settings["mode"] == "inject" or mode == "inject":
-        key = _decision_key(session_id, kwargs.get("turn_id"))
-        if mode in ("cache_safe", "inject") and not _cache_safety.effort_is_cache_safe(
-                provider, model, kwargs.get("api_mode")):
+        if mode in ("cache_safe", "inject") and unsafe_route:
             key = _decision_key(session_id, None)
+
+    # Auto's newly injected decisions use the same cache rule. Reuse the session
+    # key when the next request already carries the injected field.
+    if mode == "auto" and unsafe_route and (
+            injection_path is not None
+            or _has_pinned_injection(session_id, provider, model, kwargs.get("api_mode"))):
+        key = _decision_key(session_id, None)
 
     entry = _touch(
         key, settings, mode, provider, model, kwargs.get("api_mode"),
@@ -865,13 +896,9 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         # A failed attempt, or a request with nothing writable: stay silent and
         # do not re-classify within this decision's scope (bounded scorer usage).
         return None
-    slot = _effort_slot(request)
-    if mode == "inject" and isinstance(request.get("reasoning"), dict):
+    if mode in ("auto", "inject") and isinstance(request.get("reasoning"), dict):
         if request["reasoning"].get("enabled") is False:
             return None
-    injection_path = None
-    if slot is None and mode == "inject":
-        injection_path = _injection_path(request, provider, model, kwargs.get("api_mode"))
     if slot is None and injection_path is None:
         # Nothing verifiable to rewrite: remember and stay silent.
         if entry.get("state") != "decided":
@@ -948,6 +975,8 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                    else _inject(request, injection_path, target))
     if new_request is request:
         return None
+    if injection_path is not None:
+        entry["_injected"] = True
     event = _record_effort_change(key, before, target)
     if event is not None:
         try:

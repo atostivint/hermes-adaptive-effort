@@ -25,6 +25,15 @@ MEDIUM_MAX = 1.5
 # Exact Contributor Free slug; other Muse tiers can have different ceilings.
 MUSE_CONTRIBUTOR_FREE = "muse-spark-1.3-contributor-free"
 MUSE_CONTRIBUTOR_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
+MUSE_STANDARD_13_EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")
+MUSE_STANDARD_12_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
+MUSE_INJECTION_EFFORTS = {
+    "muse-spark-1.3": MUSE_STANDARD_13_EFFORTS,
+    "muse-spark-1.2": MUSE_STANDARD_12_EFFORTS,
+    "muse-spark-1.3-contributor-free": MUSE_CONTRIBUTOR_EFFORTS,
+    "muse-spark-1.3-contributor": MUSE_CONTRIBUTOR_EFFORTS,
+    "muse-spark-1.2-contributor": MUSE_CONTRIBUTOR_EFFORTS,
+}
 
 
 def score_to_label(score) -> Optional[str]:
@@ -56,8 +65,8 @@ def wire_efforts(provider: Optional[str], model: Optional[str]) -> tuple[str, ..
     bare = (model or "").strip().lower().rsplit("/", 1)[-1]
     if not bare:
         return ()
-    if bare == MUSE_CONTRIBUTOR_FREE:
-        return MUSE_CONTRIBUTOR_EFFORTS
+    if bare in MUSE_INJECTION_EFFORTS:
+        return MUSE_INJECTION_EFFORTS[bare]
     try:
         from agent import reasoning_effort as _core
     except Exception:

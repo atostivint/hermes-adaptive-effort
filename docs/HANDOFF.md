@@ -17,8 +17,8 @@ scorer; choosing a provider while mode is `off` sends nothing. `probe` sends onl
 
 Pipeline: read the outgoing request → score the prompt (`0 = low`, `1 = medium`,
 `2 = high`) → clamp the label onto **the route's own wire vocabulary** → write it into
-an existing effort field, or (in the narrowly scoped `inject` mode) add one on the eligible
-Muse contributor-free/OpenCode Zen route.
+an existing effort field, or in `auto` / retained `inject` mode add one on an exact Muse
+OpenCode Zen or Go Responses route with documented effort support.
 
 It is fail-open by contract: any error, timeout, missing credential or unusable request
 shape leaves the request **byte-for-byte untouched**.
@@ -48,7 +48,9 @@ or Cloudflare.
 
 At the 2026-10-03 baseline, the Windows test suite passed **217 tests** and Ruff passed. That
 historical count predates the current Muse injection and prompt-sharing behavior. Current
-branch validation is recorded in `docs/reviews/muse-effort-inject-validation.txt` when available.
+initial validation is recorded in `docs/reviews/muse-effort-inject-validation.txt`; follow-up
+validation after the auto-injection expansion is recorded in
+`docs/reviews/auto-injection-validation.txt`.
 GitHub `master` contains the prior implementation; Iris was reinstalled from the GitHub
 subdirectory on 2026-10-04.
 
@@ -142,14 +144,15 @@ or restart before they import changed Python modules.
 ## 6. Architecture invariants — do not break these
 
 1. **Default mode is `off`.** `off` / `recommend` (classify, rewrite nothing) / `auto`
-   (rewrite an existing field) / `cache_safe` (per-turn where cache-neutral, else
-   session-pinned) / `inject` (same cache policy plus narrowly allowlisted injection).
-2. **Existing fields remain the default.** `middleware._effort_slot` recognises
+   (rewrite existing fields and inject on positively supported routes) / `cache_safe`
+   (per-turn where cache-neutral, else session-pinned) / `inject` (legacy cache-safe
+   injection mode).
+2. **Missing-field injection is explicit and narrow.** `middleware._effort_slot` recognises
    `extra_body.reasoning.effort`, top-level `reasoning_effort`, and top-level
-   `reasoning.effort` (codex_responses). Only `inject` adds a field, and only for exact
-   `muse-spark-1.3-contributor-free` on OpenCode Zen aliases with verified `codex_responses`
-   or `chat_completions` API shape. Never re-enable thinking or overwrite malformed/disabled
-   controls. No eligible field ⇒ `unsupported` or a silent ineligible-route no-op.
+   `reasoning.effort` (codex_responses). `auto` and `inject` add a field only for exact
+   documented Muse model IDs on the matching OpenCode Zen/Go provider and `codex_responses`.
+   Never re-enable thinking or overwrite malformed/disabled controls. No eligible field ⇒
+   `unsupported`; unknown routes do not gain a control.
 3. **Clamp onto the route vocabulary.** `effort.map_effort` → `clamp_effort` plus narrow
    tables for Kimi K3 / GLM-5.2 / GLM-5.3; `openai-codex` skips the narrow table;
    unknown routes fall back to the widest OpenAI-compatible set.
@@ -183,7 +186,8 @@ or restart before they import changed Python modules.
    `chat_completions` / `codex_responses`; `anthropic_messages` and anything unknown →
    `False` (pin the session, never gamble the cache).
 12. **Muse wire set:** injection maps low/medium/high unchanged and permits only
-   `minimal`, `low`, `medium`, `high`, and `xhigh`; it excludes `none` and `max`.
+   the per-model documented set; all listed tiers exclude `none`, and only standard
+   Muse 1.3 includes `max`.
 
 ## 7. Desktop and CLI effort visibility
 

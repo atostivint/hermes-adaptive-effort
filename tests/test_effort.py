@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 
 
 from conftest import import_plugin
@@ -38,6 +39,20 @@ def test_muse_contributor_free_wire_vocabulary_and_policy():
         for invalid in ("none", "max"):
             assert effort.map_effort(invalid, "opencode", slug) is None
     assert effort.wire_efforts("opencode", "muse-spark-unknown") == ()
+
+
+@pytest.mark.parametrize(("model", "includes_max"), [
+    ("muse-spark-1.3", True),
+    ("muse-spark-1.2", False),
+    ("muse-spark-1.3-contributor-free", False),
+    ("muse-spark-1.3-contributor", False),
+    ("muse-spark-1.2-contributor", False),
+])
+def test_muse_injection_vocabulary_matches_exact_tier(model, includes_max):
+    supported = effort.wire_efforts("opencode-zen", model)
+    assert "none" not in supported
+    assert ("max" in supported) is includes_max
+    assert effort.map_effort("high", "opencode-zen", model) == "high"
 
 
 def test_map_effort_clamps_onto_route_vocabulary():

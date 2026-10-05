@@ -153,11 +153,68 @@ def test_inject_safe_route_reclassifies_new_turn_but_not_tool_loop(monkeypatch):
     assert len(factory.instances) == 2
 
 
-@pytest.mark.parametrize("mode", ["off", "recommend", "auto", "cache_safe"])
-def test_legacy_modes_do_not_inject_muse(monkeypatch, mode):
+@pytest.mark.parametrize("mode", ["off", "recommend", "cache_safe"])
+def test_modes_other_than_auto_or_inject_do_not_inject_muse(monkeypatch, mode):
     factory = configure_injection(monkeypatch, mode=mode)
     assert muse_call(muse_request()) is None
     assert factory.instances == []
+
+
+@pytest.mark.parametrize(("provider", "model"), [
+    ("opencode-zen", "muse-spark-1.3"),
+    ("opencode_zen", "muse-spark-1.2"),
+    ("zen", MUSE),
+    ("opencode-go", "muse-spark-1.3-contributor"),
+    ("opencode_go", "muse-spark-1.2-contributor"),
+])
+def test_auto_injects_exactly_supported_muse_responses_routes(monkeypatch, provider, model):
+    configure_injection(monkeypatch, mode="auto")
+    request = muse_request()
+    out = muse_call(request, provider=provider, model=model)
+    assert out["request"]["reasoning"]["effort"] == "low"
+    assert "reasoning" not in request
+
+
+@pytest.mark.parametrize("overrides", [
+    {"model": "muse-spark-2.0"},
+    {"model": "muse-spark-1.3-contributor", "provider": "opencode-zen"},
+    {"provider": "unknown"},
+    {"api_mode": "chat_completions"},
+])
+def test_auto_does_not_inject_without_positive_route_support(monkeypatch, overrides):
+    factory = configure_injection(monkeypatch, mode="auto")
+    request = muse_request()
+    assert muse_call(request, **overrides) is None
+    assert "reasoning" not in request
+    assert factory.instances == []
+
+
+def test_auto_injection_respects_disabled_controls_without_scoring(monkeypatch):
+    factory = configure_injection(monkeypatch, mode="auto")
+    assert muse_call(muse_request(reasoning={"enabled": False})) is None
+    assert muse_call(muse_request(extra_body={"reasoning": {"enabled": False}})) is None
+    assert factory.instances == []
+
+
+@pytest.mark.parametrize("mode", ["auto", "inject"])
+def test_existing_top_level_effort_stays_disabled_in_both_modes(monkeypatch, mode):
+    factory = configure_injection(monkeypatch, mode=mode)
+    request = muse_request(reasoning={"effort": "high", "enabled": False})
+    assert muse_call(request) is None
+    assert request["reasoning"] == {"effort": "high", "enabled": False}
+    assert factory.instances == []
+
+
+def test_auto_unsafe_injection_stays_pinned_for_bare_and_applied_requests(monkeypatch):
+    factory = configure_injection(monkeypatch, mode="auto")
+    monkeypatch.setattr(middleware._cache_safety, "effort_is_cache_safe", lambda *args: False)
+    first = muse_call(muse_request(), "t1")
+    second = muse_call(muse_request(), "t2")
+    assert second["request"]["reasoning"]["effort"] == "low"
+    assert muse_call(first["request"], "t3") is None
+    assert len(factory.instances) == 1
+    assert middleware.session_state()["s1"]["probes"] == 1
+    assert middleware.session_state()["s1"]["requests"] == 3
 
 
 @pytest.mark.parametrize("overrides", [
@@ -211,13 +268,13 @@ def test_enabling_inject_authorizes_selected_scorer_without_separate_consent(mon
     assert "prompt_sharing_provider" not in middleware.DEFAULTS
 
 
-def test_inject_container_follows_actual_api_mode(monkeypatch):
-    configure_injection(monkeypatch)
+def test_inject_rejects_unlisted_chat_api_mode(monkeypatch):
+    factory = configure_injection(monkeypatch)
     req = request_with(model=MUSE)
     out = muse_call(req, api_mode="chat_completions")
-    assert out["request"]["reasoning_effort"] == "low"
-    assert "reasoning" not in out["request"]
-    assert "reasoning_effort" not in req
+    assert out is None
+    assert "reasoning" not in req
+    assert factory.instances == []
 
 
 def test_inject_rewrites_existing_effort_and_pins_unknown_api_mode(monkeypatch):
