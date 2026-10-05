@@ -86,7 +86,8 @@ def dispatched(tmp_path_factory):
         json.dumps({
             "plugins": {
                 "enabled": ["hermes-adaptive-effort"],
-                "entries": {"hermes-adaptive-effort": {"settings": {"mode": "auto"}}},
+                "entries": {"hermes-adaptive-effort": {"settings": {
+                    "mode": "auto", "prompt_sharing_provider": "jev"}}},
             },
         }),
         encoding="utf-8",

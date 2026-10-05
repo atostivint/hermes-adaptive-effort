@@ -24,7 +24,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
+
+from . import rubric
 
 logger = logging.getLogger(__name__)
 
@@ -69,23 +71,7 @@ def normalize_endpoint(value: Any) -> str:
 
 
 #: Ordered 3-level rubric: index 0 = low, 1 = medium, 2 = high (see effort.py).
-QUESTIONS: Dict[str, Dict[str, Any]] = {
-    "effort": {
-        "type": "score",
-        "instructions": (
-            "How much reasoning effort does the user's request require before the first "
-            "reply? Judge only the request text in `state.prompt`."
-        ),
-        "criteria": [
-            "Low: a direct lookup, a short factual answer, a formatting or copy task, "
-            "or a single obvious step.",
-            "Medium: a multi-step task with some judgement — a routine code change, "
-            "a comparison, a plan with a few moving parts.",
-            "High: hard reasoning across several constraints — architecture, debugging "
-            "an unknown failure, mathematics, law, or long-range planning.",
-        ],
-    },
-}
+QUESTIONS = rubric.QUESTIONS
 
 
 def _default_key_reader() -> str:
@@ -269,19 +255,4 @@ def _extract_score(payload: Any) -> Optional[float]:
 
 def _extract_score_detail(payload: Any) -> "tuple[Optional[float], Optional[str]]":
     """``(score, failure)`` for a parsed answer; ``failure`` is a reason code."""
-    if not isinstance(payload, dict):
-        return None, "malformed_response"
-    answers = payload.get("answers")
-    if not isinstance(answers, dict):
-        return None, "malformed_response"
-    answer = answers.get("effort")
-    if not isinstance(answer, dict):
-        return None, "malformed_response"
-    raw = answer.get("score")
-    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-        return None, "malformed_response"
-    value = float(raw)
-    # Rubric range is 0..len(criteria)-1; NaN/inf fail the same bounds check.
-    if not 0.0 <= value <= float(len(QUESTIONS["effort"]["criteria"]) - 1):
-        return None, "malformed_response"
-    return value, None
+    return rubric.systemone_score(payload)

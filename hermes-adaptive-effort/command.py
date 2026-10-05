@@ -142,6 +142,14 @@ def _last_session(sessions: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 def _status_payload() -> Dict[str, Any]:
     settings = _middleware._settings()
+    public_settings = dict(settings)
+    # A custom endpoint can carry harmless routing parameters (or, despite our
+    # guidance, an accidentally embedded token). Never expose query values.
+    public_settings["custom_endpoint"] = _scorers.safe_endpoint_display(
+        settings.get("custom_endpoint", ""))
+    if settings["scorer_provider"] == _scorers.CUSTOM:
+        for key in ("scorer_endpoint", "scorer_endpoint_effective", "endpoint_effective"):
+            public_settings[key] = _scorers.safe_endpoint_display(settings.get(key, ""))
     sessions = [_public_entry(sid, entry)
                 for sid, entry in _middleware.session_state().items()]
     counts = {
@@ -162,10 +170,13 @@ def _status_payload() -> Dict[str, Any]:
         # "config" (the file decides) vs "override" (/hermes-adaptive-effort in this process);
         # a runtime override applies to future requests only and is not persisted.
         "mode_source": settings["mode_source"],
-        "settings": settings,
+        "settings": public_settings,
         "cache_safety": _cache_safety.explain(
             route.get("provider"), route.get("model"), route.get("api_mode")),
-        "credential": _scorers.credential_present(settings["scorer_provider"]),
+        "credential": _scorers.credential_present(
+            settings["scorer_provider"], settings["custom_auth"]),
+        "credential_required": _scorers.credential_required(
+            settings["scorer_provider"], settings["custom_auth"]),
         "cloudflare_account_ready": settings["cloudflare_account_ready"],
         "counts": counts,
         "sessions": sessions,
@@ -211,7 +222,8 @@ def _status_text() -> str:
         "hermes-adaptive-effort status",
         f"mode: {payload['mode']} (from {settings.get('mode_source', 'config')})",
         f"cache safety: {payload['cache_safety']}",
-        f"credential: {'present' if payload['credential'] else 'missing'}",
+        f"credential: {'present' if payload['credential'] else 'missing'}"
+        if payload["credential_required"] else "credential: not required",
         f"scorer: {settings['scorer_provider']} model={settings['scorer_model_effective'] or 'unset'}",
         f"prompt sharing: {'opted in for ' + settings['scorer_provider'] if settings['prompt_sharing_provider'] == settings['scorer_provider'] else 'not opted in; set prompt_sharing_provider=' + settings['scorer_provider']}",
         f"settings: timeout_s={settings['timeout_s']} "
@@ -227,6 +239,9 @@ def _status_text() -> str:
         lines.insert(4, f"Cloudflare account: {'ready' if payload['cloudflare_account_ready'] else 'missing or invalid'}")
     elif settings.get("scorer_provider") == _scorers.OPENROUTER:
         lines.insert(5, "OpenRouter routing: ZDR-only endpoints; data_collection=deny")
+    elif settings.get("scorer_provider") == _scorers.CUSTOM:
+        lines.insert(5, f"custom scorer: format={settings['custom_api_format']} "
+                    f"auth={settings['custom_auth']}")
     lines.extend(_render_entry(entry) for entry in payload["sessions"])
     last = payload["last"]
     lines.append(f"last: {_render_entry(last).strip()}" if last else "last: none")

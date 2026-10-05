@@ -93,6 +93,19 @@ def import_plugin(stem: str):
     return module
 
 
+def settings_with_prompt_consent(settings):
+    """Opt a test into the configured scorer without changing hermetic defaults.
+
+    Tests that expect classification call this explicitly through their local
+    settings helper. Negative consent cases can pass ``none`` or a mismatched
+    provider and retain that explicit value.
+    """
+    values = dict(settings)
+    scorer = str(values.get("scorer_provider", "jev") or "jev").strip().lower()
+    values.setdefault("prompt_sharing_provider", scorer)
+    return values
+
+
 class _NoNetwork:
     """Raise on any attempt to open a socket; records nothing else."""
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 
 
-from conftest import import_plugin
+from conftest import import_plugin, settings_with_prompt_consent
 
 command = import_plugin("command")
 middleware = import_plugin("middleware")
@@ -52,6 +52,7 @@ class CountingJev:
 
 
 def use_settings(monkeypatch, **kw):
+    kw = settings_with_prompt_consent(kw)
     monkeypatch.setattr(
         middleware, "_settings_provider",
         lambda key, default=None: kw.get(key, default))

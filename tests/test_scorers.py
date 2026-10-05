@@ -7,6 +7,7 @@ from conftest import import_plugin
 jev_client = import_plugin("jev_client")
 openrouter_client = import_plugin("openrouter_client")
 cloudflare_client = import_plugin("cloudflare_client")
+custom_client = import_plugin("custom_client")
 scorers = import_plugin("scorers")
 middleware = import_plugin("middleware")
 
@@ -48,6 +49,30 @@ def test_cloudflare_uses_fixed_model_and_requires_a_valid_account():
     assert scorers.build_client(settings(scorer_provider="cloudflare")) == (None, "account_missing")
     assert scorers.build_client(settings(scorer_provider="cloudflare",
         cloudflare_account_id="bad/path")) == (None, "account_invalid")
+
+
+def test_custom_provider_uses_configured_endpoint_model_format_and_auth():
+    configured = settings(
+        scorer_provider="custom",
+        scorer_model="local-rubric-4b",
+        custom_endpoint="http://127.0.0.1:8080/v1/chat/completions",
+        custom_api_format="chat_completions",
+        custom_auth="none",
+    )
+
+    client, failure = scorers.build_client(configured)
+
+    assert failure is None
+    assert isinstance(client, custom_client.CustomClient)
+    assert client.endpoint == configured["custom_endpoint"]
+    assert client.model == "local-rubric-4b"
+    assert client.api_format == "chat_completions"
+    assert client.auth == "none"
+    assert scorers.model_for("custom", configured["scorer_model"]) == "local-rubric-4b"
+    assert scorers.endpoint_for(
+        "custom", "ignored", custom_endpoint=configured["custom_endpoint"]
+    ) == (configured["custom_endpoint"], configured["custom_endpoint"])
+    assert scorers.credential_required("custom", "none") is False
 
 
 def test_unknown_provider_fails_open_without_jev_fallback():

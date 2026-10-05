@@ -4,7 +4,11 @@
 
 Hermes Adaptive Effort asks an external scorer how much reasoning a task needs, then adjusts the effort setting already present in the outgoing model request. A greeting can use `low`; a more demanding task can use `high`.
 
-Choose Jev (TypeSafe), a model you configure through OpenRouter, or Cloudflare Clef / Clef Flash. Jev is the default. Your scorer and the model answering the conversation are separate choices.
+Choose Jev (TypeSafe), a model you configure through OpenRouter, Cloudflare Clef / Clef Flash, or your own custom scorer endpoint. Jev remains the default and one option among several. The scorer is independent of the model answering the conversation: it only evaluates the task against the rubric and selects an effort level; Hermes still sends the request to your chosen conversation model.
+
+The custom provider can connect to a hosted service or a local model server that implements either System One or OpenAI Chat Completions. Point it at the exact HTTP(S) endpoint and choose the model name your server exposes. This makes the classifier replaceable without changing the conversation model.
+
+An initial Zenon trial loaded Kev 0.8B and 4B through llama.cpp and llama-swap on an RTX 4070 Ti. Across 180 warmed classifications per model on 60 synthetic English and French prompts, agreement with the fixed labels was 50% for 0.8B and 60% for 4B; neither model predicted `high`. The first 4B classification also hit the plugin's 3-second timeout, then all warmed calls succeeded. These exploratory results are not human-gold evaluation or a comparison with Jev. See the [full report](docs/reviews/local-scorer-benchmark-20261005T090911Z.md).
 
 The plugin starts **off** and requires explicit permission to share prompt text with the selected scorer. If scoring fails, your original request continues unchanged. It changes only an existing effort field, leaves explicitly disabled reasoning alone, and keeps your conversation model.
 
@@ -85,6 +89,14 @@ In the plugin's Desktop settings, select `openrouter`, enter your scorer model s
 
 The scorer is separate from your conversation model. You choose which OpenRouter model to pay for; no model is silently selected and no failure falls back to Jev. The adapter requests JSON and caps completion output at 32 tokens; invalid answers or timeouts preserve the original request.
 
+### Use your own hosted or local classifier?
+
+Select `custom`, set `scorer_model`, and provide the complete endpoint URL in `custom_endpoint`. The endpoint is used as entered; the plugin does not append a path. Choose `systemone` (the default) or `chat_completions` in `custom_api_format`. A local example using llama-swap is `http://127.0.0.1:8099/v1/systemone`.
+
+For a public endpoint that requires bearer authentication, set `custom_auth: bearer` and make `CUSTOM_SCORER_API_KEY` available to Hermes through its secret scope or the process environment. For a local endpoint without authentication, keep `custom_auth: none`; no key is looked up. The model name is required for either API format. Set **Prompt sharing consent** to `custom` as well as choosing `custom` for **Scorer provider**. There is no fallback to Jev or another provider if this endpoint fails.
+
+The plugin validates the endpoint before making a request, rejects embedded credentials and URL fragments, masks query values in displayed status, and does not follow redirects. Choose a trusted endpoint: prompt text is sent there after explicit consent, and this plugin cannot guarantee its retention policy.
+
 ### Prefer Cloudflare?
 
 Select `cloudflare`, enter your 32-character hexadecimal account ID, choose `clef` or `clef-flash`, and set **Prompt sharing consent** to `cloudflare`. Make `CLOUDFLARE_AUTH_TOKEN` available to the serving Hermes process before launching or restarting it. Cloudflare has no fallback to another scorer.
@@ -127,6 +139,21 @@ settings:
   prompt_sharing_provider: cloudflare
 ```
 
+For a custom endpoint (local, unauthenticated System One):
+
+```yaml
+settings:
+  mode: recommend
+  scorer_provider: custom
+  scorer_model: "effort-kev-08b"
+  custom_endpoint: "http://127.0.0.1:8099/v1/systemone"
+  custom_api_format: systemone
+  custom_auth: none
+  prompt_sharing_provider: custom
+```
+
+For Chat Completions, set `custom_api_format: chat_completions`. For bearer authentication, set `custom_auth: bearer` and supply `CUSTOM_SCORER_API_KEY` through Hermes secret scope or the process environment.
+
 Replace the model or account placeholder before using it. Start with `mode: recommend` instead of `auto` if you want to observe decisions first. Each `settings` example belongs under `plugins.entries.hermes-adaptive-effort`.
 
 | Scorer | Credential | Model |
@@ -134,6 +161,7 @@ Replace the model or account placeholder before using it. Start with `mode: reco
 | Jev (default) | `TYPESAFE_API_KEY` | Fixed `jev-latest` |
 | OpenRouter | `OPENROUTER_API_KEY` | Explicit `scorer_model` slug |
 | Cloudflare | `CLOUDFLARE_AUTH_TOKEN` | `clef` (default) or `clef-flash`; requires an account ID |
+| Custom | None for `custom_auth: none`; `CUSTOM_SCORER_API_KEY` for `bearer` | Required `scorer_model`; exact `custom_endpoint`; System One or Chat Completions |
 
 Credentials resolve through Hermes' secret scope, then the environment. A key set in a terminal reaches only processes that inherit that environment.
 
@@ -175,7 +203,7 @@ Missing consent, credentials or required settings, timeouts, transport errors an
 
 ### Prompt privacy
 
-The plugin itself does not persist prompts or include them in logs or status. The `prompt_chars` cap limits the text sent; truncation does not guarantee provider non-retention. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints, while still sending the text to OpenRouter for processing. This plugin cannot assure ZDR for Jev or Cloudflare.
+The plugin itself does not persist prompts or include them in logs or status. The `prompt_chars` cap limits the text sent; truncation does not guarantee provider non-retention. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints, while still sending the text to OpenRouter for processing. This plugin cannot assure ZDR for Jev, Cloudflare or custom endpoints.
 
 Subagents use the parent-written goal as their task text. Goals are held transiently in memory and classified only when the independent `subagent_mode` setting permits it and the main mode is enabled. Child scoring follows the same provider consent gate.
 
@@ -185,17 +213,20 @@ Subagents use the parent-written goal as their task text. Goals are held transie
 | --- | --- | --- |
 | `mode` | `off` | Main routing mode |
 | `subagent_mode` | `off` | Independent child-agent mode |
-| `scorer_provider` | `jev` | `jev`, `openrouter` or `cloudflare`; no automatic fallback |
-| `scorer_model` | empty | Required OpenRouter model slug; ignored by Jev and Cloudflare |
+| `scorer_provider` | `jev` | `jev`, `openrouter`, `cloudflare` or `custom`; no automatic fallback |
+| `scorer_model` | empty | Required OpenRouter or custom model name; ignored by Jev and Cloudflare |
+| `custom_endpoint` | empty | Complete HTTP(S) endpoint URL for the custom scorer; no path is appended |
+| `custom_api_format` | `systemone` | Custom request/response contract: `systemone` or `chat_completions` |
+| `custom_auth` | `none` | Custom endpoint auth: `none` or `bearer` |
 | `cloudflare_account_id` | empty | Required 32-character hexadecimal account ID for Cloudflare |
 | `cloudflare_model` | `clef` | Cloudflare model selector: `clef` or `clef-flash` |
-| `prompt_sharing_provider` | `none` | Explicitly permit sending prompt text to this scorer (`none`, `jev`, `openrouter` or `cloudflare`); must match `scorer_provider` |
-| `endpoint` | `https://api.typesafe.ai/v1/systemone` | Jev endpoint; ignored by OpenRouter and Cloudflare |
+| `prompt_sharing_provider` | `none` | Explicitly permit sending prompt text to this scorer (`none`, `jev`, `openrouter`, `cloudflare` or `custom`); must match `scorer_provider` |
+| `endpoint` | `https://api.typesafe.ai/v1/systemone` | Jev endpoint; ignored by other scorers |
 | `timeout_s` | `3.0` | HTTP timeout for classification |
 | `max_turns` | `64` | Bounded decision-cache capacity per process |
 | `prompt_chars` | `4000` | Maximum task characters sent after matching provider consent; not a retention control |
 
-Jev accepts a full route, API base or bare host; `status` shows the effective URL. OpenRouter uses its fixed chat-completions endpoint and requests `provider.zdr=true` plus `data_collection=deny`; if no eligible route is available the request fails open rather than using a non-ZDR endpoint. Cloudflare uses the account-scoped Workers AI route for the selected `cloudflare_model` (`clef` or `clef-flash`); it requires `CLOUDFLARE_AUTH_TOKEN` and a valid account ID. Status reports token presence and account readiness without exposing the token. Configured scorer failures leave requests unchanged and appear in status.
+Jev accepts a full route, API base or bare host; `status` shows the effective URL. OpenRouter uses its fixed chat-completions endpoint and requests `provider.zdr=true` plus `data_collection=deny`; if no eligible route is available the request fails open rather than using a non-ZDR endpoint. Cloudflare uses the account-scoped Workers AI route for the selected `cloudflare_model` (`clef` or `clef-flash`); it requires `CLOUDFLARE_AUTH_TOKEN` and a valid account ID. The custom provider posts to the exact `custom_endpoint`, passes `scorer_model`, and supports System One (`state.prompt`, `questions`, and `answers.effort.score`) or Chat Completions (JSON response with a numeric score). `custom_auth: bearer` requires `CUSTOM_SCORER_API_KEY`; `none` does not inspect credentials. Status reports readiness without exposing keys and masks URL query values. Configured scorer failures leave requests unchanged and appear in status.
 
 Cloudflare Clef and Clef Flash receive the same bounded `state.prompt` and typed score question as Jev. Their REST response must have `success: true` and a finite numeric `result.answers.effort.score` from 0 through 2. See the [Clef](https://developers.cloudflare.com/workers-ai/models/clef/), [Clef Flash](https://developers.cloudflare.com/workers-ai/models/clef-flash/) and [Workers AI REST API](https://developers.cloudflare.com/workers-ai/get-started/rest-api/) documentation.
 

@@ -65,13 +65,15 @@ def use_mode(monkeypatch, mode):
     """Config seam: the FILE says *mode*; a runtime override still outranks it."""
     monkeypatch.setattr(
         middleware, "_settings_provider",
-        lambda key, default=None: mode if key == "mode" else default)
+        lambda key, default=None: {
+            "mode": mode, "prompt_sharing_provider": "jev"}.get(key, default))
 
 
 # ── the verbs do what the banner says ───────────────────────────────────────
 
 @pytest.mark.parametrize("mode", MODES)
 def test_mode_verb_is_accepted_and_governs_the_next_request(monkeypatch, mode):
+    use_mode(monkeypatch, mode)
     reply = command.handle(mode)
     assert reply != command.USAGE, f"{mode} was answered with the banner"
     assert mode in reply
