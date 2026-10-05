@@ -10,7 +10,13 @@ The plugin is opt-in and starts **off**. If scoring fails, your original request
 
 ## Quick install
 
-Already have Hermes? Install and enable the plugin with one command, in a shell or PowerShell:
+If the Hermes catalog entry has been accepted, install and enable the plugin by name:
+
+```bash
+hermes plugins install hermes-adaptive-effort --enable
+```
+
+Until then, install directly from GitHub with the repository subdirectory:
 
 ```bash
 hermes plugins install 'atostivint/hermes-adaptive-effort#hermes-adaptive-effort' --enable
