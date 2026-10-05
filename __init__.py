@@ -13,9 +13,9 @@ if __package__:
     from . import command as _command
     from . import middleware as _middleware
 else:
-    # Pytest can discover this repository-root entrypoint as an unqualified package
-    # initializer. Hermes loads it with a package name, which is required for these
-    # sibling imports and is the only context in which register() is supported.
+    # Pytest may import the repository-root __init__.py as a standalone module
+    # because this plugin is installed from the repository root. Hermes loads it
+    # with a package name, so only that real plugin path needs sibling imports.
     _command = None
     _middleware = None
 

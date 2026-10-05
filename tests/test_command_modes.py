@@ -104,7 +104,8 @@ def test_mode_verb_is_accepted_and_governs_the_next_request(monkeypatch, mode):
         assert len(jev.calls) == 1
 
 
-def test_mode_reply_names_its_scope_and_the_persist_path():
+def test_mode_reply_names_its_scope_and_the_persist_path(monkeypatch):
+    use_mode(monkeypatch, "off")
     first = command.handle("auto")
     assert "future requests" in first
     assert "not persisted" in first

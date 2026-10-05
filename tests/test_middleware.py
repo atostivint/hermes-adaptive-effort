@@ -536,7 +536,21 @@ def test_inject_survives_responses_builder_and_preflight(monkeypatch, tmp_path):
     assert prepared["reasoning"] == {"effort": "low"}
 
 
-def test_default_off_never_classifies(monkeypatch, no_network):
+def test_default_auto_classifies_and_rewrites_supported_effort(monkeypatch, no_network):
+    factory = RecordingClassifierFactory(score=2.0)
+    use_classifier(monkeypatch, factory)
+    req = supported_request()
+    result = call(ctx(request=req))
+    assert result["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    assert len(factory.instances) == 1
+    assert factory.instances[0].calls == ["first user prompt"]
+    entry = next(iter(middleware.session_state().values()))
+    assert (entry["state"], entry["mode"], entry["target"], entry["probes"]) == (
+        "decided", "auto", "high", 1)
+
+
+def test_explicit_off_never_classifies_and_keeps_route_visible(monkeypatch, no_network):
+    use_settings(monkeypatch, {"mode": "off"})
     factory = RecordingClassifierFactory()
     use_classifier(monkeypatch, factory)
     req = supported_request()

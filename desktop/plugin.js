@@ -318,7 +318,7 @@ function AdaptiveEffortPane() {
             last
               ? jsx('div', {
                 className: 'text-xs text-(--ui-text-tertiary)',
-                children: `most recent status (all conversations): state=${last.state} label=${last.label ?? 'N/A'} target=${last.target ?? 'N/A'} scorer=${last.scorer_provider ?? 'N/A'} model=${last.scorer_model ?? 'N/A'} score=${last.score ?? 'N/A'}`
+                children: `most recent status (all conversations): state=${last.state} route=${last.provider ?? 'N/A'} · ${last.model ?? 'N/A'} effort=${last.target ?? 'N/A'} scorer=${last.scorer_provider ?? 'N/A'} model=${last.scorer_model ?? 'N/A'} score=${last.score ?? 'N/A'}`
               })
               : jsx('div', { className: 'text-xs text-(--ui-text-quaternary)', children: 'last: none' }),
             jsx('div', {

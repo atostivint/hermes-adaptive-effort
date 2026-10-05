@@ -127,12 +127,12 @@ def hermetic_plugin_settings(monkeypatch):
 
     * ``_settings_provider`` — tests that set it to ``None`` deliberately drop
       back to the config reader, which used to read
-      ``~/.hermes/config.yaml``. The live profile carries ``mode: auto``, so the
-      plugin's own "the default is off" tests failed on any machine where the
-      plugin is installed (caught by the 2026-09-29 review as criterion 4).
+      ``~/.hermes/config.yaml``. The live profile must not affect default-mode
+      assertions or cause an unexpected scorer call.
     * ``_config_reader`` — the injected reader below is that same fallback, made
       hermetic: ``{}`` means "no settings anywhere", i.e. every documented
-      default. It is ``None`` in production, so the live reader is unchanged.
+      default (including the default ``auto`` mode). It is ``None`` in production,
+      so the live reader is unchanged.
 
     It also resets in-memory state before and after each test, so no decision and
     no runtime mode override can leak from one test into the next.

@@ -27,7 +27,7 @@ def test_config_schema_modes_match_valid_modes():
     for key in ("mode", "subagent_mode"):
         entry = schema[key]
         assert set(entry.get("choices") or []) == set(middleware.VALID_MODES)
-        assert entry.get("default") == "off"
+        assert entry.get("default") == middleware.DEFAULTS[key]
         assert entry.get("type") == "str"
 
 

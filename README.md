@@ -10,7 +10,7 @@ The custom provider can connect to a hosted service or a local model server that
 
 An initial Zenon trial loaded Kev 0.8B and 4B through llama.cpp and llama-swap on an RTX 4070 Ti. Across 180 warmed classifications per model on 60 synthetic English and French prompts, agreement with the fixed labels was 50% for 0.8B and 60% for 4B; neither model predicted `high`. The first 4B classification also hit the plugin's 3-second timeout, then all warmed calls succeeded. These exploratory results are not human-gold evaluation or a comparison with Jev. See the [full report](docs/reviews/local-scorer-benchmark-20261005T090911Z.md).
 
-The plugin is opt-in and starts **off**. If scoring fails, your original request continues unchanged. It does not switch your conversation model or add tools; `auto` and `inject` add a reasoning setting only on exact supported routes or exact operator-listed model IDs.
+The plugin is opt-in and starts in **`auto`** after you enable it. On eligible routes, it sends a bounded excerpt of the latest user message to the selected scorer and applies the resulting effort; turn it off if you do not want scoring. If scoring fails, your original request continues unchanged. It does not switch your conversation model or add tools; `auto` and `inject` add a reasoning setting only on exact supported routes or exact operator-listed model IDs.
 
 ## Quick install
 
@@ -22,7 +22,7 @@ hermes plugins install 'atostivint/hermes-adaptive-effort' --enable
 
 The plugin manifest and payload now live at the repository root, so no subdirectory fragment is needed. The previous `#hermes-adaptive-effort` suffix selected the old nested payload directory. A root install retains Git metadata, which lets `hermes plugins update hermes-adaptive-effort` update the plugin normally.
 
-Hermes handles installation; you do not need to clone this repo or install a Python package. Enabling the plugin makes it available, but its reasoning mode still starts **off**.
+Hermes handles installation; you do not need to clone this repo or install a Python package. Enabling the plugin starts its reasoning mode in **`auto`**; choose `off` in Desktop settings or `/hermes-adaptive-effort off` to stop routing.
 
 ### 1. Make your scorer key available
 
@@ -214,7 +214,6 @@ The repository root is the Hermes plugin payload. This is a Hermes plugin, not a
 | --- | --- |
 | `off` (default) | No scoring or request changes; bounded route metadata may still appear in the Desktop popup |
 | `recommend` | Score the task and report the target; keep the original effort |
-| `auto` | Score each user turn, rewrite an existing effort field, or inject on an exact verified model route when it is absent |
 | `cache_safe` | Score per turn on recognized cache-neutral routes; otherwise reuse a session decision while cached |
 | `inject` | Compatibility mode: cache-safe policy plus exact-route injection |
 
@@ -251,7 +250,7 @@ Anthropic's [Effort guide](https://platform.claude.com/docs/en/build-with-claude
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `mode` | `off` | Main routing mode |
+| `mode` | `auto` | Main routing mode; `off` disables scoring and rewrites |
 | `force_injection_models` | empty | Optional exact model IDs separated by commas or newlines; asserts support for known Responses/Chat Completions shapes in `auto`/`inject` only |
 | `subagent_mode` | `off` | Independent child-agent mode |
 | `scorer_provider` | `jev` | `jev`, `openrouter`, `cloudflare` or `custom`; no automatic fallback |
@@ -326,11 +325,11 @@ If you used `jev-auto-effort`, install the new payload, move your old settings f
 - [Documentation index](docs/README.md): current references and dated review history.
 - [Operator handoff](docs/HANDOFF.md): the recorded Iris/Windows rollout and unresolved operational items.
 
-The Windows suite last verified for the prior implementation had 217 passing tests, including real Hermes plugin discovery/dispatcher integration. Tests use fake scorer transports and block network access. See the development guide to reproduce them.
+The Windows suite most recently passed 380 tests, including real Hermes plugin discovery/dispatcher integration. Tests use fake scorer transports and block network access. See the development guide to reproduce them.
 
 ### Exact-route effort injection
 
-The plugin remains globally off by default. In `auto`, missing effort is injected only for positively verified routes or exact model IDs explicitly listed in `force_injection_models`; `inject` applies the same rules with cache-safe routing. The current OpenCode Go registry includes exact Responses models, effort-only Chat Completions models, and paired controls only when the request already enables thinking. Every model published in the current Go catalog has an explicit tested injection/no-op outcome in the [compatibility matrix](docs/MODEL_COMPATIBILITY.md).
+The plugin defaults to `auto` when enabled. Missing effort is injected only for positively verified routes or exact model IDs explicitly listed in `force_injection_models`; `inject` applies the same rules with cache-safe routing. The current OpenCode Go registry includes exact Responses models, effort-only Chat Completions models, and paired controls only when the request already enables thinking. Every model published in the current Go catalog has an explicit tested injection/no-op outcome in the [compatibility matrix](docs/MODEL_COMPATIBILITY.md).
 
 | Provider | Exact model IDs | `api_mode` | Wire values |
 | --- | --- | --- | --- |

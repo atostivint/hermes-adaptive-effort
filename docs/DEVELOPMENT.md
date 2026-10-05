@@ -31,7 +31,7 @@ The Windows test runner discovers the Hermes source tree from `HERMES_SOURCE_ROO
   command.py               /hae: help, status, probe, mode verbs
   dashboard/               backend: GET /status, GET /changes, POST /mode, POST /probe
   desktop/plugin.js        desktop half: effort chip, pane, change toasts, palette (opt-in)
-tests/                    217 tests, one module per contract
+tests/                    380 tests, one module per contract
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh (+ .ps1 for Windows)
 pytest.ini                pytest configuration
 ruff.toml                 Ruff configuration
@@ -82,7 +82,7 @@ The whole suite is **network-free by contract**: `tests/conftest.py` patches
 `socket.socket` and `socket.create_connection` for the entire session (`autouse`), so a
 test that opens a socket fails instead of silently calling a provider. The same file
 makes plugin settings hermetic â€” tests never read `~/.hermes/config.yaml`, so a live
-profile with `mode: auto` cannot turn a "default is off" test red.
+profile cannot change the default-mode assertions.
 
 ### The integration test is real, and it runs
 
