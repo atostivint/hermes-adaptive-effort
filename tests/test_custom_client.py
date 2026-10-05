@@ -8,7 +8,7 @@ import urllib.request
 
 import pytest
 
-from tests.conftest import import_plugin
+from conftest import import_plugin
 
 custom_module = import_plugin("custom_client")
 

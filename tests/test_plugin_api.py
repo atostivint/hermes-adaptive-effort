@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from tests.conftest import PLUGIN_DIR, import_plugin
+from conftest import PLUGIN_DIR, import_plugin
 
 API_PATH = PLUGIN_DIR / "dashboard" / "plugin_api.py"
 MANIFEST_PATH = PLUGIN_DIR / "dashboard" / "manifest.json"

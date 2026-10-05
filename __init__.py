@@ -9,12 +9,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import command as _command
-from . import middleware as _middleware
+if __package__:
+    from . import command as _command
+    from . import middleware as _middleware
+else:
+    # Pytest can discover this repository-root entrypoint as an unqualified package
+    # initializer. Hermes loads it with a package name, which is required for these
+    # sibling imports and is the only context in which register() is supported.
+    _command = None
+    _middleware = None
 
 
 def register(ctx: Any) -> None:
     """Attach middleware, lifecycle hooks and ``/hermes-adaptive-effort`` to a real PluginContext."""
+    if _command is None or _middleware is None:
+        raise RuntimeError("Hermes plugin entrypoint must be loaded as a package")
+
     # Read settings through the context facade when it offers one, so a config
     # edit is picked up per call rather than frozen at import time.
     if hasattr(ctx, "get_config"):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.conftest import PLUGIN_DIR, import_plugin
+from conftest import PLUGIN_DIR, import_plugin
 
 middleware = import_plugin("middleware")
 

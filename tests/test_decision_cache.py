@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 
 
-from tests.conftest import import_plugin
+from conftest import import_plugin
 
 command = import_plugin("command")
 middleware = import_plugin("middleware")

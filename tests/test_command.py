@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from tests.conftest import import_plugin
+from conftest import import_plugin
 
 init_module = import_plugin("__init__")
 command = import_plugin("command")

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 
-from tests.conftest import import_plugin
+from conftest import import_plugin
 
 effort = import_plugin("effort")
 

@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from tests.conftest import import_plugin
+from conftest import import_plugin
 
 middleware = import_plugin("middleware")
 

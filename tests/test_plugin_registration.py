@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.conftest import PLUGIN_DIR, import_plugin
+from conftest import PLUGIN_DIR, import_plugin
 
 init_module = import_plugin("__init__")
 

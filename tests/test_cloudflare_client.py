@@ -8,7 +8,7 @@ import urllib.error
 
 import pytest
 
-from tests.conftest import import_plugin
+from conftest import import_plugin
 
 client_module = import_plugin("cloudflare_client")
 
