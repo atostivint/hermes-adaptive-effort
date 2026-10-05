@@ -61,7 +61,7 @@ def test_status_payload_uses_stable_schema_and_allowlist():
     payload = api.get_status_payload()
     assert payload["schema"] == "hermes-adaptive-effort.status.v1"
     assert payload["plugin"] == "hermes-adaptive-effort"
-    assert payload["mode"] == "auto"  # hermetic defaults; live profile must not leak in
+    assert payload["mode"] == "off"  # hermetic defaults; live profile must not leak in
     assert isinstance(payload["counts"], dict)
     assert isinstance(payload["sessions"], list)
     for entry in payload["sessions"]:
@@ -101,7 +101,7 @@ def test_set_mode_runtime_only_by_default():
     try:
         assert result["ok"] is True
         assert result["mode"] == "auto"
-        assert result["before"] == "auto"
+        assert result["before"] == "off"
         assert "persisted" not in result
         assert middleware.mode_override() == "auto"
     finally:
@@ -195,7 +195,7 @@ def test_desktop_plugin_static_contract():
     assert "useValue(host.state.focusedSessionOwner)" in text
     assert "effortForConversation(data, focusedSessionId)" in text
     assert "routeForConversation(data, focusedSessionId)" in text
-    assert "Provider · model: ${route}" in chip
+    assert "Route: ${route}" in chip
     assert "route: ${route}" in chip
     assert "show_desktop_popup === false" in chip
     assert "entry?.conversation_id === conversationId" in text

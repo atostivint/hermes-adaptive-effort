@@ -536,7 +536,8 @@ def test_inject_survives_responses_builder_and_preflight(monkeypatch, tmp_path):
     assert prepared["reasoning"] == {"effort": "low"}
 
 
-def test_default_auto_classifies_and_rewrites_supported_effort(monkeypatch, no_network):
+def test_configured_auto_classifies_and_rewrites_supported_effort(monkeypatch, no_network):
+    use_settings(monkeypatch, {"mode": "auto"})
     factory = RecordingClassifierFactory(score=2.0)
     use_classifier(monkeypatch, factory)
     req = supported_request()

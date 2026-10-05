@@ -131,7 +131,7 @@ def hermetic_plugin_settings(monkeypatch):
       assertions or cause an unexpected scorer call.
     * ``_config_reader`` — the injected reader below is that same fallback, made
       hermetic: ``{}`` means "no settings anywhere", i.e. every documented
-      default (including the default ``auto`` mode). It is ``None`` in production,
+      default (including the default ``off`` mode). It is ``None`` in production,
       so the live reader is unchanged.
 
     It also resets in-memory state before and after each test, so no decision and

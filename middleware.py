@@ -15,7 +15,7 @@ Contract (verified against ``hermes_cli/middleware.py`` and
 * Trace entries are recorded as ``middleware_trace`` on the request. Our reason
   strings carry effort values only — never prompt text.
 
-Scope rules enforced here: default mode is auto; off mode may retain bounded route
+Scope rules enforced here: default mode is off; off mode may retain bounded route
 metadata for the Desktop indicator but never classifies or changes a request;
 existing fields are rewritten, and ``inject`` can add a field on an explicitly eligible route; the new
 value is clamped onto the route's declared vocabulary and re-clamped whenever the
@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 PLUGIN_ID = "hermes-adaptive-effort"
 VALID_MODES: Tuple[str, ...] = ("off", "recommend", "auto", "cache_safe", "inject")
 DEFAULTS: Dict[str, Any] = {
-    "mode": "auto",
+    "mode": "off",
     "subagent_mode": "off",
     "timeout_s": _jev_client.DEFAULT_TIMEOUT_S,
     "max_turns": 64,

@@ -106,8 +106,9 @@ under `%LOCALAPPDATA%\hermes\desktop-plugins\hermes-adaptive-effort` points to t
 `desktop/` folder. `%USERPROFILE%\.hermes\desktop-plugins\hermes-adaptive-effort\plugin.js`
 is the matching standalone copy. The enabled ID and config entry were migrated to
 `hermes-adaptive-effort`; the previous entry had no mode setting. The then-installed payload
-resolved that to `off`; this change makes the unset-mode default `auto`, so the live agent
-needs the updated payload and a restart to route requests. Plugin Doctor passed with five
+resolved that to `off`; this source update keeps the unset-mode default `off` and captures
+bounded route metadata for the Desktop popup without classifying or changing off-mode requests.
+This source merge was not deployed to the live agent. Plugin Doctor passed with five
 hooks registered. The old profile Desktop
 copy is preserved under `%LOCALAPPDATA%\Temp\hermes-adaptive-effort-migration-20261003-110504`.
 
@@ -150,8 +151,9 @@ hermes plugins install 'atostivint/hermes-adaptive-effort' --enable
 
 ## 3. Live configuration
 
-The running Windows install currently resolves its unset mode to `off`; the updated payload
-will default it to `auto`. Iris remains `mode: auto` with
+The unset mode remains `off` in this source revision. This task tested the source from a
+temporary checkout on Iris; it did not deploy the changes or alter live config. At the last
+recorded host snapshot, Iris had `mode: auto` with
 `endpoint: https://api.typesafe.ai/v1/systemone`. Its plugin settings currently contain no
 `scorer_provider`, `cloudflare_account_id`, or `cloudflare_model`; the effective scorer is Jev.
 Because the live mode is `auto`, its task text is sent to Jev for scoring. OpenRouter requires
@@ -192,7 +194,7 @@ or restart before they import changed Python modules.
 
 ## 6. Architecture invariants — do not break these
 
-1. **Default mode is `auto`.** `off` / `recommend` (classify, rewrite nothing) / `auto`
+1. **Default mode is `off`.** `off` (no scorer call or request change; bounded route metadata may be retained for the Desktop popup) / `recommend` (classify, rewrite nothing) / `auto`
    (rewrite existing fields and inject on verified or operator-listed exact models) / `cache_safe`
    (per-turn where cache-neutral, else session-pinned) / `inject` (legacy cache-safe
    injection mode).
