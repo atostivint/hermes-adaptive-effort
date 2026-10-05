@@ -33,7 +33,8 @@ The Windows test runner discovers the Hermes source tree from `HERMES_SOURCE_ROO
   desktop/plugin.js        desktop half: effort chip, pane, change toasts, palette (opt-in)
 tests/                    217 tests, one module per contract
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh (+ .ps1 for Windows)
-pyproject.toml            pytest + ruff configuration
+pytest.ini                pytest configuration
+ruff.toml                 Ruff configuration
 requirements-dev.txt      test/lint pins (pytest 9.1.1, ruamel.yaml 0.19.1, ruff 0.16.9)
 docs/                     design, runtime contracts, development and historical reviews
 ```
@@ -63,7 +64,7 @@ Test modules, by contract:
 
 ```bash
 ./scripts/run_tests.sh          # the invocation that works, with the interpreter that works
-./scripts/run_lint.sh           # ruff, configured in pyproject.toml
+./scripts/run_lint.sh           # ruff, configured in ruff.toml
 ```
 
 `scripts/run_tests.sh` runs `.venv/bin/python -m pytest tests`, i.e. **the project venv**,

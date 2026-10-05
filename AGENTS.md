@@ -23,7 +23,8 @@ of a request. Fail-open by contract: any error leaves the request untouched.
   desktop/                optional Desktop extension
 tests/                    one module per contract (see docs/DEVELOPMENT.md table)
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh
-pyproject.toml            pytest + ruff config only — no [project] table on purpose
+pytest.ini                pytest config; no Python package metadata
+ruff.toml                 Ruff config; no Python package metadata
 requirements-dev.txt      pytest==9.1.1, ruamel.yaml==0.19.1, ruff==0.16.9
 docs/                     design, contracts, development, dated reviews + operator handoff
 ```
@@ -47,12 +48,13 @@ Windows PowerShell equivalents:
 - Always use `.venv/bin/python` — it has the Hermes source tree (`agent/`, `hermes_cli/` from `/usr/local/lib/hermes-agent`, `HERMES_SOURCE_ROOT` override) on `sys.path` via `tests/conftest.py`.
 - Never `pip install` the payload itself; there is nothing distributable.
 
-## Config: pyproject.toml
+## Tool configuration
 
 - `target-version = "py310"`, `line-length = 100`.
 - Ruff: `select = ["E","F","W","B"]`, `ignore = ["E501"]`. `I` (import sort) is intentionally OFF — do not reorder imports.
 - `E501` ignored: long prose lines (docstrings, usage banner, reason strings) stay unwrapped.
 - Pytest: `testpaths = ["tests"]`, `addopts = "-ra"`.
+- Keep tool configuration out of `pyproject.toml`: Hermes treats any root `pyproject.toml` as a managed Python runtime member, even without `[project]` dependencies. This plugin runs in Hermes' host runtime and is not a pip package.
 
 ## Architecture invariants (do not break)
 

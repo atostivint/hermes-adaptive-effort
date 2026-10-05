@@ -80,7 +80,8 @@ def dispatched(tmp_path_factory):
         PLUGIN_DIR, home / "plugins" / "hermes-adaptive-effort",
         ignore=shutil.ignore_patterns(
             "__pycache__", ".git", ".github", ".venv", ".worktrees", "AGENTS.md",
-            "docs", "pyproject.toml", "README.md", "requirements*.txt", "scripts", "tests",
+            "docs", "pytest.ini", "ruff.toml", "README.md",
+            "requirements*.txt", "scripts", "tests",
         ),
     )
     bundled = home / "bundled_plugins"

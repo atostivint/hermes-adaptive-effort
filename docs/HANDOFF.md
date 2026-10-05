@@ -311,9 +311,11 @@ plugin is disabled, or the dashboard half is not deployed), the chip correctly s
 
 * Always use `.venv/bin/python`: it has the Hermes source tree on `sys.path` via
   `tests/conftest.py`. Never `pip install` the payload.
-* `pyproject.toml`: `target-version = "py310"`, `line-length = 100`,
+* `ruff.toml`: `target-version = "py310"`, `line-length = 100`,
   `select = ["E","F","W","B"]`, `ignore = ["E501"]`. Import sorting (`I`) is
   intentionally **off** — do not reorder imports.
+* Keep tool config out of `pyproject.toml`: Hermes treats its presence as a managed
+  Python runtime declaration, even when it has no `[project]` dependencies.
 * Tests import the payload as `hermes_plugin_adaptive_effort.<stem>`; inject fakes through
   `_classifier_factory` or the client's `transport=` / `key_reader=`, never real HTTP.
 * `hermetic_plugin_settings` is autouse: `_config_reader` returns `{}`,

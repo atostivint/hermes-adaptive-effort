@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lint the payload and the tests with the pinned ruff (rules live in pyproject.toml).
+# Lint the payload and the tests with the pinned ruff (rules live in ruff.toml).
 #
 # Usage:  ./scripts/run_lint.sh [extra ruff args...]
 set -euo pipefail

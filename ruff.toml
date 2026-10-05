@@ -1,0 +1,10 @@
+# This repository root is installed as a Hermes plugin, not as a Python package.
+target-version = "py310"
+line-length = 100
+extend-exclude = [".venv"]
+
+[lint]
+# Ruff's default E4/E7/E9 and F rules plus checks that catch likely defects.
+select = ["E", "F", "W", "B"]
+# Import sorting is intentionally off; E501 preserves reviewed prose and reason strings.
+ignore = ["E501"]
