@@ -31,7 +31,7 @@ The Windows test runner discovers the Hermes source tree from `HERMES_SOURCE_ROO
   command.py               /hae: help, status, probe, mode verbs
   dashboard/               backend: GET /status, GET /changes, POST /mode, POST /probe
   desktop/plugin.js        desktop half: effort chip, pane, change toasts, palette (opt-in)
-tests/                    380 tests, one module per contract
+tests/                    385 tests, one module per contract
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh (+ .ps1 for Windows)
 pytest.ini                pytest configuration
 ruff.toml                 Ruff configuration
@@ -43,22 +43,24 @@ Test modules, by contract:
 
 | module | tests | contract |
 | --- | --- | --- |
-| `test_middleware.py` | 36 | settings, scorer selection, gating, rewrites, applied-change feed |
-| `test_subagent.py` | 17 | child routing, child goals, inheritance |
+| `test_middleware.py` | 150 | settings, scorer selection, gating, rewrites, applied-change feed |
+| `test_subagent.py` | 18 | child routing, child goals, inheritance |
 | `test_jev_client.py` | 18 | transport, credential probe, failure modes, endpoint normalization |
-| `test_command.py` | 23 | `/hae` rendering, schemas, scorer/route identity, no prompt leak |
+| `test_command.py` | 24 | `/hae` rendering, schemas, scorer/route identity, no prompt leak |
 | `test_cache_safety.py` | 11 | cache-neutral vs cache-hostile routes |
-| `test_command_modes.py` | 10 | the `off`/`recommend`/`auto`/`cache_safe` verbs |
+| `test_command_modes.py` | 11 | the `off`/`recommend`/`auto`/`cache_safe` verbs |
 | `test_turn_scope.py` | 14 | the `(session_id, turn_id)` decision key, current prompt selection with full history |
 | `test_review_fixes.py` | 8 | regressions found by the 2026-09-29 review |
 | `test_decision_cache.py` | 7 | route-tagged decisions, re-clamp, telemetry |
-| `test_effort.py` | 6 | score thresholds, clamping, overrides |
+| `test_effort.py` | 26 | score thresholds, clamping, overrides |
+| `test_cloudflare_client.py` | 19 | REST construction, account validation, strict scores, credentials and fail-open errors |
+| `test_custom_client.py` | 24 | custom System One and Chat Completions transports, validation and failures |
 | `test_dispatcher_integration.py` | 6 | through Hermes' own plugin manager + middleware |
 | `test_plugin_registration.py` | 4 | manifest, `register()` contract |
-| `test_config_schema.py` | 5 | `config_schema` keys/types/defaults and scorer selection match middleware |
-| `test_plugin_api.py` | 12 | dashboard backend (status/mode/probe/changes, no prompt leak) + desktop static contract |
+| `test_config_schema.py` | 6 | `config_schema` keys/types/defaults and scorer selection match middleware |
+| `test_plugin_api.py` | 13 | dashboard backend (status/mode/probe/changes, no prompt leak) + desktop static contract |
 | `test_openrouter_client.py` | 15 | bounded OpenRouter request, strict scores, credentials, and fail-open errors |
-| `test_scorers.py` | 6 | Jev default and explicit provider selection without cross-provider fallback |
+| `test_scorers.py` | 8 | Jev default and explicit provider selection without cross-provider fallback |
 | `test_rubric.py` | 3 | shared effort rubric, fixed score contract and bounded operator guidance |
 
 ## Running the tests
@@ -99,8 +101,6 @@ real path:
    replaying a stale level;
 4. a classifier failure fails open, costs one probe, and is not retried in the turn;
 5. a request with no writable effort field is reported `unsupported` with no scorer call;
-6. `off` exercises nothing (no rewrite, no scorer call).
+6. `off` records bounded route metadata without rewriting or scoring.
 
 It runs in `./scripts/run_tests.sh`; it is never skipped there.
-
-Cloudflare adds `test_cloudflare_client.py` (19 tests): fixed REST construction, account validation, strict scores, credentials and fail-open errors.

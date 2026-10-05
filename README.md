@@ -214,6 +214,7 @@ The repository root is the Hermes plugin payload. This is a Hermes plugin, not a
 | --- | --- |
 | `off` (default) | No scoring or request changes; bounded route metadata may still appear in the Desktop popup |
 | `recommend` | Score the task and report the target; keep the original effort |
+| `auto` | Score each user turn, rewrite an existing effort field, or inject on an exact verified model route when it is absent |
 | `cache_safe` | Score per turn on recognized cache-neutral routes; otherwise reuse a session decision while cached |
 | `inject` | Compatibility mode: cache-safe policy plus exact-route injection |
 
@@ -233,7 +234,7 @@ Installing and enabling the plugin registers its request middleware and session 
 
 When Hermes prepares a model request after a new user instruction, the plugin:
 
-1. Checks the configured mode and the independent subagent gate. With `off`, it records only bounded route/status metadata for the Desktop popup, then returns without scoring or changing the request. `recommend` scores but never rewrites.
+1. Checks the configured mode. With `off`, it records only bounded route/status metadata for the Desktop popup, then returns without scoring or changing the request. For other modes, the independent subagent gate is also checked; `recommend` scores but never rewrites.
 2. Reads the latest user message from that request, not the opening message or the whole conversation. It first checks whether the route and request contain a supported writable effort field (or an exact verified injection route in `auto`/`inject`). Unsupported routes make no scorer call.
 3. Makes one request to the selected scorer for that user turn, sending the bounded latest-user-text excerpt plus optional operator guidance. The `prompt_chars` setting caps the user text at 4,000 characters by default; custom guidance is separately capped at 2,000 characters. During a tool loop, the same decision is reused instead of scoring every model request again.
 4. Converts a valid score from `0` to `2` into `low` (< `0.5`), `medium` (< `1.5`) or `high`, then clamps that label to the effort values supported by the current route.
@@ -325,7 +326,7 @@ If you used `jev-auto-effort`, install the new payload, move your old settings f
 - [Documentation index](docs/README.md): current references and dated review history.
 - [Operator handoff](docs/HANDOFF.md): the recorded Iris/Windows rollout and unresolved operational items.
 
-The Windows suite most recently passed 380 tests, including real Hermes plugin discovery/dispatcher integration. Tests use fake scorer transports and block network access. See the development guide to reproduce them.
+At revision `7ad378a`, the full network-free suite passed on Iris (Linux, Python 3.13.5): **385 tests**, including real Hermes plugin discovery and dispatcher integration. Tests use fake scorer transports and block network access. See the development guide to reproduce them.
 
 ### Exact-route effort injection
 

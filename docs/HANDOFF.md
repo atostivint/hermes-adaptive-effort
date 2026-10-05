@@ -1,6 +1,6 @@
 # Handoff — `hermes-adaptive-effort`
 
-**Operator snapshot, recorded 2026-10-03.** Start with [README](../README.md) for user guidance, [runtime contracts](CONTRACTS.md) for behavior, [design choices](DESIGN.md) for rationale and [development](DEVELOPMENT.md) for contributor setup. Historical evidence is indexed in [docs/README.md](README.md).
+**Operator snapshot, updated 2026-10-06.** Start with [README](../README.md) for user guidance, [runtime contracts](CONTRACTS.md) for behavior, [design choices](DESIGN.md) for rationale and [development](DEVELOPMENT.md) for contributor setup. Historical evidence is indexed in [docs/README.md](README.md).
 
 This file is the single entry point for an agent picking the work up cold. It states
 what the project is, what is verified today, what is *not* finished, and recorded operational gaps. Host state below is dated evidence, not a fresh health check.
@@ -16,6 +16,18 @@ hermes plugins install 'atostivint/hermes-adaptive-effort' --enable
 The former `#hermes-adaptive-effort` suffix selected the old nested payload directory. Root installation keeps the Git checkout available for `hermes plugins update` and provenance checks.
 
 Use `/hae` for the plugin's status, probe and mode commands.
+
+## Current source verification (2026-10-06)
+
+The repository's remote default branch is `master` (there is no `main` branch). Commit
+`7ad378a` is pushed there and includes the compatible route-indicator work from
+`feat/effort-bubble-route-info`; the main mode still defaults to `off`, and `/hae` is the
+only registered slash command. The off mode can retain bounded provider/model/API-mode
+metadata for the Desktop popup, without a scorer call or request change.
+
+The full suite was run from an isolated temporary checkout on Iris at `7ad378a` and passed:
+**385 tests**, including the real Hermes dispatcher integration. The checkout was not the
+active plugin installation; no live plugin, config, or gateway changes were made.
 
 ---
 
