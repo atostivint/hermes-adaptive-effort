@@ -20,14 +20,17 @@ Use `/hae` for the plugin's status, probe and mode commands.
 ## Current source verification (2026-10-06)
 
 The repository's remote default branch is `master` (there is no `main` branch). Commit
-`7ad378a` is pushed there and includes the compatible route-indicator work from
-`feat/effort-bubble-route-info`; the main mode still defaults to `off`, and `/hae` is the
-only registered slash command. The off mode can retain bounded provider/model/API-mode
-metadata for the Desktop popup, without a scorer call or request change.
+`f537e70` is pushed there and adds the configurable Jev model (`jev_model`, default
+`jev-latest`) plus clearer provider-prefixed Desktop setting labels. The main mode still
+defaults to `off`, and `/hae` is the only registered slash command. The off mode can retain
+bounded provider/model/API-mode metadata for the Desktop popup, without a scorer call or
+request change.
 
-The full suite was run from an isolated temporary checkout on Iris at `7ad378a` and passed:
-**385 tests**, including the real Hermes dispatcher integration. The checkout was not the
-active plugin installation; no live plugin, config, or gateway changes were made.
+The full suite passed on Windows (**387 tests**) and on Iris (**387 tests**, including the
+real Hermes dispatcher integration); Ruff passed on both. Iris ran the commit from an
+isolated temporary checkout. A separate read-only check found the active plugin checkout
+still at `616e077`; the new source was **not deployed**, and no live plugin, config, or
+gateway changes were made.
 
 ---
 
@@ -167,9 +170,10 @@ hermes plugins install 'atostivint/hermes-adaptive-effort' --enable
 
 ## 3. Live configuration
 
-The unset mode remains `off` in this source revision. This task tested the source from a
-temporary checkout on Iris; it did not deploy the changes or alter live config. At the last
-recorded host snapshot, Iris had `mode: auto` with
+The unset mode remains `off` in this source revision. At the 2026-10-06 verification, the
+active plugin checkout on Iris was still at `616e077`; commit `f537e70` was tested from a
+temporary checkout and was not deployed. No live config or gateway changes were made. At the
+last recorded host snapshot, Iris had `mode: auto` with
 `endpoint: https://api.typesafe.ai/v1/systemone`. Its plugin settings currently contain no
 `scorer_provider`, `cloudflare_account_id`, or `cloudflare_model`; the effective scorer is Jev.
 Because the live mode is `auto`, its task text is sent to Jev for scoring. OpenRouter requires
