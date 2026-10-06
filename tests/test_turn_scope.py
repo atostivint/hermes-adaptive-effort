@@ -79,6 +79,14 @@ def turn_request(text="Design a failover plan", effort="medium"):
     }
 
 
+def codex_turn_request(text="Design a failover plan", effort="medium"):
+    return {
+        "model": "gpt-6.1-sol",
+        "input": [{"role": "user", "content": [{"type": "input_text", "text": text}]}],
+        "reasoning": {"effort": effort, "summary": "auto"},
+    }
+
+
 def ask(monkeypatch, text, turn, session="MAIN", score=1.0):
     """One user turn, one API request (the common case)."""
     seq = ScoreSequence([score])
@@ -91,29 +99,29 @@ def ask(monkeypatch, text, turn, session="MAIN", score=1.0):
     return out, req, seq
 
 
-# ── the bug: a trivial first query must not freeze the session ───────────────
+# ── a verified dynamic route must reclassify each new user turn ─────────────
 
 def test_second_turn_is_reclassified(monkeypatch):
     use_settings(monkeypatch, mode="auto")
     monkeypatch.setattr(middleware, "_classifier_factory", ScoreSequence([0.1, 1.9]))
 
-    req1 = turn_request("hey")
+    req1 = codex_turn_request("hey")
     out1 = middleware.on_llm_request(
-        request=req1, session_id="MAIN", provider="openrouter", model="openrouter/x/y",
-        api_mode="chat_completions", task_id="t", turn_id="t1", api_request_id="r1",
+        request=req1, session_id="MAIN", provider="openai-codex", model="gpt-6.1-sol",
+        api_mode="codex_responses", task_id="t", turn_id="t1", api_request_id="r1",
         api_call_count=1, middleware_schema_version="hermes.middleware.v1")
-    assert out1["request"]["extra_body"]["reasoning"]["effort"] == "low"
+    assert middleware._effort_slot(out1["request"])[2] == "low"
 
-    req2 = turn_request("Redesign multi-region failover with quorum consensus")
+    req2 = codex_turn_request("Redesign multi-region failover with quorum consensus")
     out2 = middleware.on_llm_request(
-        request=req2, session_id="MAIN", provider="openrouter", model="openrouter/x/y",
-        api_mode="chat_completions", task_id="t", turn_id="t2", api_request_id="r2",
+        request=req2, session_id="MAIN", provider="openai-codex", model="gpt-6.1-sol",
+        api_mode="codex_responses", task_id="t", turn_id="t2", api_request_id="r2",
         api_call_count=1, middleware_schema_version="hermes.middleware.v1")
     assert out2 is not None
-    assert out2["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    assert middleware._effort_slot(out2["request"])[2] == "high"
 
 
-@pytest.mark.parametrize("mode", ["auto", "cache_safe"])
+@pytest.mark.parametrize("mode", ["always"])
 @pytest.mark.parametrize("shape", ["extra_body", "reasoning_effort", "codex_input"])
 def test_full_history_classifies_current_turn_and_reuses_it_in_tool_loop(monkeypatch, mode, shape):
     use_settings(monkeypatch, mode=mode)
@@ -161,7 +169,7 @@ def test_full_history_classifies_current_turn_and_reuses_it_in_tool_loop(monkeyp
 
 def test_same_turn_tool_loop_keeps_one_decision(monkeypatch):
     """api_call_count>1 within a turn = tool loop: one probe, not one per call."""
-    use_settings(monkeypatch, mode="auto")
+    use_settings(monkeypatch, mode="always")
     seq = ScoreSequence([1.9])
     monkeypatch.setattr(middleware, "_classifier_factory", seq)
 
@@ -198,7 +206,7 @@ def test_subagent_still_costs_one_call(monkeypatch):
 
 def test_turn_id_isolates_concurrent_sessions(monkeypatch):
     """Same turn_id in two sessions must not share a decision."""
-    use_settings(monkeypatch, mode="auto")
+    use_settings(monkeypatch, mode="always")
     # A/t1 and B/t1 each classify (two calls, both "low"); A/t2 is a new turn.
     monkeypatch.setattr(middleware, "_classifier_factory", ScoreSequence([0.1, 0.1, 1.9]))
 
@@ -246,7 +254,7 @@ def test_state_key_carries_the_turn(monkeypatch):
 
 
 def test_turn_bound_evicts_oldest_turn(monkeypatch):
-    use_settings(monkeypatch, mode="auto", max_turns=2)
+    use_settings(monkeypatch, mode="always", max_turns=2)
     monkeypatch.setattr(middleware, "_classifier_factory", ScoreSequence([1.9] * 6))
     for index in range(4):
         req = turn_request(f"task {index}")
@@ -266,7 +274,7 @@ def test_turn_bound_does_not_count_subagent_registry(monkeypatch):
     burst of subagents cannot evict live decisions, and old decisions cannot
     unregister a running child.
     """
-    use_settings(monkeypatch, mode="auto", subagent_mode="auto", max_turns=5)
+    use_settings(monkeypatch, mode="always", subagent_mode="always", max_turns=5)
     monkeypatch.setattr(middleware, "_classifier_factory", ScoreSequence([1.9] * 8))
     for index in range(3):
         middleware.on_subagent_start(

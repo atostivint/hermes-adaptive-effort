@@ -79,8 +79,8 @@ def dispatched(tmp_path_factory):
     shutil.copytree(
         PLUGIN_DIR, home / "plugins" / "hermes-adaptive-effort",
         ignore=shutil.ignore_patterns(
-            "__pycache__", ".git", ".github", ".venv", ".worktrees",
-            ".pytest_cache", ".ruff_cache", "AGENTS.md",
+                "__pycache__", ".git", ".github", ".venv", ".worktrees",
+                ".pytest_cache", ".ruff_cache", ".local-scorer", "AGENTS.md",
             "docs", "pytest.ini", "ruff.toml", "README.md",
             "requirements*.txt", "scripts", "tests",
         ),
@@ -166,7 +166,7 @@ def test_real_dispatcher_discovers_registers_and_rewrites(dispatched, no_network
     assert payload["mode"] == "auto"
     assert payload["counts"]["sessions"] == 1
     assert payload["counts"]["in_flight"] == 0
-    assert payload["last"]["session_id"] == "sess-int-1"
+    assert payload["last"]["conversation_id"] == "sess-int-1"
     assert payload["last"]["target"] == "high"
     assert payload["last"]["score"] == pytest.approx(1.9)
 

@@ -104,10 +104,10 @@ def test_status_json_returns_the_documented_payload():
     payload = json.loads(command.handle("status json"))
     assert payload["schema"] == "hermes-adaptive-effort.status.v1"
     assert payload["plugin"] == "hermes-adaptive-effort"
-    assert payload["mode"] in ("off", "recommend", "auto")
+    assert payload["mode"] in ("auto", "once", "always", "off")
     for key in ("settings", "credential", "counts", "sessions", "last"):
         assert key in payload
-    assert payload["settings"]["force_injection_models"] == []
+    assert payload["settings"]["effort_models"] == []
 
 
 def test_status_reports_selected_scorer_and_active_endpoint(monkeypatch):
@@ -165,13 +165,10 @@ def test_cloudflare_status_and_probe_show_only_safe_provider_details(monkeypatch
     assert middleware.session_state() == {}
 
 
-@pytest.mark.parametrize("api_mode, expected", [
-    ("chat_completions", "cache-safe on chat_completions"),
-    ("codex_responses", "cache-safe on codex_responses"),
-    ("anthropic_messages", "cache-hostile on anthropic_messages"),
-    (None, "unknown route (no api_mode)"),
+@pytest.mark.parametrize("api_mode", [
+    "chat_completions", "codex_responses", "anthropic_messages", None,
 ])
-def test_status_cache_safety_uses_last_observed_route(monkeypatch, api_mode, expected):
+def test_status_shows_route_without_public_cache_modes(monkeypatch, api_mode):
     monkeypatch.setattr(middleware, "_settings_provider",
                         lambda key, default=None: {"mode": "auto"}.get(key, default))
     # No effort field: even unsupported requests must report the actual route.
@@ -180,8 +177,8 @@ def test_status_cache_safety_uses_last_observed_route(monkeypatch, api_mode, exp
         session_id="MAIN", turn_id="turn", provider="example", model="model", api_mode=api_mode)
     payload = json.loads(command.handle("status json"))
     assert payload["last"]["api_mode"] == api_mode
-    assert payload["cache_safety"].startswith(expected)
-    assert f"cache safety: {expected}" in command.handle("status")
+    assert "cache_safety" not in payload
+    assert "cache safety" not in command.handle("status")
 
 
 def test_status_json_reports_last_score_target_timing_and_failure(monkeypatch):
@@ -209,7 +206,7 @@ def test_status_json_reports_last_score_target_timing_and_failure(monkeypatch):
 
 def test_status_json_exposes_exact_conversation_identity_for_turn_entries(monkeypatch):
     monkeypatch.setattr(middleware, "_settings_provider",
-                        lambda key, default=None: {"mode": "recommend"}.get(key, default))
+                        lambda key, default=None: {"mode": "auto"}.get(key, default))
     middleware.reset_state()
     middleware.on_llm_request(
         request={"messages": [{"role": "user", "content": "hello"}]},

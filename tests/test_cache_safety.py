@@ -1,11 +1,9 @@
-"""Cache-safety detection for effort rewrites.
+"""Transport cache-safety checks and the four effort-mode decision scopes.
 
-Turning a router on is "cache-hostile by design" (see the
-prompt-cache-safety-review skill), so the safe default is a mode that pins the
-effort for the whole conversation and only moves it when the route is verified
-to keep the cache across an effort change.
-
-The distinction is empirical, not folklore:
+The transport verdict is one input to the exact dynamic-capability registry.
+`auto` uses per-turn decisions only when both route-level control support and
+transport evidence are present; other modes select their scopes independently.
+The transport distinction is empirical, not folklore:
 
 * On ``codex_responses`` the effort is a top-level request field, never rendered
   into the prompt text, and ``prompt_cache_key`` is byte-identical for ``low``
@@ -21,6 +19,8 @@ request, and every entry has a test that names the evidence it rests on.
 """
 
 from __future__ import annotations
+
+import threading
 
 import pytest
 
@@ -119,78 +119,249 @@ def test_unknown_route_is_not_cache_safe():
                                       api_mode="something_new") is False
 
 
-# ── per-turn mode: only on a cache-safe route ────────────────────────────────
+# ── the four modes and their decision scopes ─────────────────────────────────
 
-def test_cache_safe_mode_routes_every_turn(monkeypatch):
-    use_settings(monkeypatch, mode="cache_safe")
-    monkeypatch.setattr(middleware, "_classifier_factory", ScoreSequence([0.1, 1.9]))
+def test_auto_is_dynamic_only_for_explicitly_verified_routes():
+    assert middleware._dynamic_effort_route(
+        "openai-codex", "gpt-6.1-sol", "codex_responses") is True
+    assert middleware._dynamic_effort_route(
+        "openai-codex", "gpt-5.6-terra", "codex_responses") is False
+    assert middleware._dynamic_effort_route(
+        "opencode-go", "deepseek-v4-pro", "chat_completions") is True
+    assert middleware._dynamic_effort_route(
+        "opencode-go", "unknown-go-model", "chat_completions") is False
+    # An operator's field-support assertion permits insertion, not dynamic mode.
+    assert middleware._dynamic_effort_route(
+        "openrouter", "manual-model", "chat_completions") is False
 
-    first = codex_request()
-    out1 = ask(monkeypatch, first, "t1")
-    assert out1["request"]["reasoning"]["effort"] == "low"
 
-    second = codex_request()
-    out2 = ask(monkeypatch, second, "t2")
-    assert out2 is not None
-    assert out2["request"]["reasoning"]["effort"] == "high"
+def test_auto_reclassifies_each_turn_on_verified_dynamic_route(monkeypatch):
+    use_settings(monkeypatch, mode="auto")
+    seq = ScoreSequence([0.1, 1.9])
+    monkeypatch.setattr(middleware, "_classifier_factory", seq)
+    for turn, expected in (("t1", "low"), ("t2", "high")):
+        out = ask(monkeypatch, codex_request(), turn, provider="openai-codex",
+                  model="gpt-6.1-sol", api_mode="codex_responses")
+        assert out["request"]["reasoning"]["effort"] == expected
+    assert len(seq.calls) == 2
 
 
-def test_cache_safe_mode_pins_the_session_on_an_unsafe_route(monkeypatch):
-    """Unsafe route: the first decision stands for the whole conversation.
-
-    The first turn is still routed (that is the point of the mode); it is every
-    LATER turn that reuses it, so exactly one scorer call covers the session.
-    """
-    use_settings(monkeypatch, mode="cache_safe")
+@pytest.mark.parametrize("mode", ["auto", "once", "always", "off"])
+@pytest.mark.parametrize("route_kind", ["verified", "unknown"])
+def test_four_modes_across_verified_and_unknown_routes(monkeypatch, mode, route_kind):
+    use_settings(monkeypatch, mode=mode)
     seq = ScoreSequence([0.1, 1.9])
     monkeypatch.setattr(middleware, "_classifier_factory", seq)
 
-    first = chat_request()
-    out1 = ask(monkeypatch, first, "t1", provider="anthropic", model="claude-opus-5",
-               api_mode="anthropic_messages")
-    assert out1["request"]["extra_body"]["reasoning"]["effort"] == "low"
+    def read_effort(output):
+        return middleware._effort_slot(output["request"])[2]
 
-    # Turn 2 would classify "high" if it were re-classified: it must reuse the
-    # pinned "low" instead. Rewriting to the same level is idempotent on the
-    # wire — the prefix is identical either way, which is the point of pinning.
-    second = chat_request()
-    out2 = ask(monkeypatch, second, "t2", provider="anthropic", model="claude-opus-5",
-               api_mode="anthropic_messages")
-    assert len(seq.calls) == 1
-    assert out2 is not None
-    assert out2["request"]["extra_body"]["reasoning"]["effort"] == "low"
-    assert list(middleware.session_state()) == ["MAIN"]   # pinned to the session
+    if route_kind == "verified":
+        provider, model, api_mode = "openai-codex", "gpt-6.1-sol", "codex_responses"
+        request = codex_request("medium")
+    else:
+        provider, model, api_mode = "openrouter", "openrouter/x/y", "chat_completions"
+        request = chat_request("medium")
+
+    outputs = [
+        ask(monkeypatch, request, turn, provider=provider, model=model, api_mode=api_mode)
+        for turn in ("t1", "t2")
+    ]
+    if mode == "off":
+        assert outputs == [None, None]
+        assert seq.calls == []
+        return
+
+    values = [read_effort(output) for output in outputs]
+    if mode == "once":
+        assert values == ["low", "low"]
+        assert len(seq.calls) == 1
+    elif mode == "always" or (mode == "auto" and route_kind == "verified"):
+        assert values == ["low", "high"]
+        assert len(seq.calls) == 2
+    else:
+        assert values == ["low", "low"]
+        assert len(seq.calls) == 1
 
 
-def test_cache_safe_mode_falls_back_to_session_pinning_when_route_unknown(monkeypatch):
-    use_settings(monkeypatch, mode="cache_safe")
+def test_auto_pins_one_decision_per_unverified_route(monkeypatch):
+    use_settings(monkeypatch, mode="auto")
     seq = ScoreSequence([1.9, 0.1])
     monkeypatch.setattr(middleware, "_classifier_factory", seq)
-    first = chat_request()
-    out1 = ask(monkeypatch, first, "t1", provider="who-knows", model="x",
-               api_mode="something_new")
-    assert out1["request"]["extra_body"]["reasoning"]["effort"] == "high"
-    # Turn 2 would flip to "low" if re-classified: an unknown route must not.
-    out = ask(monkeypatch, chat_request(), "t2", provider="who-knows", model="x",
-              api_mode="something_new")
+    for turn in ("t1", "t2"):
+        out = ask(monkeypatch, chat_request(), turn, provider="openrouter",
+                  model="openrouter/x/y", api_mode="chat_completions")
+        assert out["request"]["extra_body"]["reasoning"]["effort"] == "high"
     assert len(seq.calls) == 1
-    assert out is not None
-    assert out["request"]["extra_body"]["reasoning"]["effort"] == "high"
-    assert list(middleware.session_state()) == ["MAIN"]
+    out = ask(monkeypatch, chat_request(), "t3", provider="openrouter",
+              model="openrouter/x/z", api_mode="chat_completions")
+    assert out["request"]["extra_body"]["reasoning"]["effort"] == "low"
+    assert len(seq.calls) == 2
 
 
-# ── the three modes coexist ──────────────────────────────────────────────────
+def test_once_reuses_route_pins_and_normalizes_provider_aliases(monkeypatch):
+    use_settings(monkeypatch, mode="once")
+    seq = ScoreSequence([0.1, 1.9])
+    monkeypatch.setattr(middleware, "_classifier_factory", seq)
+    req = codex_request()
+    for turn, provider in (("t1", "opencode"), ("t2", "opencode-zen")):
+        out = ask(monkeypatch, req, turn, provider=provider,
+                  model="muse-spark-1.3", api_mode="codex_responses")
+        assert out["request"]["reasoning"]["effort"] == "low"
+    assert len(seq.calls) == 1
 
-def test_auto_still_routes_every_turn_on_any_route(monkeypatch):
-    """`auto` is the explicit opt-in: per-turn, whatever the route."""
+
+def test_once_reevaluates_new_model_and_reuses_prior_model(monkeypatch):
+    use_settings(monkeypatch, mode="once")
+    seq = ScoreSequence([0.1, 1.9])
+    monkeypatch.setattr(middleware, "_classifier_factory", seq)
+    for turn, model, expected in (
+        ("t1", "model-a", "low"), ("t2", "model-b", "high"),
+        ("t3", "model-a", "low"),
+    ):
+        out = ask(monkeypatch, chat_request(), turn, provider="openrouter",
+                  model=model, api_mode="chat_completions")
+        assert out["request"]["extra_body"]["reasoning"]["effort"] == expected
+    assert len(seq.calls) == 2
+
+
+def test_once_route_identity_includes_provider_and_api_mode(monkeypatch):
+    use_settings(monkeypatch, mode="once")
+    seq = ScoreSequence([0.1, 1.9, 1.0])
+    monkeypatch.setattr(middleware, "_classifier_factory", seq)
+    routes = (
+        ("t1", "openrouter", "chat_completions", "low"),
+        ("t2", "custom-endpoint", "chat_completions", "high"),
+        ("t3", "openrouter", "anthropic_messages", "medium"),
+        ("t4", "openrouter", "chat_completions", "low"),
+    )
+    for turn, provider, api_mode, expected in routes:
+        out = ask(monkeypatch, chat_request("max"), turn, provider=provider,
+                  model="openrouter/x/y", api_mode=api_mode)
+        assert out["request"]["extra_body"]["reasoning"]["effort"] == expected
+    assert len(seq.calls) == 3
+
+
+def test_route_change_inside_once_turn_prefers_this_turn_label_over_old_pin(monkeypatch):
     use_settings(monkeypatch, mode="auto")
-    monkeypatch.setattr(middleware, "_classifier_factory", ScoreSequence([0.1, 1.9]))
-    ask(monkeypatch, chat_request(), "t1", provider="anthropic", model="claude-opus-5",
-        api_mode="anthropic_messages")
-    second = chat_request()
-    out = ask(monkeypatch, second, "t2", provider="anthropic", model="claude-opus-5",
-              api_mode="anthropic_messages")
-    assert out["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    seq = ScoreSequence([0.1, 1.0])
+    monkeypatch.setattr(middleware, "_classifier_factory", seq)
+
+    # Retain a low decision for Kimi K3, then classify a later task dynamically
+    # on Codex. Returning to K3 in that same tool loop must re-clamp this turn's
+    # medium label to K3's high tier rather than replaying its older low pin.
+    first = ask(monkeypatch, chat_request("medium"), "t0", provider="openrouter",
+                model="moonshot/kimi-k3", api_mode="chat_completions")
+    assert first["request"]["extra_body"]["reasoning"]["effort"] == "low"
+    ask(monkeypatch, codex_request("low"), "t1", provider="openai-codex",
+        model="gpt-6.1-sol", api_mode="codex_responses")
+    returned = ask(monkeypatch, chat_request("low"), "t1", provider="openrouter",
+                    model="moonshot/kimi-k3", api_mode="chat_completions")
+    assert returned["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    assert len(seq.calls) == 2
+
+    # A later turn returns to the retained route decision from t0.
+    next_turn = ask(monkeypatch, chat_request("medium"), "t2", provider="openrouter",
+                    model="moonshot/kimi-k3", api_mode="chat_completions")
+    assert next_turn["request"]["extra_body"]["reasoning"]["effort"] == "low"
+    assert len(seq.calls) == 2
+
+
+def test_reset_and_new_session_start_independent_once_decisions(monkeypatch):
+    use_settings(monkeypatch, mode="once")
+    seq = ScoreSequence([0.1, 1.9, 1.0])
+    monkeypatch.setattr(middleware, "_classifier_factory", seq)
+    first = ask(monkeypatch, chat_request("max"), "t1", session="SESSION-A")
+    other_session = ask(monkeypatch, chat_request("max"), "t1", session="SESSION-B")
+    assert first["request"]["extra_body"]["reasoning"]["effort"] == "low"
+    assert other_session["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    middleware.reset_state()
+    after_reset = ask(monkeypatch, chat_request("max"), "t2", session="SESSION-A")
+    assert after_reset["request"]["extra_body"]["reasoning"]["effort"] == "medium"
+    assert len(seq.calls) == 3
+
+
+def test_turn_and_route_ledgers_have_separate_max_turns_bounds(monkeypatch):
+    use_settings(monkeypatch, mode="once", max_turns=1)
+    seq = ScoreSequence([0.1, 1.9])
+    monkeypatch.setattr(middleware, "_classifier_factory", seq)
+    ask(monkeypatch, chat_request(), "t1", model="model-a")
+    ask(monkeypatch, chat_request(), "t2", model="model-b")
+    state = middleware.session_state()
+    assert sum(entry.get("scope") == "turn" for entry in state.values()) == 1
+    assert sum(entry.get("scope") == "session_route" for entry in state.values()) == 1
+    assert len(seq.calls) == 2
+
+
+def test_concurrent_route_change_cannot_make_second_scorer_call(monkeypatch):
+    use_settings(monkeypatch, mode="auto")
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    class BlockingClassifier:
+        def classify_detail(self, prompt):
+            calls.append(prompt)
+            started.set()
+            assert release.wait(5)
+            return 1.0, None
+
+    monkeypatch.setattr(middleware, "_classifier_factory", lambda **kwargs: BlockingClassifier())
+    results = []
+    worker = threading.Thread(target=lambda: results.append(
+        ask(monkeypatch, chat_request("low"), "shared-turn", model="model-a")))
+    worker.start()
+    assert started.wait(5)
+    # A different persistent route overlaps the in-flight turn classification.
+    assert ask(monkeypatch, chat_request("low"), "shared-turn", model="model-b") is None
+    release.set()
+    worker.join(5)
+    assert not worker.is_alive()
+    assert len(calls) == 1
+    # Once the turn decision exists, the other route reuses and re-clamps it.
+    reused = ask(monkeypatch, chat_request("low"), "shared-turn", model="model-b")
+    assert reused["request"]["extra_body"]["reasoning"]["effort"] == "medium"
+    assert len(calls) == 1
+
+
+def test_concurrent_turns_cannot_classify_the_same_persistent_route_twice(monkeypatch):
+    use_settings(monkeypatch, mode="once")
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    class BlockingClassifier:
+        def classify_detail(self, prompt):
+            calls.append(prompt)
+            started.set()
+            assert release.wait(5)
+            return 1.9, None
+
+    monkeypatch.setattr(middleware, "_classifier_factory", lambda **kwargs: BlockingClassifier())
+    results = []
+    worker = threading.Thread(target=lambda: results.append(
+        ask(monkeypatch, chat_request(), "t1", model="same-model")))
+    worker.start()
+    assert started.wait(5)
+    assert ask(monkeypatch, chat_request(), "t2", model="same-model") is None
+    release.set()
+    worker.join(5)
+    assert not worker.is_alive()
+    assert len(calls) == 1
+    second_turn = ask(monkeypatch, chat_request(), "t2", model="same-model")
+    assert second_turn["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    assert len(calls) == 1
+
+
+def test_always_reclassifies_each_message_but_reuses_tool_loop(monkeypatch):
+    use_settings(monkeypatch, mode="always")
+    seq = ScoreSequence([0.1, 1.9])
+    monkeypatch.setattr(middleware, "_classifier_factory", seq)
+    for turn, expected in (("t1", "low"), ("t2", "high"), ("t2", "high")):
+        out = ask(monkeypatch, chat_request(), turn, provider="anthropic",
+                  model="claude-opus-5", api_mode="chat_completions")
+        assert out["request"]["extra_body"]["reasoning"]["effort"] == expected
+    assert len(seq.calls) == 2
 
 
 def test_off_routes_nothing_anywhere(monkeypatch):
@@ -201,23 +372,22 @@ def test_off_routes_nothing_anywhere(monkeypatch):
     assert seq.calls == []
 
 
-def test_cache_safe_is_rejected_as_a_session_mode_for_children_only(monkeypatch):
-    """subagent_mode keeps its own vocabulary; a child is its own short session."""
-    use_settings(monkeypatch, mode="auto", subagent_mode="auto")
+def test_child_modes_use_their_independent_gate(monkeypatch):
+    use_settings(monkeypatch, mode="auto", subagent_mode="once")
     seq = ScoreSequence([0.1, 1.9])
     monkeypatch.setattr(middleware, "_classifier_factory", seq)
     middleware.on_subagent_start(parent_session_id="P", child_session_id="C",
                                  child_goal="mechanical rename across 12 files")
-    req = codex_request()
-    out = ask(monkeypatch, req, "t1", session="C")
-    assert out["request"]["reasoning"]["effort"] == "low"
+    for turn in ("t1", "t2"):
+        out = ask(monkeypatch, codex_request(), turn, session="C")
+        assert out["request"]["reasoning"]["effort"] == "low"
     assert len(seq.calls) == 1
 
 
 def test_effort_unchanged_returns_no_decision(monkeypatch):
-    """A turn that needs the level already on the wire needs no scorer call."""
-    use_settings(monkeypatch, mode="cache_safe")
-    seq = ScoreSequence([0.1])   # would pick "low"
+    use_settings(monkeypatch, mode="always")
+    seq = ScoreSequence([0.1])
     monkeypatch.setattr(middleware, "_classifier_factory", seq)
-    out = ask(monkeypatch, codex_request(effort="low"), "t1")
+    out = ask(monkeypatch, codex_request(effort="low"), "t1",
+              provider="openai-codex", model="gpt-6.1-sol", api_mode="codex_responses")
     assert out is None

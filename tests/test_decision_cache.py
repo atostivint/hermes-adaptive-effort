@@ -2,8 +2,8 @@
 reports both (acceptance criteria 3 and 6).
 
 Criterion 3 — a stored target is only legal for the route that produced it. A provider
-fallback inside one turn, or ``cache_safe`` pinning a session and then watching the
-route change, keeps the decision key while the route moves underneath it; replaying
+fallback inside one turn, or an `auto` route-level decision followed by a route change,
+keeps the decision key while the route moves underneath it; replaying
 the recorded level verbatim is exactly how a narrow route receives a value its vendor
 rejects. Moonshot K3 accepts exactly ``low``/``high``/``max`` (a bare ``medium`` is a
 400), GLM-5.2 rejects ``low`` and ``medium``, and Ox Alpha rejects ``medium``. The
@@ -150,19 +150,14 @@ def test_route_that_cannot_express_the_label_rewrites_nothing(monkeypatch):
     assert request["extra_body"]["reasoning"]["effort"] == "medium"
     entry = entries()[0]
     assert entry["state"] == "unsupported"
-    assert entry["target"] == "high"     # the decision stands; it just cannot be sent
+    assert entry["target"] is None        # the label stands, but this route has no wire level
     assert entry["probes"] == 1          # and the turn is never re-classified
     assert len(jev.calls) == 1
 
 
-def test_cache_safe_pins_the_session_on_a_cache_hostile_route(monkeypatch):
-    """``cache_safe``: per turn where an effort change keeps the cache, else pinned.
-
-    An ``anthropic_messages`` route is cache-hostile — the thinking configuration is
-    rendered into the prompt — so the decision key drops the turn id and one probe
-    serves the whole session.
-    """
-    use_settings(monkeypatch, mode="cache_safe")
+def test_once_pins_one_decision_per_session_route(monkeypatch):
+    """Once reuses a route decision across turns and keeps other routes separate."""
+    use_settings(monkeypatch, mode="once")
     jev = CountingJev(1.9)
 
     for turn in ("turn-A", "turn-B", "turn-C"):
@@ -170,9 +165,10 @@ def test_cache_safe_pins_the_session_on_a_cache_hostile_route(monkeypatch):
         assert out["request"]["extra_body"]["reasoning"]["effort"] == "high"
 
     entries_ = entries()
-    assert len(entries_) == 1
-    assert entries_[0]["requests"] == 3
-    assert entries_[0]["probes"] == 1
+    pins = [entry for entry in entries_ if entry.get("scope") == "session_route"]
+    assert len(pins) == 1
+    assert pins[0]["requests"] == 3
+    assert pins[0]["probes"] == 1
     assert len(jev.calls) == 1
 
 
@@ -186,14 +182,15 @@ def test_status_names_the_provider_and_model_of_each_decision(monkeypatch):
     route(monkeypatch, jev, request=make_request(text=marker))
 
     payload = json.loads(command.handle("status json"))
-    # `session_id` is the decision KEY here, so it carries the turn that was classified.
-    assert payload["last"]["session_id"] == f"{SESSION}/turn-1"
     assert payload["last"]["provider"] == "openrouter"
     assert payload["last"]["model"] == "openrouter/x/y"
     assert payload["last"]["target"] == "high"
-    session = payload["sessions"][0]
-    assert (session["provider"], session["model"]) == ("openrouter", "openrouter/x/y")
+    assert len(payload["sessions"]) == 2  # turn memo plus its retained route decision
+    assert all(session["conversation_id"] == SESSION for session in payload["sessions"])
+    assert all((session["provider"], session["model"]) ==
+               ("openrouter", "openrouter/x/y") for session in payload["sessions"])
     assert payload["counts"]["sessions"] == 1
+    assert payload["counts"]["requests"] == 1
 
     # The text rendering carries the same two fields, and says where the mode came from.
     text = command.handle("status")

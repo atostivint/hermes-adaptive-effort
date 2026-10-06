@@ -96,6 +96,33 @@ def test_set_mode_rejects_unknown_and_changes_nothing():
     assert middleware.mode_override() == before
 
 
+@pytest.mark.parametrize("legacy", ["recommend", "cache_safe", "cache-safe", "inject"])
+def test_dashboard_api_rejects_legacy_mode_writes(legacy):
+    before = middleware.mode_override()
+    result = api.set_mode(legacy)
+    assert result["ok"] is False
+    assert "unknown mode" in result["error"]
+    assert middleware.mode_override() == before
+
+
+def test_dashboard_and_desktop_expose_only_the_four_canonical_modes():
+    assert api.VALID_MODES == ("auto", "once", "always", "off")
+    source = DESKTOP_JS.read_text(encoding="utf-8")
+    assert "const MODES = ['auto', 'once', 'always', 'off']" in source
+    for legacy in ("recommend", "cache_safe", "cache-safe", "inject"):
+        assert legacy not in source
+
+
+@pytest.mark.parametrize("mode", ["auto", "once", "always", "off"])
+def test_dashboard_mode_api_accepts_each_canonical_mode(mode):
+    try:
+        result = api.set_mode(mode)
+        assert result["ok"] is True
+        assert result["mode"] == mode
+    finally:
+        middleware.clear_mode_override()
+
+
 def test_set_mode_runtime_only_by_default():
     result = api.set_mode("auto")
     try:

@@ -24,11 +24,24 @@ def test_config_schema_covers_every_default():
 
 def test_config_schema_modes_match_valid_modes():
     schema = _load_manifest()["config_schema"]
+    assert middleware.VALID_MODES == ("auto", "once", "always", "off")
+    description = schema["mode"]["description"].lower()
+    assert "every message" in description
+    assert "one decision per model and route" in description
+    assert "every new user message" in description
+    assert "never scores or changes effort" in description
     for key in ("mode", "subagent_mode"):
         entry = schema[key]
         assert set(entry.get("choices") or []) == set(middleware.VALID_MODES)
         assert entry.get("default") == middleware.DEFAULTS[key]
         assert entry.get("type") == "str"
+
+
+def test_effort_model_setting_replaces_the_injection_setting():
+    schema = _load_manifest()["config_schema"]
+    assert "effort_models" in schema
+    assert "force_injection_models" not in schema
+    assert "you assert" in schema["effort_models"]["description"]
 
 
 def test_scorer_schema_keeps_jev_default_and_requires_model_for_openrouter():

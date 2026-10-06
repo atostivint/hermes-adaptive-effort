@@ -10,7 +10,7 @@ The custom provider can connect to a hosted service or a local model server that
 
 An initial Zenon trial loaded Kev 0.8B and 4B through llama.cpp and llama-swap on an RTX 4070 Ti. Across 180 warmed classifications per model on 60 synthetic English and French prompts, agreement with the fixed labels was 50% for 0.8B and 60% for 4B; neither model predicted `high`. The first 4B classification also hit the plugin's 3-second timeout, then all warmed calls succeeded. These exploratory results are not human-gold evaluation or a comparison with Jev. See the [full report](docs/reviews/local-scorer-benchmark-20261005T090911Z.md).
 
-The plugin is opt-in and starts **off**. It does not score or change requests until you choose a routing mode. If scoring fails, your original request continues unchanged. It does not switch your conversation model or add tools; `auto` and `inject` add a reasoning setting only on exact supported routes or exact operator-listed model IDs.
+The plugin is opt-in and starts **off**. It does not score or change requests until you choose a routing mode. If scoring fails, your original request continues unchanged. It does not switch your conversation model or add tools. The four modes control when effort is evaluated; existing fields are preferred, and a missing field is added only on an explicitly supported route or an exact model you list in `effort_models`.
 
 ## Quick install
 
@@ -86,7 +86,7 @@ Select the `custom` scorer and point it at a local OpenAI-compatible server. No 
 
 1. Start a local server that serves either System One or Chat Completions — e.g. `llama-server` directly, or `llama-swap` when you switch between models. Note the exact URL and the model name the server exposes.
 2. In the plugin's Desktop settings (or `config.yaml`), set `scorer_provider: custom`, `custom_endpoint` to the **exact** URL (nothing is appended; a tested llama-swap example is `http://127.0.0.1:8099/v1/systemone`), `scorer_model` to the served name (e.g. `effort-kev-08b`), and `custom_api_format` to `systemone` or `chat_completions` to match your server. Keep `custom_auth: none`.
-3. Choose a routing mode (`recommend` to observe, `auto` to apply) — enabling a mode authorizes sending task text to the selected scorer; while the mode stays `off` nothing is sent. Prompts stay on your machine with a local endpoint, but the plugin still only sends text once routing is enabled.
+3. Choose a routing mode (`once` to keep one decision per model and route, or `auto` to follow the route's verified capability) — enabling a mode authorizes sending task text to the selected scorer; while the mode stays `off` nothing is sent. Prompts stay on your machine with a local endpoint, but the plugin still only sends text once routing is enabled.
 
 Local-model caveats, measured on one Windows/RTX 4070 Ti box (not a recommendation): Kev 0.8B agreed with the synthetic fixed labels 50% of the time, Kev 4B 60%, and neither predicted `high`; the first 4B call hit the default 3-second timeout while the model loaded, then warmed calls answered in ~80–125 ms. If your model loads slowly, raise `timeout_s`. See the [full report](docs/reviews/local-scorer-benchmark-20261005T090911Z.md).
 
@@ -104,20 +104,24 @@ Desktop connections can have separate agent processes; reconnect or restart the 
 
 ### 3. Choose a mode in chat
 
-Start by inspecting decisions without changing effort:
+Start by checking the configured mode and scorer:
 
 ```text
-/hae recommend
 /hae status
 ```
 
 `/hae` is the plugin's slash command for status, probing and mode changes.
 
-Send a normal message with reasoning enabled on a compatible route, then check `status` again. A `decided` entry shows the score and target. When you want decisions applied:
+Use `/hae probe <text>` to score text you type without changing a request or storing a decision. For normal routing, choose one of the four modes:
 
 ```text
 /hae auto
+/hae once
+/hae always
+/hae off
 ```
+
+`auto` evaluates each new message on exact routes verified for dynamic effort changes and otherwise keeps one decision per model and route. `once` always keeps one decision per model and route in the conversation. `always` evaluates every new user message. `off` sends no task text and changes no effort.
 
 To keep that mode after a restart, save it in **Desktop → Capabilities → Plugins → Hermes Adaptive Effort → Mode**, or use the optional configuration below. Chat mode commands apply only to the current process.
 
@@ -182,7 +186,7 @@ For a custom endpoint (local, unauthenticated System One):
 
 ```yaml
 settings:
-  mode: recommend
+        mode: once
   scorer_provider: custom
   scorer_model: "effort-kev-08b"
   custom_endpoint: "http://127.0.0.1:8099/v1/systemone"
@@ -192,7 +196,7 @@ settings:
 
 For Chat Completions, set `custom_api_format: chat_completions`. For bearer authentication, set `custom_auth: bearer` and supply `CUSTOM_SCORER_API_KEY` through Hermes secret scope or the process environment.
 
-Replace the model or account placeholder before using it. Start with `mode: recommend` instead of `auto` if you want to observe decisions first. Each `settings` example belongs under `plugins.entries.hermes-adaptive-effort`.
+Replace the model or account placeholder before using it. Use `/hae probe <text>` to inspect a sample without applying a request decision. Each `settings` example belongs under `plugins.entries.hermes-adaptive-effort`.
 
 | Scorer | Credential | Model |
 | --- | --- | --- |
@@ -214,17 +218,16 @@ The repository root is the Hermes plugin payload. This is a Hermes plugin, not a
 | Mode | Behavior |
 | --- | --- |
 | `off` (default) | No scoring or request changes; bounded route metadata may still appear in the Desktop popup |
-| `recommend` | Score the task and report the target; keep the original effort |
-| `auto` | Score each user turn, rewrite an existing effort field, or inject on an exact verified model route when it is absent |
-| `cache_safe` | Score per turn on recognized cache-neutral routes; otherwise reuse a session decision while cached |
-| `inject` | Compatibility mode: cache-safe policy plus exact-route injection |
+| `auto` | Evaluate each new message on exact routes verified for dynamic effort changes; otherwise reuse one decision per model and route |
+| `once` | Keep one decision per model and route in the conversation |
+| `always` | Evaluate every new user message |
 
 ```text
 /hae help
 /hae status
 /hae status json
 /hae probe <text>
-/hae off|recommend|auto|cache_safe|inject
+/hae auto|once|always|off
 ```
 
 Mode commands are process-local and do not edit your config. Unknown commands or extra arguments return help without changing anything.
@@ -235,9 +238,9 @@ Installing and enabling the plugin registers its request middleware and session 
 
 When Hermes prepares a model request after a new user instruction, the plugin:
 
-1. Checks the configured mode. With `off`, it records only bounded route/status metadata for the Desktop popup, then returns without scoring or changing the request. For other modes, the independent subagent gate is also checked; `recommend` scores but never rewrites.
-2. Reads the latest user message from that request, not the opening message or the whole conversation. It first checks whether the route and request contain a supported writable effort field (or an exact verified injection route in `auto`/`inject`). Unsupported routes make no scorer call.
-3. Makes one request to the selected scorer for that user turn, sending the bounded latest-user-text excerpt plus optional operator guidance. The `prompt_chars` setting caps the user text at 4,000 characters by default; custom guidance is separately capped at 2,000 characters. During a tool loop, the same decision is reused instead of scoring every model request again.
+1. Checks the configured mode. With `off`, it records only bounded route/status metadata for the Desktop popup, then returns without scoring or changing the request. For other modes, the independent subagent gate is also checked.
+2. Reads the latest user message from that request, not the opening message or the whole conversation. It first checks whether the request contains a supported writable effort field or can receive one on an exact supported route. Unsupported routes make no scorer call.
+3. Chooses the decision scope. `always` evaluates each new user message. `once` keeps one decision per exact model and route. `auto` evaluates each message only for exact models with documented dynamic-effort support and a transport verified to keep effort changes out of the prompt cache; other routes keep one decision per model and route. All modes reuse one decision during a tool loop, including when the conversation model changes mid-turn. The `prompt_chars` setting caps the user text at 4,000 characters by default; custom guidance is separately capped at 2,000 characters.
 4. Converts a valid score from `0` to `2` into `low` (< `0.5`), `medium` (< `1.5`) or `high`, then clamps that label to the effort values supported by the current route.
 5. Changes an existing effort field, or injects one only on an exact verified route. It preserves explicitly disabled or malformed controls. If the chosen effort already matches, there is no rewrite or change notification.
 6. Fails open on scorer errors, missing credentials, malformed responses or unsupported request shapes: the original request continues unchanged. Applied changes are shown by enabled status surfaces; prompt and guidance contents are not written to logs, status, or the change feed.
@@ -268,7 +271,7 @@ Provider-prefixed labels make related fields easier to scan.
 | `custom_api_format` | `systemone` | Custom request/response contract: `systemone` or `chat_completions` |
 | `custom_auth` | `none` | Custom endpoint auth: `none` or `bearer` |
 | `classification_instructions` | empty | Optional extra scoring guidance, capped at 2,000 characters; visible in Desktop plugin settings |
-| `force_injection_models` | empty | Optional exact model IDs separated by commas or newlines; asserts support for known Responses/Chat Completions shapes in `auto`/`inject` only |
+| `effort_models` | empty | Optional exact model IDs separated by commas or newlines; operator assertion that a known Responses/Chat Completions request shape accepts an effort field |
 | `timeout_s` | `3.0` | HTTP timeout for classification |
 | `prompt_chars` | `4000` | Maximum task characters sent to the selected scorer; not a retention control |
 | `max_turns` | `64` | Bounded decision-cache capacity per process |
@@ -293,11 +296,11 @@ The chip follows the focused conversation and backend/profile, including after a
 
 ## Compatibility and limits
 
-A reasoning-capable model is not enough: its vendor must accept an effort control on the exact route. `unsupported` with zero probes usually means there is no field to change. OpenCode Go's `space-bunny-free` profile remains outside the verified injection list. `auto` and the retained `inject` mode add fields only for exact routes in the compatibility matrix, or for exact IDs an operator manually lists in `force_injection_models`. That list is an operator assertion, never vendor evidence; it uses no wildcards and works only with known Responses or Chat Completions containers. Generic OpenAI-compatible fallback does not prove route support.
+A reasoning-capable model is not enough: its vendor must accept an effort control on the exact route. `unsupported` with zero probes usually means there is no field to change. OpenCode Go's `space-bunny-free` profile remains outside the verified route list. All active modes can add a missing field only for exact routes in the compatibility matrix, or for exact IDs an operator manually lists in `effort_models`. That list is an operator assertion, never vendor evidence; it uses no wildcards and works only with known Responses or Chat Completions containers. Generic OpenAI-compatible fallback does not prove route support.
 
 The route vocabulary comes from Hermes plus narrow mappings for Kimi K3, GLM-5.2/5.3 and the exact Muse tiers listed below. Unknown routes use Hermes' broad OpenAI-compatible vocabulary for existing-field rewrites, which cannot guarantee vendor acceptance and never makes a route eligible for injection. **Known gap:** Ox Alpha / `x-preview-f-free` can reject `medium` with HTTP 400. That gap is documented rather than silently remapped.
 
-`cache_safe` treats `chat_completions` and `codex_responses` as cache-neutral, and Anthropic/unknown API modes as cache-hostile. Auto-injected decisions use the same rule and stay pinned even when later requests contain the injected field. These are routing rules, not measured cache-hit guarantees. Session decisions can be evicted from the bounded cache or lost on reload/reset.
+Dynamic per-message decisions are limited to exact documented model/API pairs and transport paths for which effort changes do not alter the prompt prefix. API family alone, an existing effort field, or an `effort_models` entry is not proof of dynamic support. Other routes use one decision per exact model and route. These are routing rules, not measured cache-hit guarantees. Decisions can be evicted from the bounded stores or lost on reload/reset.
 
 Cloudflare Clef is available through `scorer_provider: cloudflare`; its latency and scoring quality have not been evaluated live.
 
@@ -320,7 +323,7 @@ hermes plugins disable hermes-adaptive-effort
 
 Restart the serving agent after an update or enable/disable change. `/hae off` stops routing immediately for future requests in that process; set the persistent mode to `off` if it should stay off.
 
-If you used `jev-auto-effort`, install the new payload, move your old settings from `plugins.entries.jev-auto-effort.settings` to `plugins.entries.hermes-adaptive-effort.settings`, disable the old ID and enable the new one. Replace the old Desktop extension too. Keep your existing mode deliberately, and run only one middleware copy to avoid duplicate scoring. Update source metadata to the renamed repository when using a managed install.
+If you used the previous `jev-auto-effort` plugin ID, install the current payload, move settings from `plugins.entries.jev-auto-effort.settings` to `plugins.entries.hermes-adaptive-effort.settings`, disable the old ID and enable the current one. Replace the old Desktop extension too. Configure modes with `auto`, `once`, `always`, or `off`, and use `effort_models` for exact model IDs. Update source metadata to the renamed repository when using a managed install.
 
 ## More documentation
 
@@ -334,13 +337,13 @@ If you used `jev-auto-effort`, install the new payload, move your old settings f
 
 At revision `7ad378a`, the full network-free suite passed on Iris (Linux, Python 3.13.5): **385 tests**, including real Hermes plugin discovery and dispatcher integration. Tests use fake scorer transports and block network access. See the development guide to reproduce them.
 
-### Exact-route effort injection
+### Exact-route effort-field support
 
-The plugin defaults to `off`. Missing effort is injected only for positively verified routes or exact model IDs explicitly listed in `force_injection_models`; `inject` applies the same rules with cache-safe routing. The current OpenCode Go registry includes exact Responses models, effort-only Chat Completions models, and paired controls only when the request already enables thinking. Every model published in the current Go catalog has an explicit tested injection/no-op outcome in the [compatibility matrix](docs/MODEL_COMPATIBILITY.md).
+The plugin defaults to `off`. A missing effort field is added only for positively verified routes or exact model IDs explicitly listed in `effort_models`. The current OpenCode Go registry includes exact Responses models, effort-only Chat Completions models, and paired controls only when the request already enables thinking. Every model published in the current Go catalog has an explicit tested add/no-op outcome in the [compatibility matrix](docs/MODEL_COMPATIBILITY.md).
 
 | Provider | Exact model IDs | `api_mode` | Wire values |
 | --- | --- | --- | --- |
 | OpenCode Zen (`opencode-zen`, `opencode`, `opencode_zen`, `zen`) | `muse-spark-1.3`, `muse-spark-1.2`, `muse-spark-1.3-contributor-free` | `codex_responses` | model-tier-specific Muse vocabulary; see matrix |
 | OpenCode Go (`opencode-go`, `opencode_go`, `go`, `opencode-go-sub`) | exact catalog entries in the compatibility matrix | `codex_responses`, `chat_completions` | route-specific; includes effort-only and already-enabled paired controls |
 
-Responses injection writes top-level `reasoning.effort`; Chat Completions injection writes top-level `reasoning_effort`. Paired routes require an already present `extra_body.thinking.type="enabled"`; the plugin never adds that toggle. The optional force list accepts exact bare model IDs, comma or newline separated, with an optional provider prefix stripped for matching; it applies to any provider on `codex_responses` or `chat_completions`. It does not authorize Anthropic or unknown API modes, alter cache-safe/recommend/off behavior, or bypass disabled/malformed-control checks. It is an operator assertion, not evidence that the route accepts the field. If the shared cache-safety table marks an injected route unsafe, the decision stays session-pinned while cached, including when a later request already carries the injected field. Injection events use `from: absent`. Cache benefits remain unmeasured, and the plugin cannot catch a downstream provider rejection.
+Responses requests receive top-level `reasoning.effort`; Chat Completions requests receive top-level `reasoning_effort`. Paired routes require an already present `extra_body.thinking.type="enabled"`; the plugin never adds that toggle. `effort_models` accepts exact bare model IDs, comma or newline separated, with an optional provider prefix stripped for matching; it applies to any provider on `codex_responses` or `chat_completions`. It does not authorize Anthropic or unknown API modes, establish dynamic per-message support, or bypass disabled/malformed-control checks. It is an operator assertion, not evidence that the route accepts the field. When a route lacks verified dynamic support, the selected mode keeps a decision per exact model and route. Field-addition events use `from: absent`. Cache benefits remain unmeasured, and the plugin cannot catch a downstream provider rejection.

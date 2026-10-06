@@ -25,20 +25,19 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useEffect, useRef, useState } from 'react'
 
 const ID = 'hermes-adaptive-effort'
-const MODES = ['off', 'recommend', 'auto', 'cache_safe', 'inject']
+const MODES = ['auto', 'once', 'always', 'off']
 const MODE_HELP = {
-  off: 'No scoring or effort changes.',
-  recommend: 'Scores each new turn and leaves the request unchanged.',
-  auto: 'Applies a compatible effort to each new user turn.',
-  cache_safe: 'Scores per turn on cache-neutral routes; otherwise pins effort for the session.',
-  inject: 'Uses cache-safe routing and can add effort on exact verified routes.'
+  auto: 'Evaluate each message when this exact model route supports changing effort during the conversation; otherwise keep one decision per model and route.',
+  once: 'Keep one effort decision per model and route in this conversation.',
+  always: 'Evaluate every new user message, then reuse its decision during tool calls.',
+  off: 'No scoring or effort changes.'
 }
 let rest = null
 
 function toneFor(mode, isError) {
   if (isError) return 'text-(--ui-warning)'
   if (mode === 'auto') return 'text-(--ui-accent)'
-  if (mode === 'cache_safe' || mode === 'recommend') return 'text-(--ui-text-primary)'
+  if (mode === 'once') return 'text-(--ui-text-primary)'
   return 'text-(--ui-text-tertiary)'
 }
 

@@ -31,7 +31,7 @@ The Windows test runner discovers the Hermes source tree from `HERMES_SOURCE_ROO
   command.py               /hae: help, status, probe, mode verbs
   dashboard/               backend: GET /status, GET /changes, POST /mode, POST /probe
   desktop/plugin.js        desktop half: effort chip, pane, change toasts, palette (opt-in)
-tests/                    387 tests, one module per contract
+tests/                    423 tests, one module per contract
 scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh (+ .ps1 for Windows)
 pytest.ini                pytest configuration
 ruff.toml                 Ruff configuration
@@ -43,13 +43,13 @@ Test modules, by contract:
 
 | module | tests | contract |
 | --- | --- | --- |
-| `test_middleware.py` | 150 | settings, scorer selection, gating, rewrites, applied-change feed |
+| `test_middleware.py` | 157 | settings, scorer selection, gating, rewrites, applied-change feed |
 | `test_subagent.py` | 18 | child routing, child goals, inheritance |
 | `test_jev_client.py` | 19 | transport, model selection, credential probe, failure modes, endpoint normalization |
 | `test_command.py` | 24 | `/hae` rendering, schemas, scorer/route identity, no prompt leak |
-| `test_cache_safety.py` | 11 | cache-neutral vs cache-hostile routes |
-| `test_command_modes.py` | 11 | the `off`/`recommend`/`auto`/`cache_safe` verbs |
-| `test_turn_scope.py` | 14 | the `(session_id, turn_id)` decision key, current prompt selection with full history |
+| `test_cache_safety.py` | 27 | four-mode decisions, dynamic capabilities, route persistence and concurrency |
+| `test_command_modes.py` | 17 | the four canonical mode verbs, strict writes, and disabled unknown config values |
+| `test_turn_scope.py` | 11 | the `(session_id, turn_id)` decision key, current prompt selection with full history |
 | `test_review_fixes.py` | 8 | regressions found by the 2026-09-29 review |
 | `test_decision_cache.py` | 7 | route-tagged decisions, re-clamp, telemetry |
 | `test_effort.py` | 26 | score thresholds, clamping, overrides |
@@ -57,8 +57,8 @@ Test modules, by contract:
 | `test_custom_client.py` | 24 | custom System One and Chat Completions transports, validation and failures |
 | `test_dispatcher_integration.py` | 6 | through Hermes' own plugin manager + middleware |
 | `test_plugin_registration.py` | 4 | manifest, `register()` contract |
-| `test_config_schema.py` | 6 | `config_schema` keys/types/defaults and scorer/model selection match middleware |
-| `test_plugin_api.py` | 13 | dashboard backend (status/mode/probe/changes, no prompt leak) + desktop static contract |
+| `test_config_schema.py` | 7 | `config_schema` keys/types/defaults and scorer/model selection match middleware |
+| `test_plugin_api.py` | 22 | dashboard backend (status/mode/probe/changes, no prompt leak) + desktop static contract |
 | `test_openrouter_client.py` | 15 | bounded OpenRouter request, strict scores, credentials, and fail-open errors |
 | `test_scorers.py` | 9 | Jev model selection and explicit providers without cross-provider fallback |
 | `test_rubric.py` | 3 | shared effort rubric, fixed score contract and bounded operator guidance |

@@ -84,10 +84,10 @@ def call(kw):
     return middleware.on_llm_request(**kw)
 
 
-def configure_injection(monkeypatch, score=0.1, error=None, mode="inject", force_models=""):
+def configure_injection(monkeypatch, score=0.1, error=None, mode="auto", force_models=""):
     monkeypatch.setattr(middleware, "_config_reader", lambda: {
         "plugins": {"entries": {middleware.PLUGIN_ID: {"settings": {
-            "mode": mode, "force_injection_models": force_models,
+            "mode": mode, "effort_models": force_models,
         }}}},
     })
     factory = RecordingClassifierFactory(score=score, error=error)
@@ -126,7 +126,7 @@ def test_inject_first_responses_request_copy_on_write(monkeypatch, score, target
     assert middleware.effort_change_state()["latest"]["from"] == "absent"
 
 
-def test_inject_keeps_pinned_effort_across_three_turns_when_cache_unsafe(monkeypatch):
+def test_auto_keeps_pinned_effort_across_three_turns_when_route_not_dynamic(monkeypatch):
     factory = configure_injection(monkeypatch)
     # A transport with a verified shape can be marked unsafe by the shared table.
     monkeypatch.setattr(middleware._cache_safety, "effort_is_cache_safe", lambda *args: False)
@@ -134,10 +134,14 @@ def test_inject_keeps_pinned_effort_across_three_turns_when_cache_unsafe(monkeyp
         req = muse_request()
         assert muse_call(req, turn)["request"]["reasoning"]["effort"] == "low"
         assert "reasoning" not in req
-        assert middleware.session_state()["s1"]["probes"] == 1
+        pinned = [entry for key, entry in middleware.session_state().items()
+                  if key.startswith("s1/@route/")]
+        assert len(pinned) == 1 and pinned[0]["probes"] == 1
     assert len(factory.instances) == 1
-    assert middleware.session_state()["s1"]["requests"] == 3
-    assert len(middleware.effort_change_state()["events"]) == 1
+    assert pinned[0]["requests"] == 3
+    # The session pin prevents rescoring, but each distinct turn rewrites its
+    # own incoming request when the transport omitted the effort field.
+    assert len(middleware.effort_change_state()["events"]) == 3
 
 
 def test_inject_safe_route_reclassifies_new_turn_but_not_tool_loop(monkeypatch):
@@ -153,9 +157,8 @@ def test_inject_safe_route_reclassifies_new_turn_but_not_tool_loop(monkeypatch):
     assert len(factory.instances) == 2
 
 
-@pytest.mark.parametrize("mode", ["off", "recommend", "cache_safe"])
-def test_modes_other_than_auto_or_inject_do_not_inject_muse(monkeypatch, mode):
-    factory = configure_injection(monkeypatch, mode=mode)
+def test_off_does_not_inject_muse(monkeypatch):
+    factory = configure_injection(monkeypatch, mode="off")
     assert muse_call(muse_request()) is None
     assert factory.instances == []
 
@@ -173,6 +176,16 @@ def test_auto_injects_exactly_supported_muse_responses_routes(monkeypatch, provi
     out = muse_call(request, provider=provider, model=model)
     assert out["request"]["reasoning"]["effort"] == "low"
     assert "reasoning" not in request
+
+
+@pytest.mark.parametrize("mode", ["auto", "once", "always"])
+def test_each_active_mode_can_add_a_field_on_an_exact_supported_route(monkeypatch, mode):
+    factory = configure_injection(monkeypatch, mode=mode)
+    request = muse_request()
+    out = muse_call(request)
+    assert out["request"]["reasoning"]["effort"] == "low"
+    assert "reasoning" not in request
+    assert len(factory.instances) == 1
 
 
 GO_MODEL_API_MODES = {
@@ -308,16 +321,32 @@ def test_forced_injection_models_support_exact_operator_list_and_known_container
     assert len(factory.instances) == 1
 
 
-def test_force_injection_models_default_empty_and_normalize_exact_tokens():
-    assert middleware.DEFAULTS["force_injection_models"] == ""
+def test_effort_models_default_empty_and_normalize_exact_tokens():
+    assert middleware.DEFAULTS["effort_models"] == ""
     assert middleware._normalize_forced_models(" provider/Model-A,\nmodel-b ") == (
         "model-a", "model-b")
     assert middleware._normalize_forced_models(["model-a"]) == ()
 
 
-@pytest.mark.parametrize("mode", ["off", "recommend", "cache_safe"])
-def test_forced_injection_does_not_change_modes_outside_auto_or_inject(monkeypatch, mode):
-    factory = configure_injection(monkeypatch, mode=mode, force_models="manual-model")
+def test_effort_models_reads_only_the_current_setting(monkeypatch):
+    def settings(values):
+        return {"plugins": {"entries": {middleware.PLUGIN_ID: {"settings": values}}}}
+
+    old_only = {"force_injection_models": "old/model-a"}
+    monkeypatch.setattr(middleware, "_config_reader", lambda: settings(old_only))
+    assert middleware._settings()["effort_models"] == ()
+
+    current = {"effort_models": "new/model-b"}
+    monkeypatch.setattr(middleware, "_config_reader", lambda: settings(current))
+    assert middleware._settings()["effort_models"] == ("model-b",)
+
+    explicit_empty = {"force_injection_models": "old/model-a", "effort_models": ""}
+    monkeypatch.setattr(middleware, "_config_reader", lambda: settings(explicit_empty))
+    assert middleware._settings()["effort_models"] == ()
+
+
+def test_off_does_not_use_operator_effort_models(monkeypatch):
+    factory = configure_injection(monkeypatch, mode="off", force_models="manual-model")
     request = {"model": "manual-model", "messages": [{"role": "user", "content": "Do it"}]}
     assert call(ctx(request=request, provider="custom", model="manual-model",
                     api_mode="chat_completions")) is None
@@ -356,7 +385,7 @@ def test_forced_injection_rejects_malformed_reasoning_enabled_flag(monkeypatch, 
     assert factory.instances == []
 
 
-@pytest.mark.parametrize("mode", ["auto", "inject"])
+@pytest.mark.parametrize("mode", ["auto", "once", "always"])
 def test_existing_effort_is_not_rewritten_when_thinking_is_disabled(monkeypatch, mode):
     factory = configure_injection(monkeypatch, mode=mode, force_models="manual-model")
     request = {"model": "manual-model", "messages": [{"role": "user", "content": "Do it"}],
@@ -389,7 +418,7 @@ def test_auto_injection_respects_disabled_controls_without_scoring(monkeypatch):
     assert factory.instances == []
 
 
-@pytest.mark.parametrize("mode", ["auto", "inject"])
+@pytest.mark.parametrize("mode", ["auto", "once", "always"])
 def test_existing_top_level_effort_stays_disabled_in_both_modes(monkeypatch, mode):
     factory = configure_injection(monkeypatch, mode=mode)
     request = muse_request(reasoning={"effort": "high", "enabled": False})
@@ -406,8 +435,10 @@ def test_auto_unsafe_injection_stays_pinned_for_bare_and_applied_requests(monkey
     assert second["request"]["reasoning"]["effort"] == "low"
     assert muse_call(first["request"], "t3") is None
     assert len(factory.instances) == 1
-    assert middleware.session_state()["s1"]["probes"] == 1
-    assert middleware.session_state()["s1"]["requests"] == 3
+    pinned = [entry for key, entry in middleware.session_state().items()
+              if key.startswith("s1/@route/")]
+    assert len(pinned) == 1 and pinned[0]["probes"] == 1
+    assert pinned[0]["requests"] == 3
 
 
 @pytest.mark.parametrize("overrides", [
@@ -476,14 +507,16 @@ def test_inject_rewrites_existing_effort_and_pins_unknown_api_mode(monkeypatch):
     assert first["request"]["reasoning"]["effort"] == "low"
     assert muse_call(request_with(model=MUSE), "t2", api_mode="future_api_mode") is None
     assert len(factory.instances) == 1
-    assert middleware.session_state()["s1"]["probes"] == 1
+    pins = [entry for key, entry in middleware.session_state().items()
+            if key.startswith("s1/@route/")]
+    assert len(pins) == 1 and pins[0]["probes"] == 1
 
 
-def test_child_effective_mode_controls_cache_key_and_injection(monkeypatch):
+def test_child_effective_mode_controls_turn_scope_and_injection(monkeypatch):
     factory = configure_injection(monkeypatch)
     monkeypatch.setattr(middleware, "_config_reader", lambda: {
         "plugins": {"entries": {middleware.PLUGIN_ID: {"settings": {
-            "mode": "inject", "subagent_mode": "auto",
+            "mode": "once", "subagent_mode": "always",
         }}}},
     })
     middleware.on_subagent_start(parent_session_id="parent", child_session_id="s1",
@@ -498,11 +531,11 @@ def test_child_effective_mode_controls_cache_key_and_injection(monkeypatch):
         "s1/t1", "s1/t2"}
 
 
-def test_child_inject_mode_uses_unsafe_route_session_pin(monkeypatch):
+def test_child_once_mode_uses_route_session_pin(monkeypatch):
     factory = configure_injection(monkeypatch, mode="auto")
     monkeypatch.setattr(middleware, "_config_reader", lambda: {
         "plugins": {"entries": {middleware.PLUGIN_ID: {"settings": {
-            "mode": "auto", "subagent_mode": "inject",
+            "mode": "auto", "subagent_mode": "once",
         }}}},
     })
     monkeypatch.setattr(middleware._cache_safety, "effort_is_cache_safe", lambda *args: False)
@@ -512,7 +545,9 @@ def test_child_inject_mode_uses_unsafe_route_session_pin(monkeypatch):
         request = muse_request()
         assert muse_call(request, turn, api_mode="codex_responses")["request"]["reasoning"]["effort"] == "low"
     assert len(factory.instances) == 1
-    assert middleware.session_state()["s1"]["probes"] == 1
+    pins = [entry for key, entry in middleware.session_state().items()
+            if key.startswith("s1/@route/")]
+    assert len(pins) == 1 and pins[0]["probes"] == 1
 
 
 def test_inject_survives_responses_builder_and_preflight(monkeypatch, tmp_path):
@@ -580,25 +615,16 @@ def test_classifier_guidance_and_display_flags_are_normalized(monkeypatch):
     assert settings["show_desktop_popup"] is True
 
 
-def test_invalid_mode_is_off(monkeypatch):
-    use_settings(monkeypatch, {"mode": "banana"})
+@pytest.mark.parametrize("mode", [
+    "banana", "recommend", "cache_safe", "cache-safe", "inject",
+])
+def test_unknown_mode_is_off_without_scoring(monkeypatch, mode):
+    use_settings(monkeypatch, {"mode": mode})
     factory = RecordingClassifierFactory()
     use_classifier(monkeypatch, factory)
     assert call(ctx(request=supported_request())) is None
     assert factory.instances == []
-
-
-def test_recommend_records_but_does_not_mutate(monkeypatch):
-    use_settings(monkeypatch, {"mode": "recommend"})
-    factory = RecordingClassifierFactory(score=1.9)
-    use_classifier(monkeypatch, factory)
-    req = supported_request()
-    out = call(ctx(request=req))
-    assert out is not None
-    assert out["request"]["extra_body"]["reasoning"]["effort"] == "medium"
-    assert out["source"] == "hermes-adaptive-effort"
-    assert "high" in out["reason"] and "not applied" in out["reason"]
-    assert factory.instances[0].calls == ["first user prompt"]
+    assert middleware._settings()["mode"] == "off"
 
 
 def test_auto_rewrites_only_the_effort_value(monkeypatch, no_network):
@@ -614,8 +640,9 @@ def test_auto_rewrites_only_the_effort_value(monkeypatch, no_network):
     assert out["source"] == "hermes-adaptive-effort"
 
 
-def test_auto_never_adds_an_effort_field(monkeypatch):
-    use_settings(monkeypatch, {"mode": "auto"})
+@pytest.mark.parametrize("mode", ["auto", "once", "always"])
+def test_active_modes_never_add_an_effort_field_without_route_support(monkeypatch, mode):
+    use_settings(monkeypatch, {"mode": mode})
     factory = RecordingClassifierFactory(score=1.9)
     use_classifier(monkeypatch, factory)
     req = request_with(messages=[{"role": "user", "content": "hi"}])
@@ -633,7 +660,7 @@ def test_top_level_reasoning_effort_is_supported(monkeypatch):
     assert out["request"]["reasoning_effort"] == "low"
 
 
-def test_recommended_effort_is_clamped_to_route_vocabulary(monkeypatch):
+def test_classified_effort_is_clamped_to_route_vocabulary(monkeypatch):
     use_settings(monkeypatch, {"mode": "auto"})
     use_classifier(monkeypatch, RecordingClassifierFactory(score=1.9))
     req = supported_request()
@@ -726,7 +753,7 @@ def test_no_prompt_text_is_stored(monkeypatch):
 
 
 def test_session_state_is_bounded(monkeypatch):
-    use_settings(monkeypatch, {"mode": "auto", "max_turns": 2})
+    use_settings(monkeypatch, {"mode": "always", "max_turns": 2})
     use_classifier(monkeypatch, RecordingClassifierFactory(score=1.0))
     for i in range(4):
         call(ctx(request=supported_request(), session=f"s{i}"))
@@ -1043,9 +1070,10 @@ def test_nothing_that_failed_open_is_recorded(monkeypatch, no_network):
     use_settings(monkeypatch, {"mode": "auto"})
     use_classifier(monkeypatch, RecordingClassifierFactory(error=TimeoutError("slow")))
     assert call(ctx(request=supported_request(), session="s1")) is None
-    use_settings(monkeypatch, {"mode": "recommend"})
+    use_settings(monkeypatch, {"mode": "off"})
     use_classifier(monkeypatch, RecordingClassifierFactory(score=1.9))
-    assert call(ctx(request=supported_request(), session="s2")) is not None
+    assert call(ctx(request=supported_request(), session="s2")) is None
+    assert middleware._settings()["mode"] == "off"
     use_settings(monkeypatch, {"mode": "auto"})
     assert call(ctx(request=request_with(), session="s3")) is None  # nothing writable
     feed = _feed()
