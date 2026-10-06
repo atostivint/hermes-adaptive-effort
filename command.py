@@ -2,7 +2,7 @@
 
 ``status`` and ``probe`` never classify a conversation, never rewrite a request
 and never store anything: they only render what the middleware already holds.
-``off|recommend|auto|cache_safe|inject`` set the mode for FUTURE requests of this
+``auto|once|always|off`` set the mode for FUTURE requests of this
 process — the plugin never edits the operator's config file, and the reply says
 so. Every command runs through the plugin dispatcher's argument split, so
 `handle()` receives a string, not a list.
@@ -17,7 +17,6 @@ import json
 import time
 from typing import Any, Dict, List, Optional
 
-from . import cache_safety as _cache_safety
 from . import middleware as _middleware
 from . import scorers as _scorers
 
@@ -26,17 +25,16 @@ MODES = _middleware.VALID_MODES
 USAGE = """Usage:
   /hae status                               Show mode, settings, credential, session counts
   /hae status json                          Machine-readable status payload
-  /hae off|recommend|auto|cache_safe|inject Set the mode used by future requests
+  /hae auto|once|always|off                  Set the mode used by future requests
   /hae probe <text>                         Classify <text> once (prints score/label, stores nothing)
   /hae help                                 Show this help
 
 Modes:
+  auto        classify each message on verified dynamic routes; otherwise keep
+              one decision per model and route for this conversation
+  once        keep one decision per model and route for this conversation
+  always      classify each new user message
   off         do not score or change requests; route stays visible in Desktop
-  recommend   classify, report the level it would use, rewrite nothing
-  auto        classify and apply effort (the default); inject on verified or operator-listed exact models
-  cache_safe  route per turn only on routes where an effort change keeps the
-              prompt cache; elsewhere pin one level for the whole session
-  inject      cache_safe routing plus exact-model effort injection (compatibility mode)
 
 A mode set here applies to future requests served by this process. It is not
 written to config.yaml (nothing here edits your files), so it does not survive a
@@ -156,19 +154,37 @@ def _status_payload() -> Dict[str, Any]:
     if settings["scorer_provider"] == _scorers.CUSTOM:
         for key in ("scorer_endpoint", "scorer_endpoint_effective", "endpoint_effective"):
             public_settings[key] = _scorers.safe_endpoint_display(settings.get(key, ""))
+    decision_state = _middleware.session_state()
     sessions = [_public_entry(sid, entry)
-                for sid, entry in _middleware.session_state().items()]
+                for sid, entry in decision_state.items()]
+    # A pinned route decision and the turn memo that reuses it are two stored
+    # rows, but represent one conversation and one handled request. Public
+    # aggregate counters therefore count unique conversations and turn rows.
+    turn_entries = [entry for entry in decision_state.values()
+                    if entry.get("scope", "turn") == "turn"]
+    conversation_ids = {
+        str(entry.get("conversation_id") or session_id)
+        for session_id, entry in decision_state.items()
+    }
+    # Once/fallback decisions are represented in both the turn memo and the
+    # persistent route ledger. Count their scorer call once, from the ledger
+    # that owns the decision, without exposing that implementation detail.
+    probes = sum(
+        int(_number(entry.get("probes")))
+        for entry in decision_state.values()
+        if (entry.get("scope", "turn") == "session_route"
+            or entry.get("probe_owner", "turn") == "turn")
+    )
     counts = {
-        "sessions": len(sessions),
+        "sessions": len(conversation_ids),
         "in_flight": len(_middleware.in_flight()),
-        "requests": sum(int(_number(e.get("requests"))) for e in sessions),
-        "probes": sum(int(_number(e.get("probes"))) for e in sessions),
-        "decided": sum(1 for e in sessions if e.get("state") == "decided"),
-        "failed": sum(1 for e in sessions if e.get("state") == "failed"),
-        "unsupported": sum(1 for e in sessions if e.get("state") == "unsupported"),
+        "requests": sum(int(_number(e.get("requests"))) for e in turn_entries),
+        "probes": probes,
+        "decided": sum(1 for e in turn_entries if e.get("state") == "decided"),
+        "failed": sum(1 for e in turn_entries if e.get("state") == "failed"),
+        "unsupported": sum(1 for e in turn_entries if e.get("state") == "unsupported"),
     }
     last = _last_session(sessions)
-    route = last or {}
     return {
         "schema": STATUS_SCHEMA,
         "plugin": PLUGIN_ID,
@@ -177,8 +193,6 @@ def _status_payload() -> Dict[str, Any]:
         # a runtime override applies to future requests only and is not persisted.
         "mode_source": settings["mode_source"],
         "settings": public_settings,
-        "cache_safety": _cache_safety.explain(
-            route.get("provider"), route.get("model"), route.get("api_mode")),
         "credential": _scorers.credential_present(
             settings["scorer_provider"], settings["custom_auth"]),
         "credential_required": _scorers.credential_required(
@@ -227,7 +241,6 @@ def _status_text() -> str:
     lines = [
         "hermes-adaptive-effort status",
         f"mode: {payload['mode']} (from {settings.get('mode_source', 'config')})",
-        f"cache safety: {payload['cache_safety']}",
         f"credential: {'present' if payload['credential'] else 'missing'}"
         if payload["credential_required"] else "credential: not required",
         f"scorer: {settings['scorer_provider']} model={settings['scorer_model_effective'] or 'unset'}",

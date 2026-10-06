@@ -59,9 +59,9 @@ def register(ctx: Any) -> None:
     ctx.register_hook("subagent_stop", _middleware.on_subagent_stop)
     command_description = (
         "Hermes Adaptive Effort reasoning-effort router: status, bounded probe, and "
-        "off|recommend|auto|cache_safe|inject for future requests"
+        "auto|once|always|off for future requests"
     )
-    command_args = "<status|status json|probe <text>|off|recommend|auto|cache_safe|inject>"
+    command_args = "<status|status json|probe <text>|auto|once|always|off>"
     ctx.register_command(
         "hae",
         handler=_command.handle,

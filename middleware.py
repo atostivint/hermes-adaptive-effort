@@ -1,4 +1,4 @@
-"""``llm_request`` middleware: classify once per turn, rewrite only a verified field.
+"""``llm_request`` middleware: classify per mode and rewrite only a verified field.
 
 Contract (verified against ``hermes_cli/middleware.py`` and
 ``agent/turn_api_request.py``):
@@ -15,12 +15,12 @@ Contract (verified against ``hermes_cli/middleware.py`` and
 * Trace entries are recorded as ``middleware_trace`` on the request. Our reason
   strings carry effort values only — never prompt text.
 
-Scope rules enforced here: default mode is off; off mode may retain bounded route
-metadata for the Desktop indicator but never classifies or changes a request;
-existing fields are rewritten, and ``inject`` can add a field on an explicitly eligible route; the new
-value is clamped onto the route's declared vocabulary and re-clamped whenever the
-route changes; one selected-scorer call per user TURN (and none when the field cannot
-be rewritten); no prompt text is stored.
+Scope rules enforced here: exactly four canonical modes (``auto``, ``once``,
+``always``, ``off``); off mode may retain bounded route metadata but never scores
+or changes a request; persistent decisions are per session and exact route;
+per-turn decisions are reused throughout a tool loop; fields are added only on
+explicitly eligible routes; the value is clamped to the route vocabulary; no
+prompt text is stored.
 """
 
 from __future__ import annotations
@@ -41,14 +41,14 @@ from . import scorers as _scorers
 logger = logging.getLogger(__name__)
 
 PLUGIN_ID = "hermes-adaptive-effort"
-VALID_MODES: Tuple[str, ...] = ("off", "recommend", "auto", "cache_safe", "inject")
+VALID_MODES: Tuple[str, ...] = ("auto", "once", "always", "off")
 DEFAULTS: Dict[str, Any] = {
     "mode": "off",
     "subagent_mode": "off",
     "timeout_s": _jev_client.DEFAULT_TIMEOUT_S,
     "max_turns": 64,
     "prompt_chars": _jev_client.DEFAULT_MAX_PROMPT_CHARS,
-    "force_injection_models": "",
+    "effort_models": "",
     "endpoint": _jev_client.DEFAULT_ENDPOINT,
     "scorer_provider": _scorers.JEV,
     "jev_model": _jev_client.JEV_MODEL,
@@ -71,13 +71,16 @@ _classifier_factory: Optional[Callable[..., Any]] = None
 # live profile. Tests inject a hermetic reader so a unit run never depends on
 # (and never reads) whatever mode the live profile happens to carry.
 _config_reader: Optional[Callable[[], Dict[str, Any]]] = None
-# Mode chosen at runtime through ``/hae off|recommend|auto|cache_safe|inject``.
+# Mode chosen at runtime through ``/hae auto|once|always|off``.
 # Process-local by design: the plugin never writes the operator's config file,
 # and the command's reply says so. ``None`` means "use the configured mode".
 _MODE_OVERRIDE: Optional[str] = None
 
 _lock = threading.Lock()
 _SESSIONS: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+# Persistent decisions are keyed by session plus normalized provider, exact model,
+# and API mode. Kept separately so each registry has its own max_turns bound.
+_PINNED: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 # Recent effort rewrites are kept in memory for the Desktop event poller. The
 # private decision key deduplicates repeated tool-loop rewrites without ever
 # leaving this module.
@@ -90,6 +93,9 @@ _CLI_STATUS_TEXT = "Effort: N/A"
 #: Sessions with a classification running right now — at most one probe per
 #: session, claimed atomically so two concurrent requests cannot both call the scorer.
 _IN_FLIGHT: set = set()
+# Persistent route claims coordinate `once`/fallback decisions across turns.
+# They stay separate from the public per-turn in-flight snapshot.
+_ROUTE_IN_FLIGHT: set = set()
 #: child_session_id -> the goal its parent wrote. Populated by the verified
 #: ``subagent_start`` hook, which hands over the text verbatim, so the classifier
 #: never parses the child's prompt. A child is its own agent with its own
@@ -109,7 +115,9 @@ def reset_state() -> None:
     global _CLI_STATUS_TEXT
     with _lock:
         _SESSIONS.clear()
+        _PINNED.clear()
         _IN_FLIGHT.clear()
+        _ROUTE_IN_FLIGHT.clear()
         _CHILD_GOALS.clear()
         _EFFORT_CHANGES.clear()
         _CHANGE_SEQUENCE = 0
@@ -119,7 +127,7 @@ def reset_state() -> None:
         _MODE_OVERRIDE = None
 
 
-# ── runtime mode override (``/hae off|recommend|auto|cache_safe|inject``) ────────────────────────
+# ── runtime mode override (``/hae auto|once|always|off``) ────────────────────
 
 def set_mode_override(mode: Any) -> Optional[str]:
     """Accept a runtime mode for FUTURE requests; ``None`` when it is not a mode.
@@ -163,6 +171,26 @@ def _decision_key(session_id: str, turn_id: Any) -> str:
     return f"{session_id}/{turn}" if turn else str(session_id)
 
 
+def _route_identity(provider: Any, model: Any, api_mode: Any) -> Tuple[str, str, str]:
+    """Stable identity for one routed model, including aliases of known providers."""
+    provider_name = str(provider or "").strip().lower()
+    for canonical, aliases in (
+        ("opencode-go", {"opencode-go", "opencode_go", "go", "opencode-go-sub"}),
+        ("opencode-zen", {"opencode", "opencode-zen", "opencode_zen", "zen"}),
+    ):
+        if provider_name in aliases:
+            provider_name = canonical
+            break
+    return (provider_name, str(model or "").strip(),
+            str(api_mode or "").strip().lower())
+
+
+def _pin_key(session_id: str, route: Tuple[str, str, str]) -> str:
+    """Collision-safe key for a session-and-route decision."""
+    import json
+    return f"{session_id}/@route/{json.dumps(route, separators=(',', ':'))}"
+
+
 def _session_of(key: str) -> str:
     """The session a decision key belongs to (used by per-session cleanup)."""
     return key.split("/", 1)[0]
@@ -171,7 +199,7 @@ def _session_of(key: str) -> str:
 def session_state() -> Dict[str, Dict[str, Any]]:
     """Snapshot of stored decisions: effort metadata only, never prompt text."""
     with _lock:
-        return {k: dict(v) for k, v in _SESSIONS.items()}
+        return {k: dict(v) for k, v in (*_SESSIONS.items(), *_PINNED.items())}
 
 
 def effort_change_state() -> Dict[str, Any]:
@@ -277,6 +305,26 @@ def _release(session_id: str) -> None:
         _IN_FLIGHT.discard(session_id)
 
 
+def _claim_scoring(turn_key: str, route_key: str, persistent_scope: bool) -> bool:
+    """Atomically claim the turn and, when applicable, the retained route."""
+    with _lock:
+        if turn_key in _IN_FLIGHT:
+            return False
+        if persistent_scope and route_key in _ROUTE_IN_FLIGHT:
+            return False
+        _IN_FLIGHT.add(turn_key)
+        if persistent_scope:
+            _ROUTE_IN_FLIGHT.add(route_key)
+        return True
+
+
+def _release_scoring(turn_key: str, route_key: str, persistent_scope: bool) -> None:
+    with _lock:
+        _IN_FLIGHT.discard(turn_key)
+        if persistent_scope:
+            _ROUTE_IN_FLIGHT.discard(route_key)
+
+
 def _remember(session_id: str, entry: Dict[str, Any], max_sessions: int) -> None:
     with _lock:
         _SESSIONS[session_id] = entry
@@ -300,6 +348,7 @@ def _touch(key: str, settings: Dict[str, Any], mode: str,
             entry = {
                 "state": "new", "label": None, "target": None, "score": None,
                 "mode": mode, "provider": provider, "model": model,
+                "scope": "turn",
                 "scorer_provider": settings.get("scorer_provider", _scorers.JEV),
                 "scorer_model": settings.get("scorer_model_effective", ""),
                 "conversation_id": conversation_id,
@@ -319,17 +368,67 @@ def _touch(key: str, settings: Dict[str, Any], mode: str,
     return entry
 
 
+def _touch_pin(key: str, settings: Dict[str, Any], mode: str,
+               provider: Any, model: Any, api_mode: Any,
+               conversation_id: str) -> Dict[str, Any]:
+    """Create/update one bounded persistent route decision."""
+    with _lock:
+        entry = _PINNED.get(key)
+        if entry is None:
+            entry = {
+                "state": "new", "label": None, "target": None, "score": None,
+                "mode": mode, "provider": provider, "model": model,
+                "scope": "session_route",
+                "api_mode": api_mode,
+                "scorer_provider": settings.get("scorer_provider", _scorers.JEV),
+                "scorer_model": settings.get("scorer_model_effective", ""),
+                "conversation_id": conversation_id,
+                "requests": 0, "probes": 0, "elapsed_ms": 0.0,
+                "failure": None, "updated_at": 0.0,
+            }
+            _PINNED[key] = entry
+        entry["requests"] = int(entry.get("requests") or 0) + 1
+        entry["mode"] = mode
+        entry["provider"] = provider
+        entry["model"] = model
+        entry["api_mode"] = api_mode
+        entry["updated_at"] = time.time()
+        _PINNED.move_to_end(key)
+        while len(_PINNED) > max(1, int(settings["max_turns"])):
+            _PINNED.popitem(last=False)
+    return entry
+
+
 def _clear_session_state(session_id: Optional[str]) -> None:
     """Drop one conversation's in-memory decisions and child registration."""
     if not session_id:
         return
     session = str(session_id)
     with _lock:
+        # Prefer the stored conversation id: session ids may themselves contain
+        # slashes, so splitting a composite decision key is not unambiguous.
+        turn_keys = [
+            key for key, entry in _SESSIONS.items()
+            if str(entry.get("conversation_id") or _session_of(key)) == session
+        ]
+        route_keys = [
+            key for key, entry in _PINNED.items()
+            if str(entry.get("conversation_id") or _session_of(key)) == session
+        ]
+        route_keys.extend(
+            _pin_key(session, _route_identity(entry.get("provider"), entry.get("model"),
+                                             entry.get("api_mode")))
+            for key, entry in _SESSIONS.items()
+            if key in turn_keys
+        )
         # Every turn of that session, plus the bare key used when no turn id was
         # available: ending a session must not leave decisions behind.
-        for key in [k for k in _SESSIONS if _session_of(k) == session]:
+        for key in turn_keys:
             _SESSIONS.pop(key, None)
             _IN_FLIGHT.discard(key)
+        for key in route_keys:
+            _PINNED.pop(key, None)
+            _ROUTE_IN_FLIGHT.discard(key)
         _IN_FLIGHT.discard(session)
         _CHILD_GOALS.pop(session, None)
 
@@ -447,11 +546,31 @@ def _read_setting(key: str, default: Any = None) -> Any:
     return default if value in (None, "") else value
 
 
+def _read_setting_if_present(key: str) -> Tuple[bool, Any]:
+    """Read a setting while distinguishing an explicit empty value from absence."""
+    provider = _settings_provider
+    if provider is not None:
+        missing = object()
+        try:
+            value = provider(key, missing)
+        except Exception:
+            return False, None
+        return (False, None) if value is missing else (True, value)
+    entry = ((_live_config().get("plugins") or {}).get("entries") or {}).get(PLUGIN_ID) or {}
+    settings = entry.get("settings") or {}
+    if not isinstance(settings, dict) or key not in settings:
+        return False, None
+    return True, settings[key]
+
+
+def _canonical_mode(raw: Any) -> str:
+    value = str(raw or "").strip().lower()
+    return value if value in VALID_MODES else "off"
+
+
 def _settings() -> Dict[str, Any]:
-    mode = str(_read_setting("mode", DEFAULTS["mode"]) or "").strip().lower()
+    mode = _canonical_mode(_read_setting("mode", DEFAULTS["mode"]))
     mode_source = "config"
-    if mode not in VALID_MODES:
-        mode = "off"
     override = mode_override()
     if override is not None:
         # A runtime choice outranks the file: /hae just told the operator it
@@ -460,9 +579,8 @@ def _settings() -> Dict[str, Any]:
     # Independent gate: children are routed only when BOTH the session mode and
     # this one allow it, so opting into session routing never silently starts
     # rewriting subagent effort.
-    subagent_mode = str(_read_setting("subagent_mode", DEFAULTS["subagent_mode"]) or "").strip().lower()
-    if subagent_mode not in VALID_MODES:
-        subagent_mode = "off"
+    subagent_mode = _canonical_mode(
+        _read_setting("subagent_mode", DEFAULTS["subagent_mode"]))
 
     def _num(key: str, fallback: float) -> float:
         try:
@@ -492,6 +610,8 @@ def _settings() -> Dict[str, Any]:
                 return False
         return fallback
 
+    effort_models = _read_setting("effort_models", DEFAULTS["effort_models"])
+
     settings = {
         "mode": mode,
         "mode_source": mode_source,
@@ -499,8 +619,7 @@ def _settings() -> Dict[str, Any]:
         "timeout_s": _num("timeout_s", DEFAULTS["timeout_s"]),
         "max_turns": _int("max_turns", DEFAULTS["max_turns"]),
         "prompt_chars": _int("prompt_chars", DEFAULTS["prompt_chars"]),
-        "force_injection_models": _normalize_forced_models(
-            _read_setting("force_injection_models", DEFAULTS["force_injection_models"])),
+        "effort_models": _normalize_forced_models(effort_models),
         "endpoint": str(_read_setting("endpoint", DEFAULTS["endpoint"])),
         # The URL the client will actually POST to: the setting above may name the
         # API base instead of the scoring route, and a mismatch is invisible until
@@ -878,18 +997,6 @@ def _injection_path(request: Dict[str, Any], provider: Any, model: Any,
     return path
 
 
-def _has_pinned_injection(session_id: str, provider: Any, model: Any,
-                          api_mode: Any) -> bool:
-    """An unsafe auto-injection decision stays pinned when its field is replayed."""
-    with _lock:
-        entry = _SESSIONS.get(session_id)
-        return bool(
-            entry and entry.get("_injected") is True and entry.get("state") == "decided"
-            and (entry.get("provider"), entry.get("model"), entry.get("api_mode"))
-            == (provider, model, api_mode)
-        )
-
-
 def _inject(request: Dict[str, Any], path: str, target: str) -> Dict[str, Any]:
     """Copy only the owners of the new field, preserving caller-owned siblings."""
     new = dict(request)
@@ -899,12 +1006,13 @@ def _inject(request: Dict[str, Any], path: str, target: str) -> Dict[str, Any]:
         new["reasoning_effort"] = target
     return new
 
-def _target_for_route(entry: Dict[str, Any], provider: Any, model: Any) -> Optional[str]:
+def _target_for_route(entry: Dict[str, Any], provider: Any, model: Any,
+                      api_mode: Any = None) -> Optional[str]:
     """The wire target *entry* gets on the CURRENT route, or ``None``.
 
     A stored target is only legal for the route that produced it. A provider
-    fallback inside one turn — or ``cache_safe`` pinning a session and then
-    seeing the route change — keeps the same decision key while the route
+    fallback inside one turn — or a retained session/route decision followed by
+    a route change — keeps the same decision key while the route
     changes underneath it, and applying the recorded level verbatim is exactly
     how a narrow route receives a value its vendor rejects (HTTP 400).
 
@@ -917,16 +1025,42 @@ def _target_for_route(entry: Dict[str, Any], provider: Any, model: Any) -> Optio
     label = entry.get("label")
     if not isinstance(label, str) or not label:
         return None
-    if (entry.get("provider"), entry.get("model")) == (provider, model):
+    if (entry.get("provider"), entry.get("model"), entry.get("api_mode")) == (
+            provider, model, api_mode):
         target = entry.get("target")
         return target if isinstance(target, str) and target else None
     target = _effort.map_effort(label, provider, model)
-    if target is None:
-        return None
     entry["target"] = target
     entry["provider"] = provider
     entry["model"] = model
+    entry["api_mode"] = api_mode
     return target
+
+
+def _dynamic_effort_route(provider: Any, model: Any, api_mode: Any) -> bool:
+    """True only for exact model/API routes with explicit effort and cache evidence."""
+    route = _route_identity(provider, model, api_mode)
+    provider_name, model_id, api = route
+    bare_model = model_id.lower().rsplit("/", 1)[-1]
+    if not _cache_safety.effort_is_cache_safe(provider_name, model_id, api):
+        return False
+    if provider_name == "openai-codex" and api == "codex_responses":
+        return bare_model == "gpt-6.1-sol"
+    if provider_name == "opencode-zen" and api == "codex_responses":
+        return bare_model in {
+            "muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.3-contributor-free",
+        }
+    if provider_name == "opencode-go":
+        return bare_model in _effort.OPEN_CODE_GO_INJECTION_ROUTES.get(api, {})
+    return False
+
+
+def _copy_decision(source: Dict[str, Any], target: Dict[str, Any]) -> None:
+    """Copy only prompt-free decision fields between the turn and route ledgers."""
+    for field in ("state", "label", "target", "score", "failure", "elapsed_ms",
+                  "probes", "provider", "model", "api_mode", "scorer_provider",
+                  "scorer_model", "updated_at"):
+        target[field] = source.get(field)
 
 
 # ── the middleware itself ───────────────────────────────────────────────────
@@ -948,22 +1082,25 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     settings = _settings()
     _sync_cli_status(settings)
     mode = settings["mode"]
-    parent_mode = mode
     if mode == "off":
         session_id = str(kwargs.get("session_id") or "")
         if session_id:
             key = _decision_key(session_id, kwargs.get("turn_id"))
+            with _lock:
+                prior = _SESSIONS.get(key)
+                preserve_decision = bool(prior and prior.get("label"))
             entry = _touch(
                 key, settings, mode, kwargs.get("provider"), kwargs.get("model"),
                 kwargs.get("api_mode"), conversation_id=session_id,
             )
             # The Desktop popup can name the active route while scoring is off.
-            # Keep only bounded request metadata; never classify or change payload.
+            # Preserve a prior same-turn decision as memo data, but never classify
+            # or change the request while this mode is active.
             with _lock:
-                entry.update(
-                    state="off", provider=kwargs.get("provider"), model=kwargs.get("model"),
-                    score=None, label=None, target=None, failure=None,
-                )
+                if not preserve_decision:
+                    entry.update(provider=kwargs.get("provider"), model=kwargs.get("model"),
+                                 api_mode=kwargs.get("api_mode"))
+                    entry.update(state="off", score=None, label=None, target=None, failure=None)
         return None  # no classification or request change
 
     session_id = str(kwargs.get("session_id") or "")
@@ -973,14 +1110,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     provider = kwargs.get("provider")
     model = kwargs.get("model")
-
-    # Preserve the established cache key chosen by the main mode for legacy
-    # parent/child combinations.
-    key = _decision_key(session_id, kwargs.get("turn_id"))
-    unsafe_route = not _cache_safety.effort_is_cache_safe(
-        provider, model, kwargs.get("api_mode"))
-    if parent_mode == "cache_safe" and unsafe_route:
-        key = _decision_key(session_id, None)
+    api_mode = kwargs.get("api_mode")
 
     # A subagent is classified from the goal its PARENT wrote, not from its own
     # first prompt. subagent_mode is a second, independent gate: the session mode
@@ -993,55 +1123,88 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     slot = _effort_slot(request)
     injection_path = None
-    if slot is None and mode in ("auto", "inject"):
+    if slot is None and mode in ("auto", "once", "always"):
         injection_path = _injection_path(
-            request, provider, model, kwargs.get("api_mode"), settings["force_injection_models"])
-
-    # The new inject mode scopes its key from the effective child mode. This keeps
-    # a parent's inject policy from pinning a child's legacy auto decision.
-    if settings["mode"] == "inject" or mode == "inject":
-        if mode in ("cache_safe", "inject") and unsafe_route:
-            key = _decision_key(session_id, None)
-
-    # Auto's newly injected decisions use the same cache rule. Reuse the session
-    # key when the next request already carries the injected field.
-    if mode == "auto" and unsafe_route and (
-            injection_path is not None
-            or _has_pinned_injection(session_id, provider, model, kwargs.get("api_mode"))):
-        key = _decision_key(session_id, None)
-
-    entry = _touch(
-        key, settings, mode, provider, model, kwargs.get("api_mode"),
-        conversation_id=session_id,
-    )
-    if entry.get("state") in ("failed", "unsupported"):
-        # A failed attempt, or a request with nothing writable: stay silent and
-        # do not re-classify within this decision's scope (bounded scorer usage).
-        return None
-    if mode in ("auto", "inject") and _reasoning_is_explicitly_disabled(request):
-        if entry.get("state") != "decided":
+            request, provider, model, api_mode, settings["effort_models"])
+    if _reasoning_is_explicitly_disabled(request):
+        key = _decision_key(session_id, kwargs.get("turn_id"))
+        entry = _touch(key, settings, mode, provider, model, api_mode,
+                       conversation_id=session_id)
+        if entry.get("state") == "new":
             entry["state"] = "unsupported"
         return None
     if slot is None and injection_path is None:
-        # Nothing verifiable to rewrite: remember and stay silent.
-        if entry.get("state") != "decided":
+        # Report the route to status without creating a persistent decision or
+        # spending a scorer call; a later eligible request can still be handled.
+        key = _decision_key(session_id, kwargs.get("turn_id"))
+        entry = _touch(key, settings, mode, provider, model, api_mode,
+                       conversation_id=session_id)
+        if entry.get("state") == "new":
             entry["state"] = "unsupported"
         logger.debug("hermes-adaptive-effort: no writable effort field; no change")
         return None
 
-    if entry.get("state") != "decided":
+    turn_id = kwargs.get("turn_id")
+    turn_key = _decision_key(session_id, turn_id)
+    route = _route_identity(provider, model, api_mode)
+    persistent_scope = (
+        mode == "once"
+        or (mode == "auto" and not _dynamic_effort_route(provider, model, api_mode))
+        or not str(turn_id or "").strip()
+    )
+    route_key = _pin_key(session_id, route)
+    seed_pin = False
+
+    # Keep one per-turn record for tool-loop reuse, even when this route is
+    # governed by a session pin. It also prevents a route fallback in the same
+    # turn from spending a second scorer call.
+    turn_entry = _touch(
+        turn_key, settings, mode, provider, model, api_mode,
+        conversation_id=session_id,
+    )
+    if "probe_owner" not in turn_entry:
+        turn_entry["probe_owner"] = "session_route" if persistent_scope else "turn"
+
+    with _lock:
+        pinned_entry = _PINNED.get(route_key)
+    if turn_entry.get("state") in ("decided", "unsupported", "failed") \
+            and turn_entry.get("label"):
+        # A route changed within an already-classified turn. Its prompt decision
+        # wins for this tool loop; re-clamp it on the current model. Seed a pin
+        # only when this route has not already retained its own session decision.
+        entry = turn_entry
+        seed_pin = persistent_scope and pinned_entry is None
+    elif persistent_scope and pinned_entry is not None:
+        entry = _touch_pin(route_key, settings, mode, provider, model, api_mode, session_id)
+        # A pre-existing route pin wins when this is the first eligible request
+        # of the turn. Remember it on the turn record to prevent another scorer.
+        if turn_entry.get("state") in ("new", "probing"):
+            _copy_decision(entry, turn_entry)
+            turn_entry["probe_owner"] = "session_route"
+    else:
+        entry = turn_entry
+
+    if entry.get("state") == "failed":
+        return None
+    if entry.get("state") == "probing":
+        return None
+
+    if entry.get("state") not in ("decided", "unsupported") or not entry.get("label"):
         # A subagent classifies the terse goal its parent wrote; a normal session
         # classifies its current user message, not the oldest one in its history.
         prompt = child_goal if child_goal is not None else _latest_user_prompt(request)
         if not prompt:
-            entry["state"] = "unsupported"
             return None
-        if not _claim(key):
+        # One scorer call per user turn even when a provider changes route during
+        # a tool loop. Persistent decisions are copied into the route ledger below.
+        claim_key = turn_key
+        if not _claim_scoring(claim_key, route_key, persistent_scope):
             # Another request of this same session is classifying right now:
             # never a second scorer call, and its entry stays untouched.
             logger.debug("hermes-adaptive-effort: probe already in flight; failing open")
             return None
         try:
+            entry = turn_entry
             entry["state"] = "probing"
             started = time.monotonic()
             score, failure = _classify(prompt, settings)
@@ -1052,55 +1215,59 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             entry["updated_at"] = time.time()
             if score is None:
                 entry["state"] = "failed"
+                if persistent_scope:
+                    pinned = _touch_pin(
+                        route_key, settings, mode, provider, model, api_mode, session_id)
+                    _copy_decision(entry, pinned)
                 return None
             label = _effort.score_to_label(score)
             if label is None:
                 # A number the rubric cannot express: a malformed answer.
                 entry["state"] = "failed"
                 entry["failure"] = "malformed_response"
+                if persistent_scope:
+                    pinned = _touch_pin(
+                        route_key, settings, mode, provider, model, api_mode, session_id)
+                    _copy_decision(entry, pinned)
                 return None
             entry["label"] = label
             target = _effort.map_effort(label, provider, model)
-            if target is None:
-                entry["state"] = "unsupported"
-                return None
-            # Record the route that produced this target: the value is only legal
-            # for it, and every later request re-checks the route it arrives on.
             entry["target"] = target
             entry["provider"] = provider
             entry["model"] = model
-            entry["state"] = "decided"
+            entry["api_mode"] = api_mode
+            entry["state"] = "decided" if target is not None else "unsupported"
+            if persistent_scope:
+                pinned = _touch_pin(route_key, settings, mode, provider, model, api_mode, session_id)
+                _copy_decision(entry, pinned)
         finally:
-            _release(key)
+            _release_scoring(claim_key, route_key, persistent_scope)
 
-    target = _target_for_route(entry, provider, model)
+    target = _target_for_route(entry, provider, model, api_mode)
     if target is None:
-        if entry.get("state") == "decided":
-            # The decision stands for the prompt, but THIS route has no level
-            # for it (a narrower route mid-turn). Rewriting nothing is the only
-            # safe answer, and the label is not re-classified in this turn.
-            entry["state"] = "unsupported"
+        entry["state"] = "unsupported"
+        if seed_pin:
+            pinned = _touch_pin(route_key, settings, mode, provider, model, api_mode, session_id)
+            _copy_decision(entry, pinned)
+            # This route inherits the turn's score; no scorer call was made for it.
+            pinned["probes"] = 0
         return None
+    entry["state"] = "decided"
+    if seed_pin:
+        pinned = _touch_pin(route_key, settings, mode, provider, model, api_mode, session_id)
+        _copy_decision(entry, pinned)
+        # This route inherits the turn's score; no scorer call was made for it.
+        pinned["probes"] = 0
     before = slot[2] if slot is not None else "absent"
     if target == before:
         # The route already sits at the level the scorer picked: nothing to send, so we
         # report no decision at all rather than a rewrite identical to the input.
         return None
-    if mode == "recommend":
-        return {
-            "request": request,
-            "source": PLUGIN_ID,
-            "reason": f"recommend {entry.get('label')} (not applied; wire effort stays "
-                      f"'{slot[2]}')",
-        }
-
     new_request = (_apply(request, slot, target) if slot is not None
                    else _inject(request, injection_path, target))
     if new_request is request:
         return None
-    if injection_path is not None:
-        entry["_injected"] = True
-    event = _record_effort_change(key, before, target)
+    event = _record_effort_change(turn_key, before, target)
     if event is not None:
         try:
             logger.info("Effort changed: %s -> %s", event["from"], event["to"])
@@ -1112,5 +1279,5 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {
         "request": new_request,
         "source": PLUGIN_ID,
-        "reason": f"{'inject' if injection_path else 'auto'} {before} -> {target} ({entry.get('label')})",
+        "reason": f"{mode} {before} -> {target} ({entry.get('label')})",
     }

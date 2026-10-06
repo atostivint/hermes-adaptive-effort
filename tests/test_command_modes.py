@@ -1,16 +1,4 @@
-"""/hae off|recommend|auto|cache_safe — the mode verbs (acceptance criterion 2).
-
-Two defects are pinned here. First, ``_dispatch`` answered the usage banner for every
-verb except ``help``/``status``/``probe``, so none of the four documented modes could
-be set from a chat at all. Second, that banner pointed at ``/hae setup``, which
-does not exist anywhere: the host API (``hermes_cli/plugins.py``) exposes
-``register_command`` and nothing else, so there is no "setup" wizard to delegate to.
-
-The scope of the fix is deliberate: a mode set from the command applies to FUTURE
-requests of THIS process, and is never written to the operator's ``config.yaml``
-(the reply says both). ``plugins.entries.hermes-adaptive-effort.settings.mode`` is the documented
-way to make a choice stick across restarts.
-"""
+"""The four public effort-mode verbs and their process-local scope."""
 
 from __future__ import annotations
 
@@ -23,22 +11,11 @@ from conftest import import_plugin
 command = import_plugin("command")
 middleware = import_plugin("middleware")
 
-MODES = ("off", "recommend", "auto", "cache_safe")
+MODES = ("auto", "once", "always", "off")
 SESSION = "CMD-MODES"
 
 
-def test_inject_mode_command_is_explicit_and_override_only(monkeypatch):
-    before = middleware._live_config()
-    assert command.handle("inject") != command.USAGE
-    assert middleware.mode_override() == "inject"
-    assert middleware._live_config() == before
-    assert "inject" in command.USAGE
-    assert command.handle("inject extra") == command.USAGE
-    assert middleware.mode_override() == "inject"
-
-
 def make_request(effort="medium", text="Design a multi-region failover plan"):
-    """Recorded OpenAI-compatible shape: reasoning already on, effort pinned."""
     return {
         "model": "openrouter/x/y",
         "messages": [{"role": "user", "content": text}],
@@ -47,8 +24,6 @@ def make_request(effort="medium", text="Design a multi-region failover plan"):
 
 
 class CountingJev:
-    """Fake transport: one deterministic score, and a count of the probes made."""
-
     def __init__(self, score=1.9):
         self.score = score
         self.calls = []
@@ -58,48 +33,39 @@ class CountingJev:
         return self.score, None
 
 
-def route(monkeypatch, jev=None, request=None, api_mode="chat_completions",
-          provider="openrouter", model="openrouter/x/y"):
-    """One request through the plugin callback, on a counting transport."""
+def route(monkeypatch, jev=None, request=None, turn="turn-1"):
     jev = CountingJev() if jev is None else jev
     monkeypatch.setattr(middleware, "_classifier_factory", lambda **kwargs: jev)
     out = middleware.on_llm_request(
         request=make_request() if request is None else request,
-        session_id=SESSION, provider=provider, model=model, api_mode=api_mode,
-        task_id="t", turn_id="turn-1", api_request_id="r1", api_call_count=1,
+        session_id=SESSION, provider="openrouter", model="openrouter/x/y",
+        api_mode="chat_completions", task_id="t", turn_id=turn,
+        api_request_id="r1", api_call_count=1,
         middleware_schema_version="hermes.middleware.v1")
     return out, jev
 
 
 def use_mode(monkeypatch, mode):
-    """Config seam: the FILE says *mode*; a runtime override still outranks it."""
     monkeypatch.setattr(
         middleware, "_settings_provider",
-        lambda key, default=None: {
-            "mode": mode}.get(key, default))
+        lambda key, default=None: {"mode": mode}.get(key, default))
 
-
-# ── the verbs do what the banner says ───────────────────────────────────────
 
 @pytest.mark.parametrize("mode", MODES)
 def test_mode_verb_is_accepted_and_governs_the_next_request(monkeypatch, mode):
     use_mode(monkeypatch, mode)
     reply = command.handle(mode)
-    assert reply != command.USAGE, f"{mode} was answered with the banner"
+    assert reply != command.USAGE
     assert mode in reply
     assert middleware.mode_override() == mode
-    settings = middleware._settings()
-    assert (settings["mode"], settings["mode_source"]) == (mode, "override")
+    assert (middleware._settings()["mode"], middleware._settings()["mode_source"]) == (
+        mode, "override")
 
     out, jev = route(monkeypatch)
     if mode == "off":
-        assert out is None                      # nothing rewritten...
-        assert jev.calls == []                  # ...and no scorer call spent
-    elif mode == "recommend":
-        assert out is not None                  # classified and reported...
-        assert out["request"]["extra_body"]["reasoning"]["effort"] == "medium"
-        assert len(jev.calls) == 1              # ...but never applied
-    else:                                       # auto, cache_safe on a safe route
+        assert out is None
+        assert jev.calls == []
+    else:
         assert out["request"]["extra_body"]["reasoning"]["effort"] == "high"
         assert len(jev.calls) == 1
 
@@ -110,59 +76,86 @@ def test_mode_reply_names_its_scope_and_the_persist_path(monkeypatch):
     assert "future requests" in first
     assert "not persisted" in first
     assert "plugins.entries.hermes-adaptive-effort.settings.mode" in first
-
     repeat = command.handle("auto")
     assert "unchanged" in repeat
-    assert "not persisted" in repeat
 
 
 def test_mode_override_outranks_the_configured_mode(monkeypatch):
-    use_mode(monkeypatch, "recommend")
-    assert (middleware._settings()["mode"], middleware._settings()["mode_source"]) == (
-        "recommend", "config")
-
-    command.handle("auto")
-
+    use_mode(monkeypatch, "once")
+    command.handle("always")
     settings = middleware._settings()
-    assert (settings["mode"], settings["mode_source"]) == ("auto", "override")
+    assert (settings["mode"], settings["mode_source"]) == ("always", "override")
     payload = json.loads(command.handle("status json"))
-    assert (payload["mode"], payload["mode_source"]) == ("auto", "override")
+    assert (payload["mode"], payload["mode_source"]) == ("always", "override")
     assert payload["settings"]["mode_source"] == "override"
-    assert "override" in command.handle("status")   # the text line says where it came from
+    assert "override" in command.handle("status")
 
 
 def test_mode_is_process_local_and_nothing_is_persisted(monkeypatch):
-    """A restart must fall back to the configured mode: the command writes no file."""
     use_mode(monkeypatch, "off")
     command.handle("auto")
-    assert middleware._settings()["mode"] == "auto"     # in force for this process
-    middleware.clear_mode_override()                     # what a restart does
-    assert middleware._settings()["mode"] == "off"       # the config seam never moved
+    assert middleware._settings()["mode"] == "auto"
+    middleware.clear_mode_override()
+    assert middleware._settings()["mode"] == "off"
+
+
+def test_switching_to_off_stops_scoring_and_rewrites_immediately(monkeypatch):
+    use_mode(monkeypatch, "always")
+    jev = CountingJev(score=0.1)
+    first, _ = route(monkeypatch, jev, turn="turn-1")
+    assert first["request"]["extra_body"]["reasoning"]["effort"] == "low"
+    assert len(jev.calls) == 1
+
+    command.handle("off")
+    later, _ = route(monkeypatch, jev, request=make_request(effort="high"), turn="turn-2")
+    assert later is None
+    assert len(jev.calls) == 1
+
+
+def test_status_probe_count_does_not_double_count_persistent_decision(monkeypatch):
+    use_mode(monkeypatch, "once")
+    jev = CountingJev(score=1.9)
+    route(monkeypatch, jev, turn="turn-1")
+    route(monkeypatch, jev, turn="turn-2")
+    payload = json.loads(command.handle("status json"))
+    assert payload["counts"]["sessions"] == 1
+    assert payload["counts"]["requests"] == 2
+    assert payload["counts"]["probes"] == 1
+    assert len(jev.calls) == 1
 
 
 def test_reset_returns_to_the_configured_mode(monkeypatch):
-    use_mode(monkeypatch, "recommend")
-    command.handle("cache_safe")
-    assert middleware._settings()["mode"] == "cache_safe"
-
+    use_mode(monkeypatch, "once")
+    command.handle("always")
     middleware.reset_state()
-
     assert middleware.mode_override() is None
-    settings = middleware._settings()
-    assert (settings["mode"], settings["mode_source"]) == ("recommend", "config")
+    assert (middleware._settings()["mode"], middleware._settings()["mode_source"]) == (
+        "once", "config")
+
+
+@pytest.mark.parametrize("unknown", [
+    "recommend", "cache_safe", "cache-safe", "inject", "unrecognized",
+])
+def test_unknown_config_modes_are_disabled(monkeypatch, unknown):
+    use_mode(monkeypatch, unknown)
+    assert middleware._settings()["mode"] == "off"
 
 
 def test_unknown_verb_and_stray_arguments_change_nothing():
     before = middleware._settings()["mode"]
-    for raw in ("setup", "banana", "auto please", "off extra", "cache_safe --now"):
+    for raw in ("setup", "banana", "auto please", "off extra",
+                "recommend", "cache_safe", "inject", "cache-safe"):
         assert command.handle(raw) == command.USAGE, raw
     assert middleware.mode_override() is None
     assert middleware._settings()["mode"] == before
 
 
-def test_usage_advertises_every_mode_and_no_dead_verb():
+def test_public_mode_list_is_exact_and_help_has_no_legacy_modes():
+    assert middleware.VALID_MODES == MODES
     usage = command.USAGE.lower()
     assert "setup" not in usage
     for mode in MODES:
         assert mode in usage
+    for legacy in ("recommend", "cache_safe", "cache-safe", "inject"):
+        assert legacy not in usage
     assert command.handle("help") == command.USAGE

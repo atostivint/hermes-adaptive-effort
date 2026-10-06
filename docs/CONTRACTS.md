@@ -2,15 +2,32 @@
 
 Current implementation reference. For installation and everyday use, start with the [README](../README.md). For the reasons behind these contracts, see [design choices](DESIGN.md).
 
-## Decision cache: one decision per turn, valid only for its route
+## Decision scope: four public modes
+
+The only public modes are `auto`, `once`, `always`, and `off`. The default is `off` for both the main session and subagents. `/hae` and the dashboard mode API accept only those names; unknown values disable the mode when read from configuration.
+
+| mode | decision scope |
+| --- | --- |
+| `auto` | Per new user turn only for exact model/API routes explicitly registered for dynamic effort and whose transport is verified cache-neutral; otherwise one decision per session/provider/model/API route |
+| `once` | One decision per session/provider/model/API route, reused on later turns |
+| `always` | Per new user turn on any eligible route |
+| `off` | No scorer call or effort change; bounded route metadata may remain for the Desktop popup |
+
+An existing effort field or an `effort_models` declaration does not establish dynamic support. The dynamic registry currently includes the documented exact OpenCode Go/Zen control routes and `openai-codex/gpt-6.1-sol` on `codex_responses`; each must also pass the transport cache-safety check.
+
+Configuration accepts only the four canonical mode values. Unknown values become `off`; the plugin does not translate older mode names or rewrite the operator's config file.
+
+Turn decisions and persistent route decisions live in separate ledgers, each bounded by `max_turns`. `once` returns to a previously evaluated model/API route without another scorer call. If a route changes during a tool loop, the current turn's label remains authoritative, is re-clamped for the new route, and seeds a route decision only if that route has no prior pin. A new session, eviction, process reload, or reset can require another classification. Without a turn ID, active modes use the persistent session/route scope.
+
+## Turn memo
 
 The memo key is `(session_id, turn_id)`:
 
 * Each new turn classifies the **latest user text** in `messages` or Codex `input`,
   skipping assistant and tool results. Earlier conversation history is not the new task.
 * A multi-call turn (a tool loop) is **several requests of one turn**: it reuses the
-  decision from its first call — one scorer call, not one per request. `api_call_count` is
-  not consulted; the turn id is the only authority.
+  decision from its first call — one scorer call across route changes, not one per request.
+  `api_call_count` is not consulted; the turn id is the only authority.
 * The entry records the **provider and the model** the decision was made on, plus the
   label, the target, the request/probe counters and the outcome (`state`).
 * On reuse, the recorded *target* is **re-clamped onto the current route**. The label
@@ -20,10 +37,7 @@ The memo key is `(session_id, turn_id)`:
 * `failed` and `unsupported` outcomes are **not retried inside the turn** — a classifier
   outage costs at most one probe per turn, not one per request.
 
-These guarantees apply while a decision remains cached; eviction or state reset removes that memory.
-
-`cache_safe`, `inject`, and an unsafe `auto` injection narrow the key further, to the session, when an effort change would
-invalidate the prompt cache (see below).
+These guarantees apply while a decision remains in the bounded ledger; eviction or state reset removes that memory.
 
 ## Route vocabulary: what may be written where
 
@@ -44,7 +58,7 @@ because an `llm_request` hook runs **after** the transport clamp.
 | any other non-Codex route | `route_supported_efforts(provider, model)` | for an unknown route this is the widest OpenAI-compatible set |
 | `openai-codex` | `route_supported_efforts(...)` | the narrow `wire_efforts` table is skipped for this provider |
 
-Missing-field injection has its own exact provider/model/API registry, separate from this route clamp. Its current OpenCode Go entries and the no-op outcome for each published catalog model are listed in the [model compatibility matrix](MODEL_COMPATIBILITY.md). The optional `force_injection_models` setting is an empty-by-default, comma/newline-separated exact model-ID list. It strips a leading namespace for matching and authorizes the selected model on any provider only for known `codex_responses` or `chat_completions` containers. It is an operator assertion, not vendor evidence; no globbing, Anthropic shape inference, or unknown API-mode injection is allowed. Recognized per-model vocabulary and paired-control guards still apply.
+Adding a missing effort field has its own exact provider/model/API registry, separate from this route clamp. Its current OpenCode Go entries and the no-op outcome for each published catalog model are listed in the [model compatibility matrix](MODEL_COMPATIBILITY.md). The optional `effort_models` setting is an empty-by-default, comma/newline-separated exact model-ID list. It strips a leading namespace for matching and authorizes the selected model on any provider only for known `codex_responses` or `chat_completions` containers. It is an operator assertion, not vendor evidence; no globbing, Anthropic shape inference, or unknown API-mode field addition is allowed. Recognized per-model vocabulary and paired-control guards still apply.
 
 Hermes effort ladder used by the verified host:
 
@@ -53,7 +67,7 @@ EFFORT_LADDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ul
 OPENAI_COMPAT_WIRE_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 ```
 
-`ultra` is Hermes-internal and appears in no wire set. Unset stays unset for `off`, `recommend`, and `cache_safe`. `auto` and the retained `inject` mode may add an effort only on an exact registry route or for an operator-listed model on the two recognized OpenAI-compatible carriers, with copy-on-write of the request and reasoning container. Disabled/malformed controls remain untouched. Injection transitions use `absent` as the prior value in the applied-change feed.
+`ultra` is Hermes-internal and appears in no wire set. Unset stays unset for `off`. Every active mode may add an effort only on an exact registry route or for an operator-listed model on the two recognized OpenAI-compatible carriers, with copy-on-write of the request and reasoning container. Disabled/malformed controls remain untouched. Field-addition transitions use `absent` as the prior value in the applied-change feed.
 
 ### Residual risk: Ox Alpha / `x-preview-f-free`
 
@@ -80,7 +94,7 @@ Cloudflare returns the shared `0..2` score from `result.answers.effort.score` on
 | custom endpoint/model/format/auth invalid | unchanged | `failed` with configuration code | 0 HTTP calls |
 | classifier timeout / transport error | unchanged | `failed`, one probe | 1 (never retried in the turn) |
 | score out of `0..2`, non-finite, non-numeric | unchanged | `failed`, one probe | 1 |
-| no field and route lacks positive injection support (or reasoning disabled) | unchanged | `unsupported` | 0 |
+| no field and route lacks positive support for adding one (or reasoning disabled) | unchanged | `unsupported` | 0 |
 | label has no legal level on the route | unchanged | `unsupported` | possibly 1; the score may already exist |
 | any internal exception in the plugin | unchanged | — | — |
 
@@ -98,21 +112,20 @@ same effort (GLM-5.2 maps `low`/`medium`/`high` to `high`).
 ## Prompt cache
 
 An effort change is visible to the cache layer only when the route renders the thinking
-configuration into the prompt (Anthropic-style `anthropic_messages` routes). `cache_safe`
-therefore:
-
-* keeps the **per-turn** key on routes where an effort change is cache-neutral
-  (`chat_completions`, `codex_responses`);
-* drops the turn id and **pins one level for the whole session** on cache-hostile routes,
-  so later turns reuse the first decision while it remains in the bounded cache. Eviction, reload or a session reset can require a new classification.
+configuration into the prompt (Anthropic-style `anthropic_messages` routes). `auto`
+therefore uses per-turn decisions only when both an exact model/API capability and a
+cache-neutral transport are registered. Other routes keep a decision per exact
+session/provider/model/API route. `once` always uses that route scope; `always` uses
+per-turn scope regardless of the route's cache classification. Eviction, reload or a
+session reset can require a new classification.
 
 What is **not** measured: the real effect on `cache_read_tokens` / cost on this box. That
 would need an A/B run against the live provider; no such measurement was performed, and
 nothing in this repository claims a number for it.
 
-When `auto` injects on an eligible but cache-unsafe route, it uses the same session pin. The
-injection marker keeps that decision pinned even if later requests already carry the injected
-field and would otherwise follow the ordinary per-turn `auto` key.
+When `auto` adds a field on a route without verified dynamic support, the decision is
+retained under the same route identity as rewrites to existing fields. An incoming field
+added by an earlier request remains subject to that route decision.
 
 ## Subagents
 
@@ -131,7 +144,7 @@ The dashboard API is mounted under `/api/plugins/hermes-adaptive-effort/`:
 | `POST /mode` | Persist the mode through the host settings API and apply it to the process |
 | `POST /probe` | `hermes-adaptive-effort.probe.v1`; score/label/failure and character count, no prompt echo |
 
-The applied-change feed contains `{stream_id, events: [{id, from, to, at}], latest}`. It retains up to 64 actual rewritten transitions, without prompt or session identifiers. Recommend mode, unsupported/failed attempts and identical values emit no change. Deduplication uses `(decision_key, from, to)`; a reload/reset creates a new stream ID and consumers must reset their cursor.
+The applied-change feed contains `{stream_id, events: [{id, from, to, at}], latest}`. It retains up to 64 actual rewritten transitions, without prompt or session identifiers. `off`, unsupported/failed attempts and identical values emit no change. Deduplication uses `(decision_key, from, to)`; a reload/reset creates a new stream ID and consumers must reset their cursor.
 
 The Desktop chip matches the focused chat's exact `conversation_id` and backend/profile owner. Its popup groups the active mode and description, focused conversation effort and route, selected scorer/model and readiness, and whether custom classifier guidance is configured. It polls every two seconds and does not use global changes as a fallback for another chat's effort. No decision, unsupported/in-flight state or backend mismatch shows `Effort: N/A`. The pane's latest transition and change notifications apply across conversations, since the feed has no conversation identifier. Initial history establishes a baseline without replaying old notifications. The Desktop extension is opt-in.
 

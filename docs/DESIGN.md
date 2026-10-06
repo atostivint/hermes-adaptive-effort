@@ -14,19 +14,21 @@ The rename from `jev-auto-effort` to `hermes-adaptive-effort` expresses this sep
 
 There is no cross-provider fallback. Sending task text to another provider, or billing a model the user did not select, should require a deliberate choice.
 
-## Decide for the current turn
+## Choose the decision scope
 
-Earlier session-wide routing could classify an opening greeting as low effort and carry that decision into a later complex task. Normal `auto` routing therefore keys decisions on `(session_id, turn_id)` and reads the latest user message.
+Earlier session-wide routing could classify an opening greeting as low effort and carry that decision into a later complex task. `always` and the dynamic branch of `auto` therefore classify each new user message, identified by `(session_id, turn_id)`, and read that message rather than the opening prompt.
 
-A tool loop makes multiple API requests for one task, so it reuses the decision. Concurrent classifications claim the same key; failed and unsupported attempts are not repeatedly retried within the retained scope. Route changes re-map the stored label to the current model's wire vocabulary.
+`auto` uses per-message decisions only for exact model/API pairs with documented dynamic-effort support and a transport verified to keep effort changes out of the prompt prefix. Other routes use one decision per exact provider, model and API mode for the conversation. `once` always uses that route scope. A model change can create a new route decision, and returning to an earlier route reuses its stored choice. During a tool loop, a single per-turn decision remains authoritative across route changes; the label is re-clamped to each model's vocabulary. `always` reevaluates on the next user turn but still reuses the current turn's decision during tool calls.
+
+Concurrent requests claim one scorer slot per turn. Failed and unsupported attempts are not repeatedly retried within the retained scope. Turn records and route decisions have separate `max_turns` bounds; eviction, reset or reload can require another evaluation.
 
 The scorer receives bounded task text rather than the whole conversation. This limits the data sent and scoring overhead, at the cost of missing context when the latest message relies heavily on earlier discussion. The classifier is a heuristic, not a guarantee of task difficulty or answer correctness.
 
 ## Preserve operator intent
 
-The plugin is opt-in, and its main mode defaults to `off`. Choosing a routing mode authorizes classifying eligible requests and sharing the bounded latest-user-text excerpt with the configured scorer; `off` keeps only bounded route metadata for the Desktop popup and does not score or change requests. `recommend` allows inspection before rewriting. Subagents have their own default-off gate because enabling the parent should not silently enable child rewrites.
+The plugin is opt-in, and its main mode defaults to `off`. Choosing a routing mode authorizes classifying eligible requests and sharing the bounded latest-user-text excerpt with the configured scorer; `off` keeps only bounded route metadata for the Desktop popup and does not score or change requests. `/hae probe <text>` lets an operator score typed text without routing a conversation request. Subagents have their own default-off gate because enabling the parent should not silently enable child rewrites.
 
-The middleware rewrites only a field already present in the request. It does not enable reasoning, invent an effort field or modify explicit `none`/disabled thinking. Model capability alone is insufficient; the route must expose usable control.
+The middleware prefers a field already present in the request. It does not enable reasoning or modify explicit `none`/disabled thinking. A missing effort field is added only on an exact registered route or an exact operator-listed ID in `effort_models`, and only in a known request container. That list permits adding a field; it does not establish dynamic support.
 
 Slash-command mode changes are process-local. Persistent settings belong to the operator's config or the host's settings interface. This makes a chat command's lifetime explicit and keeps it from quietly editing files.
 
@@ -38,13 +40,13 @@ This protects the conversation from scorer failures, but cannot eliminate inaccu
 
 ## Make cache behavior explicit
 
-Effort settings can affect a provider's prompt cache. `auto` prioritizes per-turn classification. `cache_safe` uses per-turn decisions only on recognized cache-neutral API modes; on other or unknown modes it pins a decision to the session while that entry remains cached.
+Effort settings can affect a provider's prompt cache. Dynamic decisions use an explicit model/API capability registry, combined with transport evidence that the field does not alter the prompt prefix. API family alone, an existing field, and an operator's `effort_models` declaration are insufficient. Routes without an exact dynamic capability keep one decision per provider/model/API route; `once` chooses this route scope for every model, while `auto` uses it as the fallback.
 
 This is deliberately conservative. State is bounded and in memory, so eviction, reload or reset ends that retention. Cache-hit rates and net cost effects need live measurements; the repository does not present expected savings as proven results.
 
 ## Observe the result, avoid storing prompts
 
-Status contains allowlisted effort and routing metadata. The applied-change feed records only values that actually reached a rewritten request, not recommendations or no-op decisions. It contains no prompts or conversation identifiers.
+Status contains allowlisted effort and routing metadata. The applied-change feed records only values that actually reached a changed request, not failed or no-op decisions. It contains no prompts or conversation identifiers.
 
 The Desktop chip uses separate conversation-scoped status so changing chats does not display another chat's effort. Completed-turn results remain available in the bounded ledger; actual finalize/reset events clear them.
 

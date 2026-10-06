@@ -51,9 +51,11 @@ provider-prefixed labels and a task-oriented declaration order rather than neste
 
 Pipeline: read the outgoing request → score the prompt (`0 = low`, `1 = medium`,
 `2 = high`) → clamp the label onto **the route's own wire vocabulary** → write it into
-an existing effort field, or in `auto` / retained `inject` mode add one on an exact documented
-provider/model/API route. An operator may separately assert exact model IDs with
-`force_injection_models` for the recognized Responses and Chat Completions carriers.
+an existing effort field, or add a missing field on an exact documented provider/model/API
+route. The only public modes are `auto`, `once`, `always`, and `off`; `auto` uses per-turn
+decisions only for exact dynamically supported routes, while other routes retain a decision
+per model and route. `effort_models` lets an operator assert exact model IDs for the known
+Responses and Chat Completions carriers.
 
 It is fail-open by contract: any error, timeout, missing credential or unusable request
 shape leaves the request **byte-for-byte untouched**.
@@ -209,22 +211,25 @@ or restart before they import changed Python modules.
 
 ## 6. Architecture invariants — do not break these
 
-1. **Default mode is `off`.** `off` (no scorer call or request change; bounded route metadata may be retained for the Desktop popup) / `recommend` (classify, rewrite nothing) / `auto`
-   (rewrite existing fields and inject on verified or operator-listed exact models) / `cache_safe`
-   (per-turn where cache-neutral, else session-pinned) / `inject` (legacy cache-safe
-   injection mode).
-2. **Missing-field injection is explicit and narrow.** `middleware._effort_slot` recognises
+1. **Default mode is `off`.** The only public modes are `auto`, `once`, `always`, and `off`.
+   `auto` classifies each new turn on exact registered dynamic-effort routes with cache-neutral
+   transports, then retains a decision per exact route otherwise. `once` always retains one
+   decision per route. `always` classifies each new user turn. A tool loop reuses its turn's
+   decision across route changes; `off` never scores or changes effort.
+2. **Missing-field support is explicit and narrow.** `middleware._effort_slot` recognises
    `extra_body.reasoning.effort`, top-level `reasoning_effort`, and top-level
-   `reasoning.effort` (codex_responses). `auto` and `inject` add a field only for exact
-   documented routes or exact model IDs in `force_injection_models`; force IDs use recognized
-   Responses/Chat Completions containers and are not vendor evidence. Never add a thinking
+   `reasoning.effort` (codex_responses). All active modes may add a field only for exact
+   documented routes or exact model IDs in `effort_models`; these operator-listed IDs use
+   recognized Responses/Chat Completions containers and are not vendor evidence. Never add a thinking
    toggle or overwrite malformed/disabled controls. No eligible field ⇒ `unsupported`.
 3. **Clamp onto the route vocabulary.** `effort.map_effort` → `clamp_effort` plus narrow
    tables for Kimi K3 / GLM-5.2 / GLM-5.3; `openai-codex` skips the narrow table;
    unknown routes fall back to the widest OpenAI-compatible set.
-4. **One selected-scorer call per turn.** Memo key `(session_id, turn_id)`; `failed`/`unsupported` are
-   never retried in-turn; concurrent probes are claimed via `_IN_FLIGHT`; a stored target
-   is re-clamped when the route changes (`_target_for_route`).
+4. **Split bounded decision memory.** Per-turn memo `(session_id, turn_id)` and persistent
+   route decisions `(session_id, provider, exact model, api_mode)` have separate `max_turns`
+   bounds. There is at most one scorer call per turn, including across route changes;
+   `failed`/`unsupported` are not retried in their selected scope; concurrent claims use
+   `_IN_FLIGHT`; a stored label is re-clamped when the route changes (`_target_for_route`).
 5. **Rubric:** score `0..2` → `low` (<0.5) / `medium` (<1.5) / `high`. Out of range,
    NaN/inf, bool, non-numeric → `None` → fail open. The default classifier guidance
    weighs task complexity, ambiguity, scope, reasoning steps, tool/research depth and
@@ -257,9 +262,10 @@ or restart before they import changed Python modules.
 10. **Schemas are a public contract:** `hermes-adaptive-effort.status.v1`,
     `hermes-adaptive-effort.probe.v1`, and `hermes-adaptive-effort.changes.v1`. Field names and reason
     codes are not free to rename.
-11. **Cache safety:** `cache_safety.effort_is_cache_safe()` returns `True` only for
-   `chat_completions` / `codex_responses`; `anthropic_messages` and anything unknown →
-   `False` (pin the session, never gamble the cache).
+11. **Dynamic capability is exact.** A cache-neutral API mode alone is insufficient.
+   `_dynamic_effort_route` requires a documented exact model/API pair (current OpenCode
+   Go/Zen control routes and `openai-codex/gpt-6.1-sol`) and a cache-neutral transport.
+   `effort_models` and an existing effort field do not establish dynamic support.
 12. **Injection wire sets:** exact model/API-specific vocabularies are listed in
    `docs/MODEL_COMPATIBILITY.md`; paired controls require an already-enabled thinking toggle.
    Unknown catalog entries remain no-op unless an operator explicitly force-lists the exact ID.
@@ -290,7 +296,7 @@ The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separ
   `{stream_id, events: [{id, from, to, at}], latest}` under
   `hermes-adaptive-effort.changes.v1`, effort values only, never prompt text.
   `middleware._record_effort_change()` is called at the single point where a rewritten
-  request is returned, so `recommend` / `failed` / `unsupported` / no-op turns and a
+  request is returned, so `off` / `failed` / `unsupported` / no-op turns and a
   tool loop re-sending the applied value record nothing; it also deduplicates on
   `(decision_key, from, to)`, so a route change re-sending the original level does not
   replay an event. Ids are monotonic within one `stream_id`; `reset_state()` mints a new
