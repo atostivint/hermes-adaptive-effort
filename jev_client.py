@@ -4,7 +4,8 @@ Verified contract (source: installed ``~/.hermes/plugins/jev-approvals`` plugin,
 which ships the same transport against the same host):
 
 * Endpoint: ``https://api.typesafe.ai/v1`` + ``/systemone`` (TypeSafe route).
-* Request body: ``{"state": {...}, "model": "jev-latest", "questions": {...}}``.
+* Request body: ``{"state": {...}, "model": <configured jev_model>, "questions": {...}}``
+  (default ``jev-latest``).
 * A ``score`` question returns ``{"answers": {"<key>": {"score": <float>}}}``,
   where the score is a weighted position across the ordered rubric criteria.
 * Credential: ``TYPESAFE_API_KEY`` (TypeSafe route), resolved the way Hermes
@@ -124,7 +125,7 @@ class JevClient:
                  key_reader: Optional[Callable[[], str]] = None):
         self.api_key = (api_key or "").strip()
         self.endpoint = normalize_endpoint(endpoint or DEFAULT_ENDPOINT)
-        self.model = model or JEV_MODEL
+        self.model = str(model or JEV_MODEL).strip() or JEV_MODEL
         self.timeout = float(timeout) if timeout else DEFAULT_TIMEOUT_S
         self.max_prompt_chars = int(max_prompt_chars or DEFAULT_MAX_PROMPT_CHARS)
         self.classification_instructions = rubric.normalize_classification_instructions(

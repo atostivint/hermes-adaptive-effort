@@ -147,6 +147,11 @@ The CLI uses the optional host `register_cli_status_item` API to show the last a
 
 The shared score contract remains numeric `0..2` → `low` / `medium` / `high`; operator text cannot replace the score format or the built-in level definitions. `classification_instructions` is an optional addition, capped at 2,000 characters, and is added to the selected scorer's rubric for Jev, OpenRouter, Cloudflare and custom providers. The empty default preserves the built-in rubric. The setting is available in Desktop Capabilities → Plugins and in `plugins.entries.hermes-adaptive-effort.settings`.
 
+Jev's System One request uses the configured `jev_model`, whose default is `jev-latest`. The
+setting is a free-form model name passed to the selected Jev endpoint; it is displayed as the
+effective scorer model in status. An empty value falls back to the default. OpenRouter and
+custom continue to use `scorer_model`, while Cloudflare uses `cloudflare_model`.
+
 The default rubric considers requested complexity, ambiguity, scope, reasoning steps, tool or research depth, and explicit speed/cost priorities. This is informed by Anthropic's [Effort guide](https://platform.claude.com/docs/en/build-with-claude/effort), which describes effort as a thoroughness/token-efficiency trade-off and gives typical examples by task type. Anthropic's recommendations are model-specific; this plugin adopts them only as qualitative guidance. No quality, latency or cost improvement has been measured here.
 
 ## Failure codes

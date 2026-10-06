@@ -300,10 +300,15 @@ def test_probe_failure_is_reported_as_a_reason(monkeypatch, no_network):
 def test_settings_expose_the_effective_endpoint(monkeypatch):
     """A base URL in the config must be visible as such, not silently posted to."""
     monkeypatch.setattr(middleware, "_settings_provider",
-                        lambda key, default=None: {"endpoint": "https://api.typesafe.ai/v1"}.get(key, default))
+                        lambda key, default=None: {
+                            "endpoint": "https://api.typesafe.ai/v1",
+                            "jev_model": "jev-fast",
+                        }.get(key, default))
     settings = middleware._settings()
     assert settings["endpoint"] == "https://api.typesafe.ai/v1"
     assert settings["endpoint_effective"] == "https://api.typesafe.ai/v1/systemone"
+    assert settings["jev_model"] == "jev-fast"
+    assert settings["scorer_model_effective"] == "jev-fast"
 
 
 def test_status_points_at_the_effective_endpoint_and_shows_the_raw_setting(monkeypatch):

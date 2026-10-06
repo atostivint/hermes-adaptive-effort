@@ -121,6 +121,15 @@ def test_request_shape_matches_verified_typesafe_contract():
     assert len(body["questions"]["effort"]["criteria"]) == 3
 
 
+def test_configured_model_is_sent_to_the_jev_endpoint():
+    transport = FakeTransport(_answer(1.0))
+    client = jev_client.JevClient(api_key="secret-key", model="jev-fast", transport=transport)
+    client.classify("the prompt")
+    body = json.loads(transport.calls[0]["body"])
+    assert body["model"] == "jev-fast"
+    assert client.model == "jev-fast"
+
+
 def test_prompt_is_truncated_before_send():
     transport = FakeTransport(_answer(1.0))
     client = jev_client.JevClient(api_key="k", transport=transport, max_prompt_chars=64)

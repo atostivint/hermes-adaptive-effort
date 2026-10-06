@@ -20,27 +20,29 @@ provides_hooks:
   - on_session_reset
   - subagent_start
   - subagent_stop
-# Every key here renders as a field in Desktop Capabilities → Plugins (gear row);
-# saving writes plugins.entries.hermes-adaptive-effort.settings.<key>, which middleware
-# reads back via _read_setting. Types/choices must stay in sync with
-# middleware.DEFAULTS / VALID_MODES: the settings writer refuses mismatches.
+# Every key here renders as a field in Desktop Capabilities → Plugins (gear row),
+# in declaration order; this host form is flat, so provider-prefixed labels make
+# related fields easier to scan. Saving writes plugins.entries.hermes-adaptive-effort
+# .settings.<key>, which middleware reads back via _read_setting. Types/choices must
+# stay in sync with middleware.DEFAULTS / VALID_MODES: the settings writer refuses mismatches.
 config_schema:
-  scorer_provider: {type: str, choices: [jev, openrouter, cloudflare, custom], default: jev, label: Scorer provider, description: "Jev is the compatibility default; OpenRouter requires OPENROUTER_API_KEY and scorer_model; Cloudflare requires CLOUDFLARE_AUTH_TOKEN and a 32-character account ID; custom supports a hosted or local endpoint", required: false}
-  scorer_model: {type: str, default: "", label: Scorer model, description: "OpenRouter model slug or custom endpoint model name (required when scorer_provider is openrouter or custom)", required: false}
-  custom_endpoint: {type: str, default: "", label: Custom scorer endpoint, description: "Full HTTP(S) scoring URL for scorer_provider custom; may point to a local server", required: false}
-  custom_api_format: {type: str, choices: [systemone, chat_completions], default: systemone, label: Custom scorer API format, description: "systemone for typed decision models or chat_completions for JSON score responses", required: false}
-  custom_auth: {type: str, choices: [none, bearer], default: none, label: Custom scorer authentication, description: "none for a local/public endpoint or bearer using CUSTOM_SCORER_API_KEY", required: false}
-  cloudflare_account_id: {type: str, default: "", label: Cloudflare account ID, description: "32-character hexadecimal Cloudflare account ID (required when scorer_provider is cloudflare)", required: false}
-  cloudflare_model: {type: str, choices: [clef, clef-flash], default: clef, label: Cloudflare model, description: "Workers AI Clef model selector; choose clef or clef-flash", required: false}
   mode: {type: str, choices: [off, recommend, auto, cache_safe, inject], default: off, label: Mode, description: "off=no scoring or request changes (route stays visible in Desktop); recommend=classify only; auto=classify and apply effort, including injection on verified or operator-listed exact models; cache_safe=per-turn where cache-neutral else session-pinned; inject=cache_safe routing plus exact-model injection", required: false}
-  force_injection_models: {type: str, default: "", label: Force injection models, description: "Optional exact model IDs separated by commas or newlines. Asserts effort support for known Responses/Chat Completions containers; no wildcards. Keep empty unless you verified the route.", required: false}
   subagent_mode: {type: str, choices: [off, recommend, auto, cache_safe, inject], default: off, label: Subagent mode, description: "Independent gate for child sessions classified from the parent-written goal", required: false}
-  timeout_s: {type: float, default: 3.0, label: Timeout (s), description: "Per-classification HTTP timeout; a timeout fails open", required: false}
-  max_turns: {type: int, default: 64, label: Max turns, description: "Decision-cache entries kept per process", required: false}
-  prompt_chars: {type: int, default: 4000, label: Prompt chars, description: "Maximum task characters sent when routing is enabled or probe is requested; truncation does not guarantee provider non-retention", required: false}
-  classification_instructions: {type: str, default: "", label: Extra classifier guidance, description: "Optional operator guidance for judging effort (up to 2000 characters); sent to the selected scorer only when a classification runs and does not replace the built-in score definitions", required: false}
-  show_tui_status: {type: bool, default: true, label: Show TUI effort status, description: "Show the Effort status item in the Hermes terminal interface", required: false}
-  show_desktop_popup: {type: bool, default: true, label: Show Desktop effort popup, description: "Show the bottom-right effort chip, mode-selection popup, and its change notifications in Hermes Desktop", required: false}
-  endpoint: {type: str, default: "https://api.typesafe.ai/v1/systemone", label: Jev endpoint, description: "Jev scoring route or API base (a base gets /systemone appended); ignored by other scorers", required: false}
+  scorer_provider: {type: str, choices: [jev, openrouter, cloudflare, custom], default: jev, label: Scorer provider, description: "Choose which service classifies each task. OpenRouter requires OPENROUTER_API_KEY and a model; Cloudflare requires CLOUDFLARE_AUTH_TOKEN, an account ID and model; custom requires an endpoint and model.", required: false}
+  jev_model: {type: str, default: jev-latest, label: Jev — model, description: "Model name sent to the Jev scoring endpoint; defaults to jev-latest", required: false}
+  endpoint: {type: str, default: "https://api.typesafe.ai/v1/systemone", label: Jev — endpoint, description: "Scoring route or API base; a base gets /systemone appended. Ignored by other scorers.", required: false}
+  scorer_model: {type: str, default: "", label: OpenRouter / custom — model, description: "Model is required when OpenRouter or custom is selected: enter the model slug or the name served by your custom endpoint. Ignored by Jev and Cloudflare.", required: false}
+  cloudflare_account_id: {type: str, default: "", label: Cloudflare — account ID, description: "32-character hexadecimal account ID (required when Cloudflare is selected)", required: false}
+  cloudflare_model: {type: str, choices: [clef, clef-flash], default: clef, label: Cloudflare — model, description: "Workers AI model selector: clef or clef-flash", required: false}
+  custom_endpoint: {type: str, default: "", label: Custom — endpoint, description: "Full HTTP(S) scoring URL; may point to a hosted or local server", required: false}
+  custom_api_format: {type: str, choices: [systemone, chat_completions], default: systemone, label: Custom — API format, description: "systemone for typed decision models; chat_completions for JSON score responses", required: false}
+  custom_auth: {type: str, choices: [none, bearer], default: none, label: Custom — authentication, description: "none for a local/public endpoint; bearer uses CUSTOM_SCORER_API_KEY", required: false}
+  classification_instructions: {type: str, default: "", label: Classification — extra guidance, description: "Optional operator guidance for judging effort (up to 2000 characters); sent to the selected scorer only when a classification runs and does not replace the built-in score definitions", required: false}
+  force_injection_models: {type: str, default: "", label: Advanced — force injection models, description: "Optional exact model IDs separated by commas or newlines. Asserts effort support for known Responses/Chat Completions containers; no wildcards. Keep empty unless you verified the route.", required: false}
+  timeout_s: {type: float, default: 3.0, label: Advanced — timeout (s), description: "Per-classification HTTP timeout; a timeout fails open", required: false}
+  prompt_chars: {type: int, default: 4000, label: Advanced — prompt length limit, description: "Maximum task characters sent when routing is enabled or probe is requested; truncation does not guarantee provider non-retention", required: false}
+  max_turns: {type: int, default: 64, label: Advanced — cached turns, description: "Decision-cache entries kept per process", required: false}
+  show_tui_status: {type: bool, default: true, label: Display — TUI effort status, description: "Show the Effort status item in the Hermes terminal interface", required: false}
+  show_desktop_popup: {type: bool, default: true, label: Display — Desktop popup, description: "Show the bottom-right effort chip, mode-selection popup, and its change notifications in Hermes Desktop", required: false}
 requires:
   - llm_request middleware (capability: registering llm_request and session lifecycle hooks)

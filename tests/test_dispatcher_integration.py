@@ -79,7 +79,8 @@ def dispatched(tmp_path_factory):
     shutil.copytree(
         PLUGIN_DIR, home / "plugins" / "hermes-adaptive-effort",
         ignore=shutil.ignore_patterns(
-            "__pycache__", ".git", ".github", ".venv", ".worktrees", "AGENTS.md",
+            "__pycache__", ".git", ".github", ".venv", ".worktrees",
+            ".pytest_cache", ".ruff_cache", "AGENTS.md",
             "docs", "pytest.ini", "ruff.toml", "README.md",
             "requirements*.txt", "scripts", "tests",
         ),

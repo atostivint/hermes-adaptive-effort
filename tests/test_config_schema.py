@@ -36,6 +36,9 @@ def test_scorer_schema_keeps_jev_default_and_requires_model_for_openrouter():
     assert set(schema["scorer_provider"].get("choices") or []) == {
         "jev", "openrouter", "cloudflare", "custom"}
     assert schema["scorer_provider"].get("default") == middleware.DEFAULTS["scorer_provider"]
+    assert schema["jev_model"].get("default") == middleware.DEFAULTS["jev_model"]
+    assert schema["jev_model"].get("type") == "str"
+    assert "Jev" in schema["jev_model"].get("label", "")
     assert schema["scorer_model"].get("default") == middleware.DEFAULTS["scorer_model"]
     assert "OPENROUTER_API_KEY" in schema["scorer_provider"].get("description", "")
     assert "required when" in schema["scorer_model"].get("description", "")

@@ -24,6 +24,14 @@ def test_jev_remains_the_default_scorer():
     assert isinstance(client, jev_client.JevClient)
 
 
+def test_jev_uses_the_configured_model_and_reports_it():
+    client, failure = scorers.build_client(settings(jev_model="jev-fast"))
+    assert failure is None
+    assert isinstance(client, jev_client.JevClient)
+    assert client.model == "jev-fast"
+    assert scorers.model_for("jev", "ignored", jev_model="jev-fast") == "jev-fast"
+
+
 def test_openrouter_requires_and_uses_the_configured_model():
     client, failure = scorers.build_client(settings(
         scorer_provider="openrouter", scorer_model="openai/gpt-4o-mini"))

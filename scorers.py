@@ -25,6 +25,7 @@ def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]
             return jev_client.JevClient(
                 timeout=settings["timeout_s"],
                 endpoint=settings["endpoint"],
+                model=settings.get("jev_model", jev_client.JEV_MODEL),
                 max_prompt_chars=settings["prompt_chars"],
                 classification_instructions=settings.get("classification_instructions", ""),
             ), None
@@ -118,11 +119,12 @@ def endpoint_for(provider: Any, jev_endpoint: Any, cloudflare_account_id: Any = 
 
 
 def model_for(provider: Any, configured_model: Any,
-              cloudflare_model: Any = cloudflare_client.DEFAULT_MODEL_SELECTOR) -> str:
+              cloudflare_model: Any = cloudflare_client.DEFAULT_MODEL_SELECTOR,
+              jev_model: Any = jev_client.JEV_MODEL) -> str:
     """Return the model reported in status for the selected scorer."""
     selected = str(provider or JEV).strip().lower()
     if selected == JEV:
-        return jev_client.JEV_MODEL
+        return str(jev_model or jev_client.JEV_MODEL).strip() or jev_client.JEV_MODEL
     if selected == CLOUDFLARE:
         return cloudflare_client.model_path_for(cloudflare_model)
     return str(configured_model or "").strip()

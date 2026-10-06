@@ -51,6 +51,7 @@ DEFAULTS: Dict[str, Any] = {
     "force_injection_models": "",
     "endpoint": _jev_client.DEFAULT_ENDPOINT,
     "scorer_provider": _scorers.JEV,
+    "jev_model": _jev_client.JEV_MODEL,
     "scorer_model": "",
     "custom_endpoint": "",
     "custom_api_format": "systemone",
@@ -506,6 +507,9 @@ def _settings() -> Dict[str, Any]:
         # every classification fails open. Reported so `status` shows the truth.
         "scorer_provider": str(_read_setting(
             "scorer_provider", DEFAULTS["scorer_provider"]) or _scorers.JEV).strip().lower(),
+        "jev_model": str(_read_setting(
+            "jev_model", DEFAULTS["jev_model"]) or DEFAULTS["jev_model"]).strip()
+        or DEFAULTS["jev_model"],
         "scorer_model": str(_read_setting(
             "scorer_model", DEFAULTS["scorer_model"]) or "").strip(),
         "custom_endpoint": str(_read_setting(
@@ -525,7 +529,8 @@ def _settings() -> Dict[str, Any]:
             "show_desktop_popup", DEFAULTS["show_desktop_popup"]),
     }
     settings["scorer_model_effective"] = _scorers.model_for(
-        settings["scorer_provider"], settings["scorer_model"], settings["cloudflare_model"])
+        settings["scorer_provider"], settings["scorer_model"], settings["cloudflare_model"],
+        settings["jev_model"])
     (settings["scorer_endpoint"], settings["scorer_endpoint_effective"]) = \
         _scorers.endpoint_for(settings["scorer_provider"], settings["endpoint"],
                               settings["cloudflare_account_id"], settings["cloudflare_model"],

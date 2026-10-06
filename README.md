@@ -32,7 +32,7 @@ Scorer keys are **not** pre-installed: you must provide the key for whichever sc
 
 | Scorer | Key | Where to get it |
 | --- | --- | --- |
-| Jev (default) | `TYPESAFE_API_KEY` | From your TypeSafe account — the same key used by the Jev approvals plugin against `https://api.typesafe.ai`. No model to choose: the scorer is fixed to `jev-latest`. |
+| Jev (default) | `TYPESAFE_API_KEY` | From your TypeSafe account — the same key used by the Jev approvals plugin against `https://api.typesafe.ai`. The model defaults to `jev-latest` and can be changed with `jev_model`. |
 | OpenRouter | `OPENROUTER_API_KEY` | Create one at [openrouter.ai/keys](https://openrouter.ai/keys). You must also set `scorer_model` to the exact model slug you want to pay for (e.g. a small cheap classifier). The adapter requests ZDR-only routing and refuses data-collecting endpoints. |
 | Cloudflare | `CLOUDFLARE_AUTH_TOKEN` + 32-hex account ID | In the Cloudflare dashboard: copy the **Account ID** from the Workers & Pages overview (it is the 32-character hexadecimal `cloudflare_account_id` setting), then create an API token under **My Profile → API Tokens** with Workers AI permission and use it as `CLOUDFLARE_AUTH_TOKEN`. Choose `clef` or `clef-flash` as `cloudflare_model`. |
 | Custom (hosted) | `CUSTOM_SCORER_API_KEY` only when `custom_auth: bearer` | From whoever runs the endpoint. The plugin posts to your exact `custom_endpoint` with your `scorer_model`; there is no fallback to another scorer. |
@@ -156,6 +156,7 @@ plugins:
       settings:
         mode: auto
         scorer_provider: jev
+        jev_model: jev-latest
 ```
 
 For OpenRouter, change the settings to:
@@ -195,7 +196,7 @@ Replace the model or account placeholder before using it. Start with `mode: reco
 
 | Scorer | Credential | Model |
 | --- | --- | --- |
-| Jev (default) | `TYPESAFE_API_KEY` | Fixed `jev-latest` |
+| Jev (default) | `TYPESAFE_API_KEY` | `jev_model` (defaults to `jev-latest`) |
 | OpenRouter | `OPENROUTER_API_KEY` | Explicit `scorer_model` slug |
 | Cloudflare | `CLOUDFLARE_AUTH_TOKEN` | `clef` (default) or `clef-flash`; requires an account ID |
 | Custom | None for `custom_auth: none`; `CUSTOM_SCORER_API_KEY` for `bearer` | Required `scorer_model`; exact `custom_endpoint`; System One or Chat Completions |
@@ -249,29 +250,34 @@ Anthropic's [Effort guide](https://platform.claude.com/docs/en/build-with-claude
 
 ## Settings
 
+The Desktop settings form is a flat list. Its fields are ordered by task: mode, scorer and
+provider-specific details, classification guidance, advanced limits, then display switches.
+Provider-prefixed labels make related fields easier to scan.
+
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `mode` | `auto` | Main routing mode; `off` disables scoring and rewrites |
-| `force_injection_models` | empty | Optional exact model IDs separated by commas or newlines; asserts support for known Responses/Chat Completions shapes in `auto`/`inject` only |
+| `mode` | `off` | Main routing mode; `off` disables scoring and rewrites |
 | `subagent_mode` | `off` | Independent child-agent mode |
 | `scorer_provider` | `jev` | `jev`, `openrouter`, `cloudflare` or `custom`; no automatic fallback |
-| `scorer_model` | empty | Required OpenRouter or custom model name; ignored by Jev and Cloudflare |
+| `jev_model` | `jev-latest` | Model sent to the Jev scoring endpoint |
+| `endpoint` | `https://api.typesafe.ai/v1/systemone` | Jev endpoint; ignored by other scorers |
+| `scorer_model` | empty | Required OpenRouter model slug or custom model name; ignored by Jev and Cloudflare |
+| `cloudflare_account_id` | empty | Required 32-character hexadecimal account ID for Cloudflare |
+| `cloudflare_model` | `clef` | Cloudflare model selector: `clef` or `clef-flash` |
 | `custom_endpoint` | empty | Complete HTTP(S) endpoint URL for the custom scorer; no path is appended |
 | `custom_api_format` | `systemone` | Custom request/response contract: `systemone` or `chat_completions` |
 | `custom_auth` | `none` | Custom endpoint auth: `none` or `bearer` |
-| `cloudflare_account_id` | empty | Required 32-character hexadecimal account ID for Cloudflare |
-| `cloudflare_model` | `clef` | Cloudflare model selector: `clef` or `clef-flash` |
-| `endpoint` | `https://api.typesafe.ai/v1/systemone` | Jev endpoint; ignored by other scorers |
-| `timeout_s` | `3.0` | HTTP timeout for classification |
-| `max_turns` | `64` | Bounded decision-cache capacity per process |
-| `prompt_chars` | `4000` | Maximum task characters sent to the selected scorer; not a retention control |
 | `classification_instructions` | empty | Optional extra scoring guidance, capped at 2,000 characters; visible in Desktop plugin settings |
+| `force_injection_models` | empty | Optional exact model IDs separated by commas or newlines; asserts support for known Responses/Chat Completions shapes in `auto`/`inject` only |
+| `timeout_s` | `3.0` | HTTP timeout for classification |
+| `prompt_chars` | `4000` | Maximum task characters sent to the selected scorer; not a retention control |
+| `max_turns` | `64` | Bounded decision-cache capacity per process |
 | `show_tui_status` | `true` | Show or hide the Hermes terminal Effort status item |
 | `show_desktop_popup` | `true` | Show or hide the bottom-right Desktop effort chip, mode popup and its change notifications |
 
 Set `classification_instructions` in **Desktop → Capabilities → Plugins → Hermes Adaptive Effort** or under `plugins.entries.hermes-adaptive-effort.settings` in `config.yaml`. For example, `classification_instructions: "Prefer low for short, clearly scoped requests; reserve high for ambiguous, multi-step work."` adds a preference to the shared rubric. Leave it empty to use the built-in guidance only. Both display switches can be changed in that same Desktop settings form or configuration section.
 
-Jev accepts a full route, API base or bare host; `status` shows the effective URL. OpenRouter uses its fixed chat-completions endpoint and requests `provider.zdr=true` plus `data_collection=deny`; if no eligible route is available the request fails open rather than using a non-ZDR endpoint. Cloudflare uses the account-scoped Workers AI route for the selected `cloudflare_model` (`clef` or `clef-flash`); it requires `CLOUDFLARE_AUTH_TOKEN` and a valid account ID. The custom provider posts to the exact `custom_endpoint`, passes `scorer_model`, and supports System One (`state.prompt`, `questions`, and `answers.effort.score`) or Chat Completions (JSON response with a numeric score). `custom_auth: bearer` requires `CUSTOM_SCORER_API_KEY`; `none` does not inspect credentials. Status reports readiness without exposing keys and masks URL query values. Configured scorer failures leave requests unchanged and appear in status.
+Jev sends the selected `jev_model` in its System One request body and accepts a full route, API base or bare host; `status` shows the selected model and effective URL. OpenRouter uses its fixed chat-completions endpoint and requests `provider.zdr=true` plus `data_collection=deny`; if no eligible route is available the request fails open rather than using a non-ZDR endpoint. Cloudflare uses the account-scoped Workers AI route for the selected `cloudflare_model` (`clef` or `clef-flash`); it requires `CLOUDFLARE_AUTH_TOKEN` and a valid account ID. The custom provider posts to the exact `custom_endpoint`, passes `scorer_model`, and supports System One (`state.prompt`, `questions`, and `answers.effort.score`) or Chat Completions (JSON response with a numeric score). `custom_auth: bearer` requires `CUSTOM_SCORER_API_KEY`; `none` does not inspect credentials. Status reports readiness without exposing keys and masks URL query values. Configured scorer failures leave requests unchanged and appear in status.
 
 Cloudflare Clef and Clef Flash receive the same bounded `state.prompt` and typed score question as Jev. Their REST response must have `success: true` and a finite numeric `result.answers.effort.score` from 0 through 2. See the [Clef](https://developers.cloudflare.com/workers-ai/models/clef/), [Clef Flash](https://developers.cloudflare.com/workers-ai/models/clef-flash/) and [Workers AI REST API](https://developers.cloudflare.com/workers-ai/get-started/rest-api/) documentation.
 

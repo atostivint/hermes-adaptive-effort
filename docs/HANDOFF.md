@@ -41,6 +41,10 @@ the model that answers the conversation. Enabling a routing mode authorizes send
 text to the selected scorer; choosing a provider while mode is `off` sends nothing. `probe`
 sends its typed text plus optional configured classification guidance.
 
+Jev's model is now configurable through the `jev_model` setting and defaults to
+`jev-latest`. The Desktop settings manifest is a flat field list, so it uses
+provider-prefixed labels and a task-oriented declaration order rather than nested panels.
+
 Pipeline: read the outgoing request → score the prompt (`0 = low`, `1 = medium`,
 `2 = high`) → clamp the label onto **the route's own wire vocabulary** → write it into
 an existing effort field, or in `auto` / retained `inject` mode add one on an exact documented
