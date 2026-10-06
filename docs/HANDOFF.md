@@ -1,6 +1,6 @@
 # Handoff — `hermes-adaptive-effort`
 
-**Operator snapshot, updated 2026-10-06.** Start with [README](../README.md) for user guidance, [runtime contracts](CONTRACTS.md) for behavior, [design choices](DESIGN.md) for rationale and [development](DEVELOPMENT.md) for contributor setup. Historical evidence is indexed in [docs/README.md](README.md).
+**Operator snapshot, updated 2026-10-06 after deployment.** Start with [README](../README.md) for user guidance, [runtime contracts](CONTRACTS.md) for behavior, [design choices](DESIGN.md) for rationale and [development](DEVELOPMENT.md) for contributor setup. Historical evidence is indexed in [docs/README.md](README.md).
 
 This file is the single entry point for an agent picking the work up cold. It states
 what the project is, what is verified today, what is *not* finished, and recorded operational gaps. Host state below is dated evidence, not a fresh health check.
@@ -20,17 +20,18 @@ Use `/hae` for the plugin's status, probe and mode commands.
 ## Current source verification (2026-10-06)
 
 The repository's remote default branch is `master` (there is no `main` branch). Commit
-`f537e70` is pushed there and adds the configurable Jev model (`jev_model`, default
+`4517c38` is pushed there; its feature commit `f537e70` adds the configurable Jev model (`jev_model`, default
 `jev-latest`) plus clearer provider-prefixed Desktop setting labels. The main mode still
 defaults to `off`, and `/hae` is the only registered slash command. The off mode can retain
 bounded provider/model/API-mode metadata for the Desktop popup, without a scorer call or
 request change.
 
 The full suite passed on Windows (**387 tests**) and on Iris (**387 tests**, including the
-real Hermes dispatcher integration); Ruff passed on both. Iris ran the commit from an
-isolated temporary checkout. A separate read-only check found the active plugin checkout
-still at `616e077`; the new source was **not deployed**, and no live plugin, config, or
-gateway changes were made.
+real Hermes dispatcher integration); Ruff passed on both. These checks ran from the source
+installed on each host. Iris is deployed at `4517c38`, and `hermes-gateway.service` was
+restarted and is active. The local Hermes Agent lists `hermes-adaptive-effort` as enabled;
+Hermes Desktop was restarted after its extension files were updated. No operator settings
+were changed and no live scorer request was issued.
 
 ---
 
@@ -119,35 +120,31 @@ On 2026-10-05, the custom-provider implementation passed the Windows suite (**38
 
 ### Current host installs
 
-**Windows client.** `%LOCALAPPDATA%\hermes\plugins\hermes-adaptive-effort` points to
-`%USERPROFILE%\Projets\jev-auto-effort\hermes-adaptive-effort`. The Desktop plugin link
-under `%LOCALAPPDATA%\hermes\desktop-plugins\hermes-adaptive-effort` points to the payload's
+**Windows client.** `%LOCALAPPDATA%\hermes\plugins\hermes-adaptive-effort` now points to
+`%USERPROFILE%\Projets\jev-auto-effort`, the payload root at `4517c38`. The Desktop link
+under `%LOCALAPPDATA%\hermes\desktop-plugins\hermes-adaptive-effort` points to that checkout's
 `desktop/` folder. `%USERPROFILE%\.hermes\desktop-plugins\hermes-adaptive-effort\plugin.js`
-is the matching standalone copy. The enabled ID and config entry were migrated to
-`hermes-adaptive-effort`; the previous entry had no mode setting. The then-installed payload
-resolved that to `off`; this source update keeps the unset-mode default `off` and captures
-bounded route metadata for the Desktop popup without classifying or changing off-mode requests.
-This source merge was not deployed to the live agent. Plugin Doctor passed with five
-hooks registered. The old profile Desktop
-copy is preserved under `%LOCALAPPDATA%\Temp\hermes-adaptive-effort-migration-20261003-110504`.
+is the matching standalone copy (SHA-256
+`d703d3b1985ac677b730a3cd501743f97224da01a27cb3873a7b206430fbe247`). Hermes lists the agent
+plugin as enabled, and the Desktop app was restarted. Its previous standalone file is backed
+up at `%LOCALAPPDATA%\Temp\hermes-adaptive-effort-deploy-20261006T102009\plugin.js.previous`.
+The full Windows suite and Ruff passed after the links were repaired; the suite used a new
+temporary directory because an older pytest temp directory has a foreign ACL.
 
-**Iris.** `/root/.hermes/plugins/hermes-adaptive-effort` and
-`/root/.hermes/desktop-plugins/hermes-adaptive-effort/plugin.js` contain the new payload and
-Desktop file. Both Desktop files have SHA-256
-`95c414e0e6c14c33319f8d8dccfe404e084739e36e06936b9a213dfbd249cade`. The root plugin ID is
-enabled, its `mode: auto` and full TypeSafe endpoint were preserved, and install metadata
-records revision `1a436a0d344c27a2ebc6b3a161fa5968fc31bd66` from
-`atostivint/hermes-adaptive-effort#hermes-adaptive-effort`. The old payload, Desktop folder,
-config and metadata are backed up in
-`/root/.hermes/cache/scratch/hermes-adaptive-effort-migration-20261003T1200Z`.
-The Hermes gateway was restarted after migration and is active with the new config.
+**Iris.** `/root/.hermes/plugins/hermes-adaptive-effort` is clean at `4517c38` on `master`.
+The separately installed Desktop file matches the checkout at SHA-256
+`d514792b49d0e768603f856375b5d9e7b5430a863c234fce311f7ce07bf63e0f`. The previous Desktop
+file is backed up at `/root/.hermes/cache/scratch/hermes-adaptive-effort-deploy-20261006T102100Z/`.
+All 387 tests, including Hermes dispatcher integration, and Ruff passed from this active
+checkout. `hermes-gateway.service` was restarted and confirmed active. No live scorer request
+or operator configuration change was made.
 
-The Windows Plugin Doctor check passed. The Iris Doctor invocation also triggered Hermes'
-source/dependency updater and exited with a `state.db is corrupted after update` warning.
-No database repair or restore was attempted. The file has a valid SQLite header and a
-read-only `SELECT 1` succeeds; a full read-only quick-check did not complete, so database
-integrity remains unverified. The gateway remained active after its restart. No live scorer
-request was issued during deployment.
+Historical migration diagnostic (2026-10-03): the Windows Plugin Doctor check passed. The
+Iris Doctor invocation also triggered Hermes' source/dependency updater and exited with a
+`state.db is corrupted after update` warning. No database repair or restore was attempted.
+The file had a valid SQLite header and a read-only `SELECT 1` succeeded; a full read-only
+quick-check did not complete, so database integrity remained unverified. The Doctor was not
+run during the 2026-10-06 deployment.
 
 ### Documentation delivery
 
@@ -170,13 +167,12 @@ hermes plugins install 'atostivint/hermes-adaptive-effort' --enable
 
 ## 3. Live configuration
 
-The unset mode remains `off` in this source revision. At the 2026-10-06 verification, the
-active plugin checkout on Iris was still at `616e077`; commit `f537e70` was tested from a
-temporary checkout and was not deployed. No live config or gateway changes were made. At the
-last recorded host snapshot, Iris had `mode: auto` with
-`endpoint: https://api.typesafe.ai/v1/systemone`. Its plugin settings currently contain no
-`scorer_provider`, `cloudflare_account_id`, or `cloudflare_model`; the effective scorer is Jev.
-Because the live mode is `auto`, its task text is sent to Jev for scoring. OpenRouter requires
+The unset mode remains `off` in this source revision. The 2026-10-06 deployment updated the
+Iris plugin checkout to `4517c38` and restarted the gateway; it did not read or modify the
+operator's config. The last recorded host snapshot showed `mode: auto` with
+`endpoint: https://api.typesafe.ai/v1/systemone` and Jev as the effective scorer. Verify the
+live values before changing them. With `mode: auto`, bounded task text is sent to Jev for
+scoring. OpenRouter requires
 `scorer_provider: openrouter`, `scorer_model`, and `OPENROUTER_API_KEY`. Cloudflare requires
 `scorer_provider: cloudflare`, `cloudflare_account_id`, a `cloudflare_model` choice, and
 `CLOUDFLARE_AUTH_TOKEN`.
@@ -197,10 +193,9 @@ is selected as an automatic fallback.
 
 The plugin directory and Desktop plugin are separate install surfaces. Deploy both when
 `desktop/plugin.js` changes, then restart the relevant Hermes process so already-imported
-Python modules reload. On Iris, the plugin/config migration backup above can restore the old
-payload and configuration if rollback is needed. On Windows, the profile Desktop backup is
-under the recorded `%LOCALAPPDATA%\Temp` path; the old source junctions were replaced only
-after their targets were verified.
+Python modules reload. The Windows source junctions were verified against their old targets
+before being redirected to the current checkout. The Iris Git checkout can be rolled back to
+the recorded previous commit; the prior Desktop file is preserved in the backup above.
 
 The Iris gateway is `hermes-gateway.service` in root's user systemd manager. Existing
 isolated Desktop serve processes are separate long-lived processes and may need to reconnect
