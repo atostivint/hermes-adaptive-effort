@@ -1,0 +1,873 @@
+{
+  "campaign_id": "150f2fd5-303c-4d06-b41e-0e1e65a0e8d0",
+  "cases": [
+    {
+      "api_mode": "codex_responses",
+      "case_id": "d5fdb3b7060c73d61a6c9441dbc689b3b23f74864f5369b2bab87511ff923b5f",
+      "effort_field": "reasoning.effort",
+      "exact_model": "gpt-5.6-luna",
+      "expected_wire_effort": "low",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 0,
+      "target_effort": "low"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "7945db79bc0e04ef265f5b632c7258be79e28e375d94742682001e6c7d454985",
+      "effort_field": "reasoning.effort",
+      "exact_model": "gpt-5.6-luna",
+      "expected_wire_effort": "medium",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 1,
+      "target_effort": "medium"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "220d92d6b243e3b7b479baf8ed7a0a5bf18bdae36c54151f656b7c20040324c1",
+      "effort_field": "reasoning.effort",
+      "exact_model": "gpt-5.6-luna",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 2,
+      "target_effort": "high"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "40f1bd3d4cc47cc159afb5ec7e9c94080b1f68e9bde201b930cb5b1c2b97a300",
+      "effort_field": "reasoning.effort",
+      "exact_model": "gpt-6-luna",
+      "expected_wire_effort": "low",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 0,
+      "target_effort": "low"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "0c14a315b1c65b87e3ec4844f23bb4d3995df89cbf264a788160011cc4bf0490",
+      "effort_field": "reasoning.effort",
+      "exact_model": "gpt-6-luna",
+      "expected_wire_effort": "medium",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 1,
+      "target_effort": "medium"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "b4a30da41ca2436f0d53e7cd1137fffa81cbf3e5277b284c088adc7815379fc7",
+      "effort_field": "reasoning.effort",
+      "exact_model": "gpt-6-luna",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 2,
+      "target_effort": "high"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "8aa7c5d2339557c65549c34c5567940ec4a9eacc8f363ab87e360247b8f1f3d3",
+      "effort_field": "reasoning.effort",
+      "exact_model": "grok-4.5",
+      "expected_wire_effort": "low",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 0,
+      "target_effort": "low"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "7b8f309cb33067f4d8cc2b7f84c9f2fe4f5f39c254ce2fb7f6be8e4b4d018fb9",
+      "effort_field": "reasoning.effort",
+      "exact_model": "grok-4.5",
+      "expected_wire_effort": "medium",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 1,
+      "target_effort": "medium"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "2b03e679b2833be4eb0120fc04509e87a7721f88a47f42233b900476ff6bf244",
+      "effort_field": "reasoning.effort",
+      "exact_model": "grok-4.5",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 2,
+      "target_effort": "high"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "8c936dc09e6f99a4b0a35eeaee869e7a6e4f2da0444e5b54b6954a9122df9072",
+      "effort_field": "reasoning.effort",
+      "exact_model": "grok-4.6",
+      "expected_wire_effort": "low",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 0,
+      "target_effort": "low"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "bdafc61ce79a8b6e05345466d03bf6e80dd5328e6f086138d96832d2b8bc8e2a",
+      "effort_field": "reasoning.effort",
+      "exact_model": "grok-4.6",
+      "expected_wire_effort": "medium",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 1,
+      "target_effort": "medium"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "5ad3e4f6465c9a8fe079bd548c7188142c5988037e59dea87730f515bf0ed18e",
+      "effort_field": "reasoning.effort",
+      "exact_model": "grok-4.6",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 2,
+      "target_effort": "high"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "f55055a295184afe9ed9be636a4faa6ddd7f59d6ec6aa0a3896707eb51d02bfa",
+      "effort_field": "reasoning.effort",
+      "exact_model": "grok-4.7",
+      "expected_wire_effort": "low",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 0,
+      "target_effort": "low"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "20e6514bb78aa6203d5e40620e21f5bcc516937b28e245ade7002a030ae83e4b",
+      "effort_field": "reasoning.effort",
+      "exact_model": "grok-4.7",
+      "expected_wire_effort": "medium",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 1,
+      "target_effort": "medium"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "b72d8dbfe014763d14dda675bb8aeecc907d5ef1938d5bad3d8f8debc12bbbca",
+      "effort_field": "reasoning.effort",
+      "exact_model": "grok-4.7",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 2,
+      "target_effort": "high"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "8567985f1a0126f4fcdfa2ab65d5f958304a44924e2a4d8f165e3d31ca1e3623",
+      "effort_field": "reasoning.effort",
+      "exact_model": "muse-spark-1.2-contributor",
+      "expected_wire_effort": "low",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 0,
+      "target_effort": "low"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "b9a51e0adf9bb4c9b547cc1f506b8fdb7a86ace4fdbc47c314be51bf987378cd",
+      "effort_field": "reasoning.effort",
+      "exact_model": "muse-spark-1.2-contributor",
+      "expected_wire_effort": "medium",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 1,
+      "target_effort": "medium"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "481d73742298d1aea96a37ce73767fc8fadef4c5b5c8d635475fe67259f9ff44",
+      "effort_field": "reasoning.effort",
+      "exact_model": "muse-spark-1.2-contributor",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 2,
+      "target_effort": "high"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "d4d3b2a886d49dfbfeb6266652959afe2e6548ad3f931b345e9fee9a9d1930e2",
+      "effort_field": "reasoning.effort",
+      "exact_model": "muse-spark-1.3-contributor",
+      "expected_wire_effort": "low",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 0,
+      "target_effort": "low"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "7205d62109976d9d1b86f52a019938fab751812e94a7dde108262d4acd1b8fb0",
+      "effort_field": "reasoning.effort",
+      "exact_model": "muse-spark-1.3-contributor",
+      "expected_wire_effort": "medium",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 1,
+      "target_effort": "medium"
+    },
+    {
+      "api_mode": "codex_responses",
+      "case_id": "838e24255cae45def67c614a5f6300b320c6099d12c8b285b00dce9bc5c54083",
+      "effort_field": "reasoning.effort",
+      "exact_model": "muse-spark-1.3-contributor",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 2,
+      "target_effort": "high"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "13b5b9240d6c91af1217f97c96cfc7c07de54bad248e1a52cb6c035bba0b5490",
+      "effort_field": "reasoning_effort",
+      "exact_model": "deepseek-v4-flash",
+      "expected_wire_effort": "low",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 0,
+      "target_effort": "low",
+      "thinking_prerequisite": "already_enabled"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "b2a743e1dd61d88d493e7b0f9d713ac5dc586142041019e43b0768e19126df31",
+      "effort_field": "reasoning_effort",
+      "exact_model": "deepseek-v4-flash",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 1,
+      "target_effort": "medium",
+      "thinking_prerequisite": "already_enabled"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "b046fa3a4468170e0a61aaba22c5c21119f61b52380251963ce3650f0a5c8abc",
+      "effort_field": "reasoning_effort",
+      "exact_model": "deepseek-v4-flash",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 2,
+      "target_effort": "high",
+      "thinking_prerequisite": "already_enabled"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "04cc39a135e299e698ee55d8d6221cb58cbe3e3d688bae908834a38ecefe3edf",
+      "effort_field": "reasoning_effort",
+      "exact_model": "deepseek-v4-pro",
+      "expected_wire_effort": "low",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 0,
+      "target_effort": "low",
+      "thinking_prerequisite": "already_enabled"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "294c5a9d668a149a92800a76e040af5787b5078e0485eec623f602882877a11e",
+      "effort_field": "reasoning_effort",
+      "exact_model": "deepseek-v4-pro",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 1,
+      "target_effort": "medium",
+      "thinking_prerequisite": "already_enabled"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "7debb751b32eea601ef2c7ca91d3a928c1eb203d8cc1134c555e728dbf25e663",
+      "effort_field": "reasoning_effort",
+      "exact_model": "deepseek-v4-pro",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 2,
+      "target_effort": "high",
+      "thinking_prerequisite": "already_enabled"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "cbe6465e1400a0dbbf415c5b2af600dad5bd493a2ab4b972737fabbfcfcebc62",
+      "effort_field": "reasoning_effort",
+      "exact_model": "deepseek-v4.1-flash",
+      "expected_wire_effort": "low",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 0,
+      "target_effort": "low",
+      "thinking_prerequisite": "already_enabled"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "0dac7699f83646c5cb671a7e3f3934edac2f12e501f4ce44d8a95b996f17bb3b",
+      "effort_field": "reasoning_effort",
+      "exact_model": "deepseek-v4.1-flash",
+      "expected_wire_effort": "medium",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 1,
+      "target_effort": "medium",
+      "thinking_prerequisite": "already_enabled"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "c72aeefc403f9271d27a1d0bf249c2ec55a8a486f6a9708300aad8070d474c9c",
+      "effort_field": "reasoning_effort",
+      "exact_model": "deepseek-v4.1-flash",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 2,
+      "target_effort": "high",
+      "thinking_prerequisite": "already_enabled"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "097d6e77a24ef62f9e3a76c1b127212c389fa1db0dd9eacbf8bb90d45bd22b55",
+      "effort_field": "reasoning_effort",
+      "exact_model": "glm-5.2",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 0,
+      "target_effort": "low"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "7f8ba0deb4be8290f5f5e4c993a5d87251186861d48e6df92aeebe43bdb71461",
+      "effort_field": "reasoning_effort",
+      "exact_model": "glm-5.2",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 1,
+      "target_effort": "medium"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "858c3ac39d6e3911d78d69a775593cd9538930972a5b1a279c161c3ebf762ad8",
+      "effort_field": "reasoning_effort",
+      "exact_model": "glm-5.2",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 2,
+      "target_effort": "high"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "4691c43d6158cd301a012777d8c4319c9950be99f49efb4d78f5774f1f99e999",
+      "effort_field": "reasoning_effort",
+      "exact_model": "glm-5.3",
+      "expected_wire_effort": "low",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 0,
+      "target_effort": "low",
+      "thinking_prerequisite": "already_enabled"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "0ed176d734d8115a4b5a9ebe79b0301e923af38307e5ac680f753c31d93b74a1",
+      "effort_field": "reasoning_effort",
+      "exact_model": "glm-5.3",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 1,
+      "target_effort": "medium",
+      "thinking_prerequisite": "already_enabled"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "5a7310ca30c5a63910b294d69490f726cc94dd545497ee7f75daf24f725e5b1f",
+      "effort_field": "reasoning_effort",
+      "exact_model": "glm-5.3",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 2,
+      "target_effort": "high",
+      "thinking_prerequisite": "already_enabled"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "9d14c5c73db34c3a54c984a89d5ed2e755304a2a9aeff26ec89058a20b45849a",
+      "effort_field": "reasoning_effort",
+      "exact_model": "kimi-k3",
+      "expected_wire_effort": "low",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 0,
+      "target_effort": "low"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "16d66da009bfce8fa35ab6e6db155b88625bb5d777dfc23c14d6bf17ce688d8e",
+      "effort_field": "reasoning_effort",
+      "exact_model": "kimi-k3",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 1,
+      "target_effort": "medium"
+    },
+    {
+      "api_mode": "chat_completions",
+      "case_id": "b9e8f07b5a040923402a2e3c81f02135614fd88daeb1a64e15b2813815cedd55",
+      "effort_field": "reasoning_effort",
+      "exact_model": "kimi-k3",
+      "expected_wire_effort": "high",
+      "live_reason": "price_and_enforceable_max_cost_bound_unavailable",
+      "live_status": "blocked",
+      "mapping_status": "ready",
+      "max_output_tokens": 1024,
+      "maximum_cost_bound_usd": null,
+      "pricing_status": "unavailable",
+      "provider": "opencode-go",
+      "reason": null,
+      "response_oracle": {
+        "expected": "4",
+        "kind": "synthetic_answer"
+      },
+      "score": 2,
+      "target_effort": "high"
+    }
+  ],
+  "created_at": "2026-10-07T09:17:19+00:00",
+  "hermes_source": {
+    "fingerprinted_files": [
+      "agent/reasoning_effort.py",
+      "agent/turn_api_request.py",
+      "hermes_cli/middleware.py"
+    ],
+    "path": "<HERMES_SOURCE_ROOT>",
+    "reason": null,
+    "source_commit": null,
+    "source_sha256": "040320f7b29bd101bb51b2af20e51499cb292c84a2e9bd6ad30388f71567d0ef",
+    "status": "verified",
+    "version": null
+  },
+  "inventory": {
+    "network_requests": 0,
+    "openrouter_config_read": false,
+    "openrouter_routes": 0
+  },
+  "limits": {
+    "opencode-go": {
+      "currency": "USD",
+      "hard_cap": "3.00",
+      "working_cap": "2.70"
+    },
+    "openrouter": {
+      "currency": "USD",
+      "hard_cap": "2.00",
+      "working_cap": "1.80"
+    }
+  },
+  "manifest_hash": "410cc1b09075e0063ff814bfa6eeb09bf8cabbaf419c06e74b733a3e934b8eca",
+  "plugin_sha256": "1bcbacaec00b4990fe588e7cd17bef43e414ada12b46dc3d25b10147509a7f2f",
+  "real_scorer_calls": 0,
+  "schema": "hermes-adaptive-effort.validation-manifest.v1",
+  "score_origin": "controlled",
+  "source_commit": "e1d7e99a0f6084c833f320d1a86452624b6d9bd3"
+}

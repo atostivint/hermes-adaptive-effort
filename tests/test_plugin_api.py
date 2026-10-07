@@ -61,7 +61,7 @@ def test_manifest_declares_backend_api():
 
 def test_status_payload_uses_stable_schema_and_allowlist():
     payload = api.get_status_payload()
-    assert payload["schema"] == "hermes-adaptive-effort.status.v1"
+    assert payload["schema"] == "hermes-adaptive-effort.status.v2"
     assert payload["plugin"] == "hermes-adaptive-effort"
     assert payload["mode"] == "off"  # hermetic defaults; live profile must not leak in
     assert isinstance(payload["counts"], dict)
@@ -209,6 +209,34 @@ def test_changes_feed_degrades_when_the_feed_raises(monkeypatch):
     assert payload["error"] == "changes_failed"
 
 
+def test_history_api_returns_only_compact_events_for_the_requested_conversation(
+        tmp_path, monkeypatch):
+    history_store = command._history_store
+    monkeypatch.setattr(history_store, "_PATH_PROVIDER",
+                        lambda: tmp_path / "effort-history.sqlite3")
+    history_store.record_change(
+        "focused", ("focused",), "turn-focused", "low", "high", "openai-codex",
+        "gpt-6.1-sol", "codex_responses", "compatible",
+        details={"prompt": "PRIVATE_PROMPT", "score": 1.8}, at=2.0,
+    )
+    history_store.record_change(
+        "other", ("other",), "turn-other", "medium", "high", "remote",
+        "other-model", "chat_completions", "sensitive", at=3.0,
+    )
+
+    payload = api.get_history_payload("focused")
+    assert payload["schema"] == "hermes-adaptive-effort.history.v1"
+    assert payload["available"] is True
+    assert payload["conversation_id"] == "focused"
+    assert payload["events"] == [{
+        "id": payload["events"][0]["id"], "at": 2.0, "model": "gpt-6.1-sol",
+        "from": "low", "to": "high", "cache_verdict": "compatible",
+    }]
+    assert "details" not in json.dumps(payload)
+    assert "other-model" not in json.dumps(payload)
+    assert "PRIVATE_PROMPT" not in json.dumps(payload)
+
+
 def test_desktop_focus_helpers_select_only_the_focused_conversation():
     node = shutil.which("node")
     if node is None:
@@ -269,6 +297,8 @@ def test_desktop_plugin_static_contract():
     assert "rest('/status'" in text
     assert "rest('/mode'" in text
     assert "rest('/changes'" in text  # the chip's effort-change feed is a real backend route
+    assert "rest(`/history?conversation_id=${encodeURIComponent(conversationId)}&limit=10`" in text
+    assert "Recent applied changes" in text
     assert "Global effort activity: ${event.from} → ${event.to}" not in text
     assert "title: 'Effort changed'" in text
     change_notifications = text.split("function ChangeNotifications", 1)[1].split(
@@ -278,12 +308,13 @@ def test_desktop_plugin_static_contract():
     assert "refetchStatus()" in change_notifications  # feed invalidates status; it never sets chip effort
     assert "effortNotice" not in change_notifications  # anonymous feed cannot toast for a specific chat
     assert "useValue(host.state.focusedSessionId)" in text
+    assert "useValue(host.state.focusedStoredSessionId)" in text
     assert "queryKey: [ID, 'status', focusedSessionId" in chip
     assert "refetchOnMount: 'always'" in chip
     assert "refetchOnWindowFocus: true" in chip
     assert "useValue(host.state.focusedSessionOwner)" in text
-    assert "effortForConversation(data, focusedSessionId)" in text
-    assert "routeForConversation(data, focusedSessionId)" in text
+    assert "effortForConversation(data, focusedConversationId)" in text
+    assert "routeForConversation(data, focusedConversationId)" in text
     assert "useValue(host.state.gateway)" in chip
     assert "Route: ${route}" in details
     assert "route: ${route}" in chip

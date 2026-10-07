@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import import_plugin
+from conftest import import_plugin, score_to_effort_choice
 
 middleware = import_plugin("middleware")
 effort = import_plugin("effort")
@@ -27,6 +27,11 @@ class FakeClassifier:
     def classify(self, prompt):
         self.calls.append(prompt)
         return self.score
+
+    def classify_effort_detail(self, prompt, choices):
+        score = self.classify(prompt)
+        choice = score_to_effort_choice(score, choices)
+        return (choice, None) if choice is not None else (None, "malformed_response")
 
 
 class RecordingClassifierFactory:

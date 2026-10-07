@@ -64,6 +64,7 @@ const MAX_APPLIED_NOTICE_ATTEMPTS = 128
 let rest = null
 let showDesktopPopup = false
 const liveDecisions = new Map()
+const sessionIdentities = new Map()
 const activeStreams = new Map()
 const retiredStreams = new Map()
 const syncAttempts = new Set()
@@ -100,14 +101,17 @@ function liveFor(connectionId, profile, sessionId) {
 function publicStatus(entry) {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null
   const allowed = [
-    'conversation_id', 'state', 'score', 'label', 'target', 'mode', 'provider', 'model',
+    'conversation_id', 'state', 'score', 'label', 'target', 'decision_type', 'choices',
+    'cache_behavior', 'mode', 'provider', 'model',
     'api_mode', 'scorer_provider', 'scorer_model', 'requests', 'probes', 'elapsed_ms',
     'failure', 'updated_at'
   ]
   const result = {}
   for (const field of allowed) {
     const value = entry[field]
-    if (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))) {
+    if (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)) ||
+        (field === 'choices' && Array.isArray(value) &&
+          value.every(item => typeof item === 'string' && EFFORT_VALUES.has(item)))) {
       result[field] = value
     }
   }
@@ -130,8 +134,11 @@ function currentFocusedIdentity() {
   const state = host.state
   const sessionId = state.focusedSessionId?.get?.()
   const owner = state.focusedSessionOwner?.get?.()
+  const storedSessionId = state.focusedStoredSessionId?.get?.()
+  const mapped = sessionIdentities.get(liveKey(owner?.connectionId, owner?.profile, sessionId))
   return {
     sessionId: typeof sessionId === 'string' ? sessionId : '',
+    conversationId: mapped || (typeof storedSessionId === 'string' ? storedSessionId : ''),
     connectionId: typeof owner?.connectionId === 'string' ? owner.connectionId.trim() : '',
     profile: typeof owner?.profile === 'string' && owner.profile.trim() ? owner.profile.trim() : 'default',
     activeConnectionId: typeof state.connectionId?.get?.() === 'string' ? state.connectionId.get().trim() : '',
@@ -160,12 +167,39 @@ function inferLocalPrimaryOwner(event) {
   return { connectionId: 'local', profile, localPrimaryInferred: true }
 }
 
+function eventConversationId(payload) {
+  // Middleware sees the agent's stored conversation id, not the gateway's
+  // temporary runtime id. Older payloads mislabeled it runtime_session_id.
+  const value = payload?.conversation_id ?? payload?.runtime_session_id
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function rememberSessionIdentity(event) {
+  if (event?.replayed === true || event?.type !== SESSION_INFO_EVENT) return
+  const source = eventOwner(event) || inferLocalPrimaryOwner(event)
+  const runtimeId = typeof event.session_id === 'string' ? event.session_id.trim() : ''
+  const storedId = typeof event.payload?.stored_session_id === 'string'
+    ? event.payload.stored_session_id.trim() : ''
+  if (!source || !runtimeId || !storedId) return
+  const key = liveKey(source.connectionId, source.profile, runtimeId)
+  if (sessionIdentities.get(key) === storedId) return
+  sessionIdentities.delete(key)
+  sessionIdentities.set(key, storedId)
+  while (sessionIdentities.size > MAX_LIVE_SESSIONS) {
+    sessionIdentities.delete(sessionIdentities.keys().next().value)
+  }
+  emitLiveChange()
+}
+
 function rememberDecision(event) {
   if (event?.replayed === true || event?.type !== DECISION_EVENT) return null
   const source = eventOwner(event) || inferLocalPrimaryOwner(event)
   const payload = event.payload
-  if (!source || !payload || payload.schema !== 'hermes-adaptive-effort.desktop-status.v1') return null
-  const sessionId = typeof payload.runtime_session_id === 'string' ? payload.runtime_session_id.trim() : ''
+  if (!source || !payload || ![
+    'hermes-adaptive-effort.desktop-status.v1',
+    'hermes-adaptive-effort.desktop-status.v2'
+  ].includes(payload.schema)) return null
+  const sessionId = eventConversationId(payload)
   const streamId = typeof payload.stream_id === 'string' ? payload.stream_id : ''
   const revision = Number(payload.revision)
   if (!sessionId || !streamId || !Number.isSafeInteger(revision) || revision < 1) return null
@@ -229,11 +263,12 @@ function sessionInfoMatches(event, waiter) {
   const sessionId = typeof event?.session_id === 'string' ? event.session_id : ''
   return event?.type === SESSION_INFO_EVENT && sourceMatches && info &&
     sessionId === waiter.sessionId && info.reasoning_effort_wire === waiter.target &&
-    info.model === waiter.model
+    info.stored_session_id === waiter.conversationId && info.model === waiter.model
 }
 
 function publishSessionInfo(event) {
   if (!event || event.replayed === true) return
+  rememberSessionIdentity(event)
   for (const [key, waiter] of syncAcks) {
     if (!waiter.settled && sessionInfoMatches(event, waiter)) {
       waiter.settled = true
@@ -245,7 +280,7 @@ function publishSessionInfo(event) {
 }
 
 function waitForSessionInfo(ctx, details, timeoutMs) {
-  const key = liveKey(details.connectionId, details.profile, details.sessionId)
+  const key = liveKey(details.connectionId, details.profile, details.conversationId)
   let resolvePromise
   const promise = new Promise(resolve => { resolvePromise = resolve })
   const waiter = { ...details, resolve: resolvePromise, settled: false, cancelTimeout: null }
@@ -295,12 +330,12 @@ async function syncAppliedEffort(ctx, record) {
   const focusedOwnerKey = ownerKey(focused.connectionId, focused.profile)
   const eventOwnerKey = ownerKey(record.connectionId, record.profile)
   if (!record.selectorSyncSupported) {
-    if (focused.sessionId === record.sessionId && focusedOwnerKey === eventOwnerKey) {
+    if (focused.conversationId === record.sessionId && focusedOwnerKey === eventOwnerKey) {
       reportSyncIssue('Native selector sync is unavailable for isolated turns.')
     }
     return
   }
-  if (!focused.sessionId || focused.sessionId !== record.sessionId || focusedOwnerKey !== eventOwnerKey) return
+  if (!focused.sessionId || focused.conversationId !== record.sessionId || focusedOwnerKey !== eventOwnerKey) return
   if (!focused.model || focused.model !== record.route.model) {
     reportSyncIssue('The chat route changed; its reasoning selector was left unchanged.')
     return
@@ -345,7 +380,7 @@ async function syncAppliedEffort(ctx, record) {
 
   const latestFocus = currentFocusedIdentity()
   const latestRecord = liveFor(record.connectionId, record.profile, record.sessionId)
-  if (latestFocus.sessionId !== record.sessionId ||
+  if (latestFocus.sessionId !== focused.sessionId || latestFocus.conversationId !== record.sessionId ||
       ownerKey(latestFocus.connectionId, latestFocus.profile) !== eventOwnerKey ||
       latestFocus.model !== record.route.model || !latestRecord ||
       !latestStillMatchesApplication(record, latestRecord, appliedId, target)) return
@@ -355,7 +390,8 @@ async function syncAppliedEffort(ctx, record) {
     connectionId: record.connectionId,
     profile: record.profile,
     localPrimaryInferred: record.localPrimaryInferred,
-    sessionId: record.sessionId,
+    sessionId: focused.sessionId,
+    conversationId: record.sessionId,
     model: record.route.model,
     target
   }, remainingMs)
@@ -364,7 +400,7 @@ async function syncAppliedEffort(ctx, record) {
       key: 'reasoning',
       value: target,
       scope: 'session',
-      session_id: record.sessionId
+      session_id: focused.sessionId
     }, remainingMs)
   } catch {
     acknowledgment.cancel()
@@ -381,7 +417,7 @@ async function syncAppliedEffort(ctx, record) {
 
 function notifyDecisionOutcome(record) {
   const focus = currentFocusedIdentity()
-  if (focus.sessionId !== record.sessionId ||
+  if (focus.conversationId !== record.sessionId ||
       ownerKey(focus.connectionId, focus.profile) !== ownerKey(record.connectionId, record.profile)) return
   const entry = record.status
   if (!entry || entry.mode === 'off') return
@@ -406,7 +442,7 @@ function notifyDecisionOutcome(record) {
 
 function isFocusedFreshDecision(record) {
   const focus = currentFocusedIdentity()
-  return focus.sessionId === record.sessionId &&
+  return focus.conversationId === record.sessionId &&
     ownerKey(focus.connectionId, focus.profile) === ownerKey(record.connectionId, record.profile) &&
     focus.model === record.route.model
 }
@@ -424,12 +460,10 @@ function clearSessionAcknowledgments(connectionId, profile, sessionId) {
 
 function clearInferredLocalAcknowledgments(event) {
   const profile = typeof event?.profile === 'string' ? event.profile.trim() : ''
-  const sessionId = typeof event?.payload?.runtime_session_id === 'string'
-    ? event.payload.runtime_session_id.trim()
-    : ''
+  const sessionId = eventConversationId(event?.payload)
   if (!profile || !sessionId || (typeof event?.connectionId === 'string' && event.connectionId.trim())) return
   for (const [key, waiter] of syncAcks) {
-    if (waiter.localPrimaryInferred && waiter.profile === profile && waiter.sessionId === sessionId) {
+    if (waiter.localPrimaryInferred && waiter.profile === profile && waiter.conversationId === sessionId) {
       waiter.settled = true
       waiter.cancelTimeout?.()
       waiter.resolve(null)
@@ -635,7 +669,33 @@ function ModeButtons({ mode, query }) {
   })
 }
 
-function AdaptiveEffortDetails({ data, mode, effort, reason, route, syncReason, settings, scorerProvider, scorerModel, credential, gateway }) {
+function useConversationHistory(connectionId, profile, conversationId, enabled) {
+  return useQuery({
+    queryKey: [ID, 'history', connectionId, profile, conversationId],
+    queryFn: () => rest(`/history?conversation_id=${encodeURIComponent(conversationId)}&limit=10`,
+      { timeoutMs: 15000 }),
+    enabled: Boolean(enabled && conversationId),
+    refetchInterval: 5000,
+    staleTime: 2000,
+    retry: 1
+  })
+}
+
+function historyTime(at) {
+  const date = new Date(Number(at) * 1000)
+  if (!Number.isFinite(date.getTime())) return 'unknown time'
+  return date.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
+}
+
+function cacheLabel(verdict) {
+  return ({
+    compatible: 'Compatible',
+    sensitive: 'Cache-sensitive',
+    not_verified: 'Not verified'
+  })[verdict] || 'Not verified'
+}
+
+function AdaptiveEffortDetails({ data, mode, effort, reason, route, syncReason, settings, scorerProvider, scorerModel, credential, gateway, focusedEntry, history, historyError }) {
   const [showActivity, setShowActivity] = useState(false)
   const last = data?.last
 
@@ -647,6 +707,14 @@ function AdaptiveEffortDetails({ data, mode, effort, reason, route, syncReason, 
         children: [
           jsx('div', { className: 'font-medium', children: 'This chat' }),
           jsx('div', { className: 'text-(--ui-text-secondary)', children: `Effort: ${effort}` }),
+          focusedEntry?.decision_type === 'native_choice' && Array.isArray(focusedEntry.choices)
+            ? jsx('div', { className: 'text-(--ui-text-tertiary)', children: `Selected from: ${focusedEntry.choices.join(', ')}` })
+            : null,
+          focusedEntry?.cache_behavior === 'per_message'
+            ? jsx('div', { className: 'text-(--ui-text-tertiary)', children: 'Claude changes effort per message; the session selector remains at its initial setting.' })
+            : focusedEntry?.cache_behavior === 'top_level_cache_may_reset'
+              ? jsx('div', { className: 'text-(--ui-text-tertiary)', children: 'Changing Claude effort between turns may reset prompt caching.' })
+              : null,
           effort === 'N/A' && reason
             ? jsx('div', { className: 'text-(--ui-text-tertiary)', children: `Why: ${reason}` })
             : null,
@@ -654,6 +722,23 @@ function AdaptiveEffortDetails({ data, mode, effort, reason, route, syncReason, 
             ? jsx('div', { className: 'text-(--ui-text-tertiary)', children: `Selector: ${syncReason}` })
             : null,
           jsx('div', { className: 'break-all text-(--ui-text-tertiary)', children: `Route: ${route}` })
+        ]
+      }),
+      jsxs('section', {
+        className: 'space-y-1 border-t border-(--ui-border) pt-2 text-[0.625rem]',
+        children: [
+          jsx('div', { className: 'font-medium', children: 'Recent applied changes' }),
+          historyError || history?.available === false
+            ? jsx('div', { className: 'text-(--ui-text-tertiary)', children: 'History is unavailable for this agent.' })
+            : Array.isArray(history?.events) && history.events.length > 0
+              ? history.events.map(event => jsxs('div', {
+                className: 'border-b border-(--ui-border) py-1 last:border-0',
+                children: [
+                  jsx('div', { className: 'break-all font-medium text-(--ui-text-secondary)', children: event.model || 'Unknown model' }),
+                  jsx('div', { className: 'text-(--ui-text-tertiary)', children: `${historyTime(event.at)} · ${event.from || '?'} → ${event.to || '?'} · ${cacheLabel(event.cache_verdict)}` })
+                ]
+              }, String(event.id)))
+              : jsx('div', { className: 'text-(--ui-text-tertiary)', children: 'No applied changes recorded for this chat.' })
         ]
       }),
       jsxs('div', {
@@ -705,7 +790,7 @@ function AdaptiveEffortDetails({ data, mode, effort, reason, route, syncReason, 
                     ? jsx('div', { children: `Why: ${outcomeForEntry(last, last.mode)}` })
                     : null,
                   jsx('div', { className: 'break-all', children: `Route: ${last.provider ?? 'N/A'} · ${last.model ?? 'N/A'}` }),
-                  jsx('div', { className: 'break-all', children: `Scorer: ${last.scorer_provider ?? 'N/A'} · ${last.scorer_model ?? 'N/A'} · score ${last.score ?? 'N/A'}` })
+                  jsx('div', { className: 'break-all', children: `Scorer: ${last.scorer_provider ?? 'N/A'} · ${last.scorer_model ?? 'N/A'} · ${last.decision_type === 'native_choice' || last.decision_type === 'fixed' ? `choice ${last.label ?? 'N/A'}` : `score ${last.score ?? 'N/A'}`}` })
                 ]
               })
               : jsx('div', { className: 'pt-1', children: 'No recent status.' })
@@ -725,13 +810,16 @@ function AdaptiveEffortChip() {
   const [showDetails, setShowDetails] = useState(false)
   const [, setLiveVersion] = useState(0)
   const focusedSessionId = useValue(host.state.focusedSessionId)
+  const focusedStoredSessionId = useValue(host.state.focusedStoredSessionId)
   const focusedOwner = useValue(host.state.focusedSessionOwner)
   const activeConnectionId = useValue(host.state.connectionId)
   const activeProfile = useValue(host.state.profile)
   const gateway = useValue(host.state.gateway)
+  const focusedConversationId = currentFocusedIdentity().conversationId
   const changesQuery = useEffortChanges(activeConnectionId, activeProfile)
   const query = useQuery({
-    queryKey: [ID, 'status', focusedSessionId, focusedOwner?.connectionId, focusedOwner?.profile,
+    queryKey: [ID, 'status', focusedSessionId, focusedStoredSessionId, focusedConversationId,
+      focusedOwner?.connectionId, focusedOwner?.profile,
       activeConnectionId, activeProfile],
     queryFn: () => rest('/status', { timeoutMs: 15000 }),
     refetchInterval: 2000,
@@ -754,20 +842,23 @@ function AdaptiveEffortChip() {
   const ownerMatchesBackend = ownerMatchesActiveBackend(
     focusedOwner, activeConnectionId, activeProfile
   )
-  const live = focusedSessionId && focusedOwner
-    ? liveFor(focusedOwner.connectionId, focusedOwner.profile, focusedSessionId)
+  const historyQuery = useConversationHistory(
+    activeConnectionId, activeProfile, focusedConversationId, ownerMatchesBackend
+  )
+  const live = focusedConversationId && focusedOwner
+    ? liveFor(focusedOwner.connectionId, focusedOwner.profile, focusedConversationId)
     : null
-  const restEntry = ownerMatchesBackend ? entryForConversation(data, focusedSessionId) : null
+  const restEntry = ownerMatchesBackend ? entryForConversation(data, focusedConversationId) : null
   const focusedEntry = live ? live.status : restEntry
   const effort = live
-    ? live.clear ? 'N/A' : effortForConversation({ sessions: [focusedEntry] }, focusedSessionId)
-    : ownerMatchesBackend ? effortForConversation(data, focusedSessionId) : 'N/A'
+    ? live.clear ? 'N/A' : effortForConversation({ sessions: [focusedEntry] }, focusedConversationId)
+    : ownerMatchesBackend ? effortForConversation(data, focusedConversationId) : 'N/A'
   const reason = live
     ? live.clear ? 'No request status is available for this chat yet.' : outcomeForEntry(focusedEntry, focusedEntry?.mode || mode)
     : ownerMatchesBackend ? outcomeForEntry(focusedEntry, mode) : 'This chat belongs to a different backend or profile.'
   const route = live
     ? live.clear ? 'N/A' : [live.route.provider, live.route.model, live.route.api_mode].filter(Boolean).join(' · ') || 'N/A'
-    : ownerMatchesBackend ? routeForConversation(data, focusedSessionId) : 'N/A'
+    : ownerMatchesBackend ? routeForConversation(data, focusedConversationId) : 'N/A'
   const label = `Effort: ${effort}`
   const tone = toneFor(mode, query.isError)
 
@@ -787,7 +878,7 @@ function AdaptiveEffortChip() {
         jsx(ChangeNotifications, { query: changesQuery, statusQuery: query }),
         jsx(DecisionNotifications, {
           query,
-          conversationId: focusedSessionId,
+          conversationId: focusedConversationId,
           ownerMatchesBackend,
           connectionId: focusedOwner?.connectionId,
           profile: focusedOwner?.profile
@@ -859,8 +950,11 @@ function AdaptiveEffortChip() {
                   settings,
                   scorerProvider,
                   scorerModel,
-                  credential,
-                  gateway
+          credential,
+                  gateway,
+                  focusedEntry,
+                  history: historyQuery.data,
+                  historyError: historyQuery.isError
                 })
                 : null
             ]
@@ -894,6 +988,7 @@ export default {
       }
       syncAcks.clear()
       liveDecisions.clear()
+      sessionIdentities.clear()
       activeStreams.clear()
       retiredStreams.clear()
       syncAttempts.clear()

@@ -81,7 +81,8 @@ def test_applied_rewrite_emits_allowlisted_route_and_stable_marker(monkeypatch):
     assert applied[0]["to"] == "high"
     assert emitted[-1]["route"] == ROUTE
     assert emitted[-1]["runtime_session_id"] == SESSION
-    assert emitted[-1]["schema"] == "hermes-adaptive-effort.desktop-status.v1"
+    assert emitted[-1]["conversation_id"] == SESSION
+    assert emitted[-1]["schema"] == "hermes-adaptive-effort.desktop-status.v2"
     assert emitted[-1]["status"]["state"] == "decided"
     assert set(emitted[-1]["status"]) == set(command._ENTRY_FIELDS)
     assert "PRIVATE TASK TEXT" not in repr(emitted)
@@ -98,6 +99,20 @@ def test_off_status_and_compute_child_sync_capability(monkeypatch):
     assert event["status"]["state"] == "off"
     assert event["status"]["target"] is None
     assert event["selector_sync_supported"] is False
+
+
+def test_claude_per_message_event_keeps_selector_at_its_initial_setting(monkeypatch):
+    events = capture_events(monkeypatch)
+    middleware._publish_desktop_decision(
+        SESSION, "anthropic", "claude-opus-5-5", "anthropic_messages",
+        {"state": "decided", "label": "xhigh", "target": "xhigh",
+         "decision_type": "native_choice", "choices": ["low", "medium", "high", "xhigh", "max"],
+         "cache_behavior": "per_message"},
+    )
+
+    event = payloads(events)[-1]
+    assert event["selector_sync_supported"] is False
+    assert event["status"]["target"] == "xhigh"
     assert event["applied"] is None
 
 
@@ -134,6 +149,7 @@ def test_session_boundary_emits_clear_with_new_revision(monkeypatch):
     assert clear["clear"] is True
     assert clear["status"] is None
     assert clear["runtime_session_id"] == SESSION
+    assert clear["conversation_id"] == SESSION
     assert clear["revision"] > emitted[-2]["revision"]
 
 

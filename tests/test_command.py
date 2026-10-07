@@ -8,6 +8,7 @@ Everything the command returns must stay free of prompt text (privacy contract).
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -85,9 +86,19 @@ def test_registered_handler_is_the_command_module_entry_point():
     assert ctx.commands[0]["handler"] is command.handle
 
 
-def test_usage_is_returned_for_empty_and_unknown_arguments():
-    assert "usage" in command.handle("").lower()
-    assert "usage" in command.handle("   ").lower()
+def test_history_uses_the_host_profile_data_directory(tmp_path, monkeypatch):
+    captured = []
+    monkeypatch.setattr(middleware, "set_history_path_provider", captured.append)
+    ctx = RecordingCtx()
+    ctx.state = SimpleNamespace(data_dir=tmp_path)
+    init_module.register(ctx)
+    assert len(captured) == 1
+    assert captured[0]() == tmp_path / "effort-history.sqlite3"
+
+
+def test_bare_command_shows_history_and_unknown_arguments_return_usage():
+    assert "recent changes" in command.handle("").lower()
+    assert "recent changes" in command.handle("   ").lower()
     assert "usage" in command.handle("banana").lower()
 
 
@@ -96,13 +107,13 @@ def test_status_renders_the_configured_mode(monkeypatch):
                         lambda key, default=None: {"mode": "auto"}.get(key, default))
     out = command.handle("status")
     assert "mode" in out.lower()
-    assert "auto" in out.split("mode", 1)[1].lower()
+    assert "auto" in out.lower().split("mode", 1)[1]
     assert out != command.handle("")  # not just the usage banner
 
 
 def test_status_json_returns_the_documented_payload():
     payload = json.loads(command.handle("status json"))
-    assert payload["schema"] == "hermes-adaptive-effort.status.v1"
+    assert payload["schema"] == "hermes-adaptive-effort.status.v2"
     assert payload["plugin"] == "hermes-adaptive-effort"
     assert payload["mode"] in ("auto", "once", "always", "off")
     for key in ("settings", "credential", "counts", "sessions", "last"):
@@ -132,14 +143,14 @@ def test_openai_decisions_status_reports_default_model_fixed_endpoint_and_creden
                         lambda: "")
 
     payload = json.loads(command.handle("status json"))
-    rendered = command.handle("status")
+    rendered = command.handle("status full")
     endpoint = "https://api.openai.com/v1/decisions"
     assert payload["settings"]["scorer_provider"] == "openai_decision"
     assert payload["settings"]["scorer_model_effective"] == "gpt-6-luna"
     assert payload["settings"]["endpoint_effective"] == endpoint
     assert payload["credential_required"] is True
     assert payload["credential"] is False
-    assert f"endpoint: {endpoint}" in rendered
+    assert f"Endpoint: {endpoint}" in rendered
     assert "configured: https://api.typesafe.ai" not in rendered
 
 
@@ -359,7 +370,7 @@ def test_settings_expose_the_effective_endpoint(monkeypatch):
 def test_status_points_at_the_effective_endpoint_and_shows_the_raw_setting(monkeypatch):
     monkeypatch.setattr(middleware, "_settings_provider",
                         lambda key, default=None: {"endpoint": "https://api.typesafe.ai/v1"}.get(key, default))
-    out = command.handle("status")
+    out = command.handle("status full")
     assert "https://api.typesafe.ai/v1/systemone" in out
     assert "configured: https://api.typesafe.ai/v1" in out
 
@@ -368,6 +379,6 @@ def test_status_on_the_canonical_endpoint_does_not_add_a_configured_note(monkeyp
     monkeypatch.setattr(middleware, "_settings_provider",
                         lambda key, default=None: {
                             "endpoint": "https://api.typesafe.ai/v1/systemone"}.get(key, default))
-    out = command.handle("status")
+    out = command.handle("status full")
     assert "https://api.typesafe.ai/v1/systemone" in out
     assert "configured" not in out

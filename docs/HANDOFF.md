@@ -36,6 +36,14 @@ No fresh inspection of Iris, Windows's installed plugin, the gateway or Desktop 
 
 ## Local work in progress
 
+The current local implementation adds model-route-specific named effort choices while retaining numeric `0..2` scoring for unknown vocabularies and `/hae probe`. Jev, OpenAI Decisions, Cloudflare and both custom formats have strict named-choice request/response contracts; OpenRouter/custom Chat Completions require exactly `{"effort":"<allowed level>"}`. Named values outside the route list fail open without a second scorer call. Status and Desktop decision events now use schema v2 with decision type, allowed choices and cache behavior; the Desktop reader accepts both v1 and v2 during transition.
+
+The native Anthropic path is limited to exact registered models on HTTPS `api.anthropic.com`. For the five per-message IDs, it merges Anthropic's dated beta into an already-exposed `anthropic-beta` header and replays effort markers before matching user turns while leaving top-level effort unchanged. The marker registry retains levels and hashed positions only. Without the header, `auto` pins per route and `always` uses top-level effort with a visible cache-reset caveat. Compression, missing anchors, manual initial-setting changes, reset/eviction and errors invalidate continuity. Local tests cover generated payloads; live API acceptance, cache effects, cost and response quality remain unmeasured.
+
+The 2026-10-07 Desktop display fix corrects an identity mismatch: middleware's `agent.session_id` is a stored conversation ID, while the SDK's `focusedSessionId` is a temporary gateway runtime ID. The chip and REST lookup now use the stored ID, with owner-scoped `session.info` mappings for rotations. Native selector writes use the runtime ID and require an acknowledgment naming both IDs. Events add `conversation_id` and retain the historically mislabeled `runtime_session_id` alias for compatibility. This change needs the Desktop extension reloaded; already-running agent processes can keep sending the compatible older event shape.
+
+Local verification for that fix: **546 Python tests and 17 Node Desktop scenarios passed**, including the reported `max → medium` case with unequal session IDs, plus Ruff and JavaScript syntax checks. The Node harness is now part of CI. Windows's agent-plugin junction resolves to this checkout, and the installed Desktop entry at `%LOCALAPPDATA%\hermes\desktop-plugins\hermes-adaptive-effort\plugin.js` automatically synchronized byte-for-byte with the updated source. These are local source/file checks; the next real chat turn's rendering remains to be confirmed interactively. No live scorer/generation call was made for this fix.
+
 The pre-existing working tree contains a live model validation plan (`docs/plans/live-model-effort-validation.md`), runner/probe scripts, tests and campaign reports (`docs/validation/runs/live-20261007/report.md`). These files were not all tracked at the start of the refresh and are a separate workstream. The paths describe local work; this refresh does not publish them.
 
 The 2026-10-07 report records a partially executed Codex campaign with deterministic local classifier scores; OpenRouter/Go generation cases were blocked before send. It also states transport/provenance limits and that calls were not repeated after the final probe hardening. Read the report before drawing conclusions. This is neither a live scorer evaluation nor exhaustive compatibility proof.
@@ -43,6 +51,8 @@ The 2026-10-07 report records a partially executed Codex campaign with determini
 Preserve those files and their recorded boundaries. Review their tracking/publication status before distributing links to them; a local report may not yet exist on GitHub.
 
 The Decisions and target-context plans describe implemented source paths. Their live scorer/quality/cost evaluations remain separate work, as recorded in their [design records](README.md#implemented-design-records).
+
+The 2026-10-07 CLI history work adds a bounded per-conversation journal of applied effort changes and a matching focused-chat list in Desktop. It stores prompt-free metadata under the Hermes profile and clears one conversation on explicit reset. No live scorer or cache benchmark was run; the cache label is route evidence, not a measured savings claim.
 
 ## Operational follow-up
 

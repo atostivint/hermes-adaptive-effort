@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/hermes-adaptive-effort/model-validation-cases.schema.json",
+  "title": "Hermes Adaptive Effort synthetic validation cases",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema",
+    "case_version",
+    "purpose",
+    "consumed_by_runner",
+    "prompt",
+    "response_oracle",
+    "score_cases",
+    "constraints"
+  ],
+  "properties": {
+    "$schema": { "const": "./model-validation-cases.schema.json" },
+    "schema": { "const": "hermes-adaptive-effort.synthetic-cases.v1" },
+    "case_version": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "purpose": { "type": "string", "minLength": 1 },
+    "consumed_by_runner": { "const": false },
+    "prompt": { "const": "What is 2 + 2? Reply briefly with the answer." },
+    "response_oracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "expected"],
+      "properties": {
+        "kind": { "const": "synthetic_answer" },
+        "expected": { "const": "4" }
+      }
+    },
+    "score_cases": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["score", "target_effort"],
+          "properties": {
+            "score": { "const": 0 },
+            "target_effort": { "const": "low" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["score", "target_effort"],
+          "properties": {
+            "score": { "const": 1 },
+            "target_effort": { "const": "medium" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["score", "target_effort"],
+          "properties": {
+            "score": { "const": 2 },
+            "target_effort": { "const": "high" }
+          }
+        }
+      ],
+      "items": false
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "same_prompt_for_all_scores",
+        "no_tools",
+        "no_sensitive_or_personal_data",
+        "prompt_must_not_be_copied_into_runtime_traces"
+      ],
+      "properties": {
+        "same_prompt_for_all_scores": { "const": true },
+        "no_tools": { "const": true },
+        "no_sensitive_or_personal_data": { "const": true },
+        "prompt_must_not_be_copied_into_runtime_traces": { "const": true }
+      }
+    }
+  }
+}

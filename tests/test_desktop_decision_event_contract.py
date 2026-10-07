@@ -22,7 +22,9 @@ def test_live_status_is_scoped_to_source_and_rejects_replays_and_old_revisions()
 
     assert "event?.replayed === true" in source
     assert "event?.type !== DECISION_EVENT" in source
-    assert "payload.schema !== 'hermes-adaptive-effort.desktop-status.v1'" in source
+    assert "'hermes-adaptive-effort.desktop-status.v1'" in source
+    assert "'hermes-adaptive-effort.desktop-status.v2'" in source
+    assert "].includes(payload.schema)" in source
     assert "liveKey(source.connectionId, source.profile, sessionId)" in source
     assert "revision <= prior.revision" in source
     assert "retired.includes(streamId)" in source
@@ -35,13 +37,15 @@ def test_native_selector_rpc_is_explicitly_session_scoped_and_confirmed():
         "function notifyDecisionOutcome", 1
     )[0]
 
-    assert "focused.sessionId !== record.sessionId" in sync
+    assert "focused.conversationId !== record.sessionId" in sync
     assert "latestFocus.model !== record.route.model" in sync
     assert "record.selectorSyncSupported" in sync
     assert "host.requestProfile(route, 'config.set'" in sync
     assert "key: 'reasoning'" in sync
     assert "scope: 'session'" in sync
-    assert "session_id: record.sessionId" in sync
+    assert "session_id: focused.sessionId" in sync
+    assert "latestFocus.sessionId !== focused.sessionId" in sync
+    assert "info.stored_session_id === waiter.conversationId" in source
     assert "waitForSessionInfo(ctx" in sync
     assert "const deadline = Date.now() + 5000" in source
     assert "const remainingMs = Math.max(1, deadline - Date.now())" in source

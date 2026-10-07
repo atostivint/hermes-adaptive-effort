@@ -1,7 +1,7 @@
 """Hermes Adaptive Effort dashboard/desktop backend, mounted at ``/api/plugins/hermes-adaptive-effort/``.
 
 Thin wrapper around the agent half's :mod:`command` / :mod:`middleware`: the same
-``hermes-adaptive-effort.status.v1`` payload ``/hae status json`` prints, a
+``hermes-adaptive-effort.status.v2`` payload ``/hae status json`` prints, a
 runtime mode switch with the same semantics (future requests of this process, never a
 config write unless ``persist`` is set), and ``GET /changes`` — the bounded feed of
 rewrites that actually reached a request, so the desktop chip can say which reasoning
@@ -31,9 +31,10 @@ from typing import Any, Dict, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 PLUGIN_ID = "hermes-adaptive-effort"
-STATUS_SCHEMA = "hermes-adaptive-effort.status.v1"
+STATUS_SCHEMA = "hermes-adaptive-effort.status.v2"
 PROBE_SCHEMA = "hermes-adaptive-effort.probe.v1"
 CHANGES_SCHEMA = "hermes-adaptive-effort.changes.v1"
+HISTORY_SCHEMA = "hermes-adaptive-effort.history.v1"
 VALID_MODES = ("auto", "once", "always", "off")
 MAX_PROBE_CHARS = 4000
 
@@ -131,7 +132,7 @@ def _agent_modules() -> Tuple[Any, Any]:
 
 
 def get_status_payload() -> Dict[str, Any]:
-    """Live ``hermes-adaptive-effort.status.v1`` payload (same builder as the slash command)."""
+    """Live ``hermes-adaptive-effort.status.v2`` payload (same builder as the slash command)."""
     middleware, command = _agent_modules()
     if command is None or middleware is None:
         return {"schema": STATUS_SCHEMA, "plugin": PLUGIN_ID,
@@ -167,6 +168,34 @@ def get_changes_payload() -> Dict[str, Any]:
         "events": state["events"],
         "latest": state["latest"],
     }
+
+
+def get_history_payload(conversation_id: Any, limit: Any = 10) -> Dict[str, Any]:
+    """Read recent applied changes for one exact conversation in this profile."""
+    _, command = _agent_modules()
+    conversation = str(conversation_id or "").strip()
+    if command is None or not conversation:
+        return {"schema": HISTORY_SCHEMA, "plugin": PLUGIN_ID,
+                "conversation_id": conversation, "available": False, "events": []}
+    try:
+        store = command._history_store
+        view = store.read_history((conversation,), limit=limit)
+        events = [
+            {key: event.get(key) for key in
+             ("id", "at", "model", "from", "to", "cache_verdict")}
+            for event in view.get("events", [])
+        ]
+        return {
+            "schema": HISTORY_SCHEMA,
+            "plugin": PLUGIN_ID,
+            "conversation_id": conversation,
+            "available": bool(view.get("available")),
+            "events": events,
+        }
+    except Exception:
+        logger.debug("hermes-adaptive-effort: history build failed", exc_info=True)
+        return {"schema": HISTORY_SCHEMA, "plugin": PLUGIN_ID,
+                "conversation_id": conversation, "available": False, "events": []}
 
 
 def set_mode(mode: Any, *, persist: bool = False) -> Dict[str, Any]:
@@ -260,6 +289,13 @@ if _HAS_HTTP and router is not None:  # pragma: no cover - needs serve env
         payload = get_changes_payload()
         if payload.get("error"):
             raise HTTPException(status_code=503, detail=payload["error"])
+        return payload
+
+    @router.get("/history")
+    def history(conversation_id: str, limit: int = 10) -> Dict[str, Any]:
+        payload = get_history_payload(conversation_id, limit)
+        if not payload.get("available"):
+            raise HTTPException(status_code=503, detail="history_unavailable")
         return payload
 
     @router.post("/mode")

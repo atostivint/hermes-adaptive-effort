@@ -9,7 +9,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, Optional, Sequence, Tuple
 
 from . import rubric
 from .jev_client import DEFAULT_MAX_PROMPT_CHARS, DEFAULT_TIMEOUT_S, truncate_prompt
@@ -110,7 +110,8 @@ class CustomClient:
     def classify(self, prompt: Optional[str]) -> Optional[float]:
         return self.classify_detail(prompt)[0]
 
-    def classify_detail(self, prompt: Optional[str]) -> "tuple[Optional[float], Optional[str]]":
+    def classify_detail(self, prompt: Optional[str],
+                        choices: Optional[Sequence[str]] = None) -> "tuple[Any, Optional[str]]":
         if not isinstance(prompt, str) or not prompt.strip():
             return None, "invalid_prompt"
         endpoint, failure = validate_endpoint(self.endpoint)
@@ -132,13 +133,13 @@ class CustomClient:
         prompt_text = truncate_prompt(prompt, self.max_prompt_chars)
         if self.api_format == "systemone":
             body = {"state": {"prompt": prompt_text}, "model": self.model,
-                    "questions": rubric.questions_for(self.classification_instructions)}
+                    "questions": rubric.questions_for(self.classification_instructions, choices)}
         else:
             body = {
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": rubric.chat_system_prompt(
-                        self.classification_instructions)},
+                        self.classification_instructions, choices)},
                     {"role": "user", "content": prompt_text},
                 ],
                 "response_format": {"type": "json_object"},
@@ -183,14 +184,26 @@ class CustomClient:
         except Exception:
             return None, "malformed_response"
 
-        if self.api_format == "systemone":
+        levels = rubric.normalize_effort_choices(choices)
+        if self.api_format == "systemone" and levels:
+            result, failure = rubric.systemone_choice(data, levels)
+        elif self.api_format == "systemone":
             score, failure = rubric.systemone_score(data)
+            result = score
+        elif levels:
+            result = rubric.chat_completion_choice(data, levels)
+            failure = None if result is not None else "malformed_response"
         else:
             score = rubric.chat_completion_score(data)
             failure = None if score is not None else "malformed_response"
+            result = score
         logger.debug("hermes-adaptive-effort: custom scorer completed in %.0fms (valid=%s)",
-                     (time.monotonic() - started) * 1000, score is not None)
-        return score, failure
+                     (time.monotonic() - started) * 1000, result is not None)
+        return result, failure
+
+    def classify_effort_detail(self, prompt: Optional[str], choices: Sequence[str]):
+        """Return one route-authorized named effort through this custom protocol."""
+        return self.classify_detail(prompt, choices=choices)
 
 
 def credential_present(auth: Any = "none",

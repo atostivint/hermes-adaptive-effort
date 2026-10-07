@@ -13,10 +13,12 @@ unit tests run without a Hermes install). Rules:
 from __future__ import annotations
 
 import math
+from urllib.parse import urlsplit
 from typing import Optional, Sequence
 
 #: Normalized labels Hermes Adaptive Effort may select. Never a fourth value.
 EFFORT_LABELS: tuple[str, ...] = ("low", "medium", "high")
+CHOICE_LEVELS: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh", "max")
 
 #: Rubric boundaries (documented in README.md).
 LOW_MAX = 0.5
@@ -58,6 +60,29 @@ OPEN_CODE_GO_INJECTION_ROUTES = {
     },
 }
 _OPEN_CODE_GO_PROVIDERS = frozenset({"opencode-go", "opencode_go", "go", "opencode-go-sub"})
+
+# Exact Anthropic API model registry. Profiles are documentation only; this
+# table is the plugin's explicit assertion that the native Messages route can
+# carry output_config.effort for these exact model ids.
+ANTHROPIC_EFFORT_ROUTES = {
+    "claude-fable-5-1": ("low", "medium", "high", "xhigh", "max"),
+    "claude-mythos-5-1": ("low", "medium", "high", "xhigh", "max"),
+    "claude-opus-5-5": ("low", "medium", "high", "xhigh", "max"),
+    "claude-opus-5": ("low", "medium", "high", "xhigh", "max"),
+    "claude-sonnet-5-5": ("low", "medium", "high", "xhigh", "max"),
+    "claude-fable-5": ("low", "medium", "high", "xhigh", "max"),
+    "claude-mythos-5": ("low", "medium", "high", "xhigh", "max"),
+    "claude-opus-4-8": ("low", "medium", "high", "xhigh", "max"),
+    "claude-opus-4-7": ("low", "medium", "high", "xhigh", "max"),
+    "claude-opus-4-6": ("low", "medium", "high", "max"),
+    "claude-sonnet-5": ("low", "medium", "high", "xhigh", "max"),
+    "claude-sonnet-4-6": ("low", "medium", "high", "max"),
+}
+
+ANTHROPIC_PER_MESSAGE_MODELS = frozenset({
+    "claude-fable-5-1", "claude-mythos-5-1", "claude-opus-5-5",
+    "claude-opus-5", "claude-sonnet-5-5",
+})
 
 
 def score_to_label(score) -> Optional[str]:
@@ -165,6 +190,52 @@ def supported_efforts(provider: Optional[str], model: Optional[str],
         return ()
 
 
+def route_choice_levels(provider: Optional[str], model: Optional[str], api_mode: Optional[str],
+                        base_url: Optional[str] = None) -> tuple[str, ...]:
+    """Exact route vocabularies allowed to use native named-choice classification.
+
+    This intentionally does not use Hermes' generic OpenAI-compatible fallback
+    or model-profile documentation as route evidence.
+    """
+    provider_name = (provider or "").strip().lower()
+    api = (api_mode or "").strip().lower()
+    model_id = (model or "").strip().lower()
+    bare = model_id.rsplit("/", 1)[-1]
+    levels: Sequence[str] = ()
+    if provider_name in _OPEN_CODE_GO_PROVIDERS:
+        declared = OPEN_CODE_GO_INJECTION_ROUTES.get(api, {}).get(bare)
+        if declared:
+            levels = declared[1]
+    elif provider_name in {"opencode", "opencode-zen", "opencode_zen", "zen"} \
+            and api == "codex_responses":
+        levels = MUSE_INJECTION_EFFORTS.get(bare, ())
+    elif (provider_name == "openai-codex" and api == "codex_responses"
+          and bare == "gpt-6.1-sol"):
+        try:
+            from agent.reasoning_effort import codex_supported_efforts
+            levels = codex_supported_efforts(model_id)
+        except Exception:
+            levels = ()
+    elif (provider_name == "anthropic" and api == "anthropic_messages"
+          and _native_anthropic_host(base_url)):
+        levels = ANTHROPIC_EFFORT_ROUTES.get(bare, ())
+    return tuple(level for level in levels if level in CHOICE_LEVELS)
+
+
+def _native_anthropic_host(base_url: Optional[str]) -> bool:
+    try:
+        parsed = urlsplit(str(base_url or ""))
+        return (
+            parsed.scheme.lower() == "https"
+            and (parsed.hostname or "").lower() == "api.anthropic.com"
+            and parsed.port in (None, 443)
+            and parsed.username is None
+            and parsed.password is None
+        )
+    except (TypeError, ValueError):
+        return False
+
+
 def map_effort(label: Optional[str], provider: Optional[str] = None,
                model: Optional[str] = None,
                supported: Optional[Sequence[str]] = None) -> Optional[str]:
@@ -172,7 +243,7 @@ def map_effort(label: Optional[str], provider: Optional[str] = None,
     if not isinstance(label, str):
         return None
     level = label.strip().lower()
-    if level not in EFFORT_LABELS:
+    if level not in CHOICE_LEVELS:
         return None
     vocabulary = supported_efforts(provider, model, supported)
     if not vocabulary:
@@ -183,6 +254,35 @@ def map_effort(label: Optional[str], provider: Optional[str] = None,
         return None
     try:
         clamped = clamp_effort(level, vocabulary, wire_overrides(vocabulary))
+    except Exception:
+        return None
+    if not isinstance(clamped, str) or clamped.strip().lower() not in vocabulary:
+        return None
+    return clamped.strip().lower()
+
+
+def map_named_choice(label: Optional[str], supported: Sequence[str]) -> Optional[str]:
+    """Re-clamp a named choice after a route change without escalating to ``max``.
+
+    The exact choice returned for its original route is already valid. When that
+    decision crosses to another named-choice route, retain the existing explicit
+    ``medium -> high`` vendor mapping, but do not reinterpret ``xhigh`` as the new
+    route's maximum tier.
+    """
+    if not isinstance(label, str):
+        return None
+    level = label.strip().lower()
+    vocabulary = tuple(item for item in supported if item in CHOICE_LEVELS)
+    if level not in CHOICE_LEVELS or not vocabulary:
+        return None
+    try:
+        from agent.reasoning_effort import clamp_effort
+    except Exception:
+        return None
+    overrides = wire_overrides(vocabulary) or {}
+    overrides = {key: value for key, value in overrides.items() if key != "xhigh"}
+    try:
+        clamped = clamp_effort(level, vocabulary, overrides)
     except Exception:
         return None
     if not isinstance(clamped, str) or clamped.strip().lower() not in vocabulary:

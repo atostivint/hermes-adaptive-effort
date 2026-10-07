@@ -26,6 +26,8 @@ prompt text is stored.
 from __future__ import annotations
 
 import logging
+import hashlib
+import json
 import os
 import threading
 import time
@@ -35,6 +37,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from . import cache_safety as _cache_safety
 from . import effort as _effort
+from . import history_store as _history_store
 from . import jev_client as _jev_client
 from . import model_profiles as _model_profiles
 from . import rubric as _rubric
@@ -84,6 +87,9 @@ _SESSIONS: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 # Persistent decisions are keyed by session plus normalized provider, exact model,
 # and API mode. Kept separately so each registry has its own max_turns bound.
 _PINNED: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+# Claude per-message effort continuity stores only effort labels and private
+# hashes/ordinals for user-message positions; never message text.
+_CLAUDE_HISTORY: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 # Recent effort rewrites are kept in memory for the Desktop event poller. The
 # private decision key deduplicates repeated tool-loop rewrites without ever
 # leaving this module.
@@ -121,6 +127,7 @@ def reset_state() -> None:
     with _lock:
         _SESSIONS.clear()
         _PINNED.clear()
+        _CLAUDE_HISTORY.clear()
         _IN_FLIGHT.clear()
         _ROUTE_IN_FLIGHT.clear()
         _CHILD_GOALS.clear()
@@ -222,6 +229,35 @@ def effort_change_state() -> Dict[str, Any]:
         }
 
 
+def _cache_verdict(provider: Any, model: Any, api_mode: Any,
+                   details: Optional[Dict[str, Any]] = None) -> str:
+    """Report whether this request transport keeps effort out of the cached prompt."""
+    api = str(api_mode or "").strip().lower()
+    behavior = details.get("cache_behavior") if isinstance(details, dict) else None
+    if behavior in ("per_message", "route_pinned"):
+        return "compatible"
+    if behavior in ("top_level_cache_may_reset", "invalidated"):
+        return "sensitive"
+    if api in _cache_safety.CACHE_UNSAFE_API_MODES:
+        return "sensitive"
+    if _cache_safety.effort_is_cache_safe(provider, model, api_mode):
+        return "compatible"
+    return "not_verified"
+
+
+def _history_identity(session_id: Any) -> Tuple[Optional[str], Tuple[str, ...]]:
+    scope, aliases = _history_store.current_identity()
+    sid = str(session_id or "").strip()
+    if scope and aliases:
+        return scope, tuple(dict.fromkeys((*aliases, sid)))
+    return (sid or None), ((sid,) if sid else ())
+
+
+def set_history_path_provider(provider: Optional[Callable[[], Any]]) -> None:
+    """Bind the journal to the host's profile-owned plugin data directory."""
+    _history_store.configure_path_provider(provider)
+
+
 def set_cli_status_handle(handle: Any) -> None:
     """Attach the optional host-provided CLI status item update handle."""
     global _CLI_STATUS_HANDLE
@@ -229,7 +265,10 @@ def set_cli_status_handle(handle: Any) -> None:
     _sync_cli_status()
 
 
-def _record_effort_change(decision_key: str, before: Any, after: Any) -> Optional[Dict[str, Any]]:
+def _record_effort_change(decision_key: str, before: Any, after: Any,
+                           session_id: Any = None, provider: Any = None,
+                           model: Any = None, api_mode: Any = None,
+                           details: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Record one distinct rewrite per decision and value pair; return its public event."""
     global _CHANGE_SEQUENCE
     old_value, new_value = str(before), str(after)
@@ -248,7 +287,15 @@ def _record_effort_change(decision_key: str, before: Any, after: Any) -> Optiona
             "_decision_key": decision_key,
         }
         _EFFORT_CHANGES.append(event)
-        return {key: event[key] for key in ("id", "from", "to", "at")}
+    scope, aliases = _history_identity(session_id)
+    if scope:
+        _history_store.record_change(
+            scope, aliases, decision_key, old_value, new_value,
+            provider, model, api_mode,
+            _cache_verdict(provider, model, api_mode, details=details),
+            details=details, at=event["at"],
+        )
+    return {key: event[key] for key in ("id", "from", "to", "at")}
 
 
 def _existing_effort_change(decision_key: str, before: Any,
@@ -275,8 +322,8 @@ def _publish_desktop_decision(session_id: str, provider: Any = None,
     do not provide the Desktop event bridge. Event failures never affect middleware.
     """
     global _DESKTOP_EVENT_REVISION
-    runtime_id = str(session_id or "")
-    if not runtime_id:
+    conversation_id = str(session_id or "")
+    if not conversation_id:
         return
     try:
         # Reuse the status surface's explicit field allowlist; never serialize the
@@ -287,16 +334,30 @@ def _publish_desktop_decision(session_id: str, provider: Any = None,
             from .command import _ENTRY_FIELDS
             status = {field: entry.get(field) for field in _ENTRY_FIELDS}
 
+        if status is not None:
+            scope, aliases = _history_identity(conversation_id)
+            if scope:
+                history_snapshot = dict(status)
+                history_snapshot["cache_verdict"] = _cache_verdict(
+                    provider, model, api_mode, details=history_snapshot)
+                _history_store.record_snapshot(
+                    scope, aliases, history_snapshot,
+                    at=float(status.get("updated_at") or time.time()),
+                )
+
         def route_value(value: Any) -> str:
             return value if isinstance(value, str) else ""
 
         with _lock:
             _DESKTOP_EVENT_REVISION += 1
             payload = {
-                "schema": "hermes-adaptive-effort.desktop-status.v1",
+                "schema": "hermes-adaptive-effort.desktop-status.v2",
                 "stream_id": _CHANGE_STREAM_ID,
                 "revision": _DESKTOP_EVENT_REVISION,
-                "runtime_session_id": runtime_id,
+                "conversation_id": conversation_id,
+                # Compatibility alias: this has always carried agent.session_id
+                # (the stored id), never the Desktop gateway's temporary sid.
+                "runtime_session_id": conversation_id,
                 "status": status,
                 "route": {
                     "provider": route_value(provider),
@@ -304,7 +365,8 @@ def _publish_desktop_decision(session_id: str, provider: Any = None,
                     "api_mode": route_value(api_mode),
                 },
                 "selector_sync_supported": (
-                    os.environ.get("HERMES_COMPUTE_HOST_CHILD") != "1"),
+                    os.environ.get("HERMES_COMPUTE_HOST_CHILD") != "1"
+                    and not (entry and entry.get("cache_behavior") == "per_message")),
                 "applied": (dict(applied) if applied is not None else None),
             }
             if clear:
@@ -377,23 +439,26 @@ def _release(session_id: str) -> None:
         _IN_FLIGHT.discard(session_id)
 
 
-def _claim_scoring(turn_key: str, route_key: str, persistent_scope: bool) -> bool:
+def _claim_scoring(turn_key: str, route_key: str, persistent_scope: bool,
+                   serialize_route: bool = False) -> bool:
     """Atomically claim the turn and, when applicable, the retained route."""
     with _lock:
         if turn_key in _IN_FLIGHT:
             return False
-        if persistent_scope and route_key in _ROUTE_IN_FLIGHT:
+        route_claim = persistent_scope or serialize_route
+        if route_claim and route_key in _ROUTE_IN_FLIGHT:
             return False
         _IN_FLIGHT.add(turn_key)
-        if persistent_scope:
+        if route_claim:
             _ROUTE_IN_FLIGHT.add(route_key)
         return True
 
 
-def _release_scoring(turn_key: str, route_key: str, persistent_scope: bool) -> None:
+def _release_scoring(turn_key: str, route_key: str, persistent_scope: bool,
+                     serialize_route: bool = False) -> None:
     with _lock:
         _IN_FLIGHT.discard(turn_key)
-        if persistent_scope:
+        if persistent_scope or serialize_route:
             _ROUTE_IN_FLIGHT.discard(route_key)
 
 
@@ -419,6 +484,7 @@ def _touch(key: str, settings: Dict[str, Any], mode: str,
         if entry is None:
             entry = {
                 "state": "new", "label": None, "target": None, "score": None,
+                "decision_type": None, "choices": [], "cache_behavior": None,
                 "mode": mode, "provider": provider, "model": model,
                 "scope": "turn",
                 "scorer_provider": settings.get("scorer_provider", _scorers.JEV),
@@ -449,6 +515,7 @@ def _touch_pin(key: str, settings: Dict[str, Any], mode: str,
         if entry is None:
             entry = {
                 "state": "new", "label": None, "target": None, "score": None,
+                "decision_type": None, "choices": [], "cache_behavior": None,
                 "mode": mode, "provider": provider, "model": model,
                 "scope": "session_route",
                 "api_mode": api_mode,
@@ -471,7 +538,7 @@ def _touch_pin(key: str, settings: Dict[str, Any], mode: str,
     return entry
 
 
-def _clear_session_state(session_id: Optional[str]) -> None:
+def _clear_session_state(session_id: Optional[str], *, clear_history: bool = False) -> None:
     """Drop one conversation's in-memory decisions and child registration."""
     if not session_id:
         return
@@ -501,9 +568,14 @@ def _clear_session_state(session_id: Optional[str]) -> None:
         for key in route_keys:
             _PINNED.pop(key, None)
             _ROUTE_IN_FLIGHT.discard(key)
+        for key in list(_CLAUDE_HISTORY):
+            if _CLAUDE_HISTORY[key].get("session_id") == session:
+                _CLAUDE_HISTORY.pop(key, None)
         _IN_FLIGHT.discard(session)
         _CHILD_GOALS.pop(session, None)
     _publish_desktop_decision(session, clear=True)
+    if clear_history:
+        _history_store.clear_conversation((session,))
 
 
 def on_session_end(session_id: Optional[str] = None, **kwargs: Any) -> None:
@@ -529,7 +601,7 @@ def on_session_reset(session_id: Optional[str] = None,
                      old_session_id: Optional[str] = None,
                      **kwargs: Any) -> None:
     """Clear the conversation replaced by a Hermes reset/session rotation."""
-    _clear_session_state(old_session_id or session_id)
+    _clear_session_state(old_session_id or session_id, clear_history=True)
 
 
 # ── subagent registry ────────────────────────────────────────────────────────
@@ -753,7 +825,8 @@ def _normalize_forced_models(raw: Any) -> Tuple[str, ...]:
 def _classifies(client: Any) -> bool:
     """True when *client* exposes the classification surface we drive."""
     return (callable(getattr(client, "classify", None))
-            or callable(getattr(client, "classify_detail", None)))
+            or callable(getattr(client, "classify_detail", None))
+            or callable(getattr(client, "classify_effort_detail", None)))
 
 
 def _call_factory(factory: Any, timeout: Any) -> Any:
@@ -798,8 +871,9 @@ def _build_client(factory: Any, settings: Dict[str, Any]) -> Any:
     return None
 
 
-def _classify(prompt: str, settings: Dict[str, Any]) -> "Tuple[Optional[float], Optional[str]]":
-    """``(score, failure)`` for one classification.
+def _classify(prompt: str, settings: Dict[str, Any],
+              choices: Optional[Tuple[str, ...]] = None) -> "Tuple[Any, Optional[str]]":
+    """Return one legacy score or one strict named route choice plus failure.
 
     ``failure`` is ``None`` when a score came back, otherwise a reason code from
     the documented table in :mod:`jev_client` plus ``classifier_error`` (the
@@ -815,8 +889,18 @@ def _classify(prompt: str, settings: Dict[str, Any]) -> "Tuple[Optional[float], 
         client = _build_client(factory, settings)
         if client is None:
             return None, "classifier_error"
-    detail: Any = getattr(client, "classify_detail", None)
+    detail: Any = getattr(client, "classify_effort_detail", None) if choices else None
     try:
+        if choices:
+            if not callable(detail):
+                return None, "unsupported_provider"
+            result, failure = detail(prompt, choices)
+            if result is None:
+                return None, failure or "classifier_error"
+            if not isinstance(result, str) or result not in choices:
+                return None, "malformed_response"
+            return result, None
+        detail = getattr(client, "classify_detail", None)
         if callable(detail):
             score, failure = detail(prompt)
         else:
@@ -920,7 +1004,9 @@ def _latest_user_prompt(request: Dict[str, Any]) -> Optional[str]:
     return _latest_responses_text(request.get("input"))
 
 
-def _effort_slot(request: Dict[str, Any]) -> Optional[Tuple[Dict[str, Any], str, str]]:
+def _effort_slot(request: Dict[str, Any], provider: Any = None, model: Any = None,
+                 api_mode: Any = None, base_url: Any = None
+                 ) -> Optional[Tuple[Dict[str, Any], str, str]]:
     """Locate an *existing* effort field to rewrite: ``(container, key, old)``.
 
     Only two shapes are treated as authoritative, because both are the shapes
@@ -955,6 +1041,13 @@ def _effort_slot(request: Dict[str, Any]) -> Optional[Tuple[Dict[str, Any], str,
         if (isinstance(value, str) and value.strip()
                 and value.strip().lower() != "none"):
             return reasoning, "effort", value.strip().lower()
+    if (str(provider or "").strip().lower() == "anthropic"
+            and _effort.route_choice_levels(provider, model, api_mode, base_url)):
+        output_config = request.get("output_config")
+        if isinstance(output_config, dict) and "effort" in output_config:
+            value = output_config.get("effort")
+            if isinstance(value, str) and value.strip() and value.strip().lower() != "none":
+                return output_config, "effort", value.strip().lower()
     return None
 
 
@@ -1002,6 +1095,9 @@ def _apply(request: Dict[str, Any], slot: Tuple[Dict[str, Any], str, str],
     if container is request:
         new[key] = target
         return new
+    if container is request.get("output_config"):
+        new["output_config"] = new_container
+        return new
     if container is new.get("extra_body", {}).get("reasoning"):
         extra_body = dict(request.get("extra_body") or {})
         extra_body["reasoning"] = new_container
@@ -1023,7 +1119,8 @@ _MUSE_GO_PROVIDERS = frozenset({"opencode-go", "opencode_go", "go", "opencode-go
 
 
 def _injection_path(request: Dict[str, Any], provider: Any, model: Any,
-                    api_mode: Any, forced_models: Tuple[str, ...] = ()) -> Optional[str]:
+                    api_mode: Any, forced_models: Tuple[str, ...] = (),
+                    base_url: Any = None) -> Optional[str]:
     """Verified provider/model/API combinations; never use the generic fallback.
 
     The registry binds exact provider-family routes to a writable field shape.
@@ -1032,6 +1129,20 @@ def _injection_path(request: Dict[str, Any], provider: Any, model: Any,
     provider_name = str(provider or "").strip().lower()
     bare_model = str(model or "").strip().lower().rsplit("/", 1)[-1]
     api = str(api_mode or "").strip().lower()
+    claude_choices = (_effort.route_choice_levels(provider_name, model, api, base_url)
+                      if provider_name == "anthropic" else ())
+    if claude_choices:
+        output_config = request.get("output_config")
+        if output_config is not None and not isinstance(output_config, dict):
+            return None
+        if isinstance(output_config, dict) and "effort" in output_config:
+            return None
+        if "reasoning_effort" in request or "reasoning" in request:
+            return None
+        if isinstance(request.get("thinking"), dict) and \
+                request["thinking"].get("type") == "between_tools":
+            return None
+        return "output_config.effort"
     if provider_name in _MUSE_ZEN_PROVIDERS and api == "codex_responses":
         if bare_model in {"muse-spark-1.3", "muse-spark-1.2",
                           "muse-spark-1.3-contributor-free"}:
@@ -1075,14 +1186,16 @@ def _injection_path(request: Dict[str, Any], provider: Any, model: Any,
 def _inject(request: Dict[str, Any], path: str, target: str) -> Dict[str, Any]:
     """Copy only the owners of the new field, preserving caller-owned siblings."""
     new = dict(request)
-    if path == "reasoning":
+    if path == "output_config.effort":
+        new["output_config"] = dict(request.get("output_config") or {}, effort=target)
+    elif path == "reasoning":
         new["reasoning"] = dict(request.get("reasoning", {}), effort=target)
     else:
         new["reasoning_effort"] = target
     return new
 
 def _target_for_route(entry: Dict[str, Any], provider: Any, model: Any,
-                      api_mode: Any = None) -> Optional[str]:
+                      api_mode: Any = None, base_url: Any = None) -> Optional[str]:
     """The wire target *entry* gets on the CURRENT route, or ``None``.
 
     A stored target is only legal for the route that produced it. A provider
@@ -1104,7 +1217,12 @@ def _target_for_route(entry: Dict[str, Any], provider: Any, model: Any,
             provider, model, api_mode):
         target = entry.get("target")
         return target if isinstance(target, str) and target else None
-    target = _effort.map_effort(label, provider, model)
+    choices = _effort.route_choice_levels(provider, model, api_mode, base_url)
+    if entry.get("decision_type") == "native_choice" and choices:
+        target = _effort.map_named_choice(label, choices)
+        entry["choices"] = list(choices)
+    else:
+        target = _effort.map_effort(label, provider, model)
     entry["target"] = target
     entry["provider"] = provider
     entry["model"] = model
@@ -1112,11 +1230,58 @@ def _target_for_route(entry: Dict[str, Any], provider: Any, model: Any,
     return target
 
 
-def _dynamic_effort_route(provider: Any, model: Any, api_mode: Any) -> bool:
+def _anthropic_beta_header(request: Any) -> Optional[Tuple[str, str]]:
+    """Find an existing mutable beta header without discarding its other values."""
+    if not isinstance(request, dict):
+        return None
+    headers = request.get("extra_headers")
+    if not isinstance(headers, dict):
+        return None
+    for key, value in headers.items():
+        if isinstance(key, str) and key.lower() == "anthropic-beta" \
+                and isinstance(value, str):
+            return key, value
+    return None
+
+
+def _anthropic_beta_ready(request: Any) -> bool:
+    """The request must expose the effective header so the plugin can add the beta."""
+    return _anthropic_beta_header(request) is not None
+
+
+def _with_anthropic_effort_beta(request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Add the per-message beta to an existing Anthropic header, preserving siblings."""
+    header = _anthropic_beta_header(request)
+    if header is None:
+        return None
+    header_name, value = header
+    required = "mid-conversation-output-config-2026-07-01"
+    if required in {item.strip() for item in value.split(",") if item.strip()}:
+        return request
+    separator = "" if not value or value.rstrip().endswith(",") else ","
+    headers = dict(request["extra_headers"])
+    headers[header_name] = value + separator + required
+    updated = dict(request)
+    updated["extra_headers"] = headers
+    return updated
+
+
+def _dynamic_effort_route(provider: Any, model: Any, api_mode: Any,
+                          request: Any = None, base_url: Any = None) -> bool:
     """True only for exact model/API routes with explicit effort and cache evidence."""
     route = _route_identity(provider, model, api_mode)
     provider_name, model_id, api = route
     bare_model = model_id.lower().rsplit("/", 1)[-1]
+    if provider_name == "anthropic" and api == "anthropic_messages":
+        return (
+            bare_model in _effort.ANTHROPIC_PER_MESSAGE_MODELS
+            and bool(_effort.route_choice_levels(provider_name, model_id, api, base_url))
+            and _anthropic_beta_ready(request)
+            and isinstance(request, dict)
+            and isinstance(request.get("messages"), list)
+            and not (isinstance(request.get("thinking"), dict)
+                     and request["thinking"].get("type") == "between_tools")
+        )
     if not _cache_safety.effort_is_cache_safe(provider_name, model_id, api):
         return False
     if provider_name == "openai-codex" and api == "codex_responses":
@@ -1130,11 +1295,179 @@ def _dynamic_effort_route(provider: Any, model: Any, api_mode: Any) -> bool:
     return False
 
 
+def _claude_user_anchors(messages: Any) -> Tuple[Dict[Tuple[int, str], int],
+                                                   Optional[Tuple[int, str]]]:
+    """Hash user-message positions without retaining their content."""
+    if not isinstance(messages, list):
+        return {}, None
+    anchors: Dict[Tuple[int, str], int] = {}
+    latest = None
+    ordinal = 0
+    for index, message in enumerate(messages):
+        if not isinstance(message, dict) or message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, list) and any(
+                isinstance(block, dict) and block.get("type") == "tool_result"
+                for block in content):
+            continue
+        ordinal += 1
+        try:
+            serialized = json.dumps(content, ensure_ascii=True,
+                                    sort_keys=True, separators=(",", ":"))
+        except (TypeError, ValueError):
+            return {}, None
+        digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+        latest = (ordinal, digest)
+        anchors[latest] = index
+    return anchors, latest
+
+
+def _claude_initial_effort(request: Dict[str, Any]) -> Optional[str]:
+    config = request.get("output_config")
+    value = config.get("effort") if isinstance(config, dict) else None
+    return value.strip().lower() if isinstance(value, str) and value.strip() else None
+
+
+def _claude_history_snapshot(route_key: str, request: Dict[str, Any], max_turns: int
+                             ) -> Tuple[Optional[Dict[str, Any]], Optional[str],
+                                        Optional[Tuple[int, str]], bool]:
+    """Validate stored marker anchors and the initial setting before reuse."""
+    anchors, latest = _claude_user_anchors(request.get("messages"))
+    if latest is None:
+        return None, "cache_continuity_invalid", None, False
+    with _lock:
+        current = _CLAUDE_HISTORY.get(route_key)
+        state = dict(current) if isinstance(current, dict) else None
+        if state is not None:
+            state["markers"] = [dict(marker) for marker in state.get("markers", [])]
+    if state is None:
+        with _lock:
+            registry_full = len(_CLAUDE_HISTORY) >= max(1, int(max_turns))
+        if registry_full:
+            return {"session_id": _session_of(route_key), "invalid": True,
+                    "markers": []}, "cache_continuity_invalid", latest, False
+        return {"session_id": _session_of(route_key),
+                "initial": _claude_initial_effort(request), "markers": []}, None, latest, False
+    if state.get("invalid"):
+        return state, "cache_continuity_invalid", latest, False
+    if state.get("initial") != _claude_initial_effort(request):
+        return state, "cache_continuity_invalid", latest, False
+    for marker in state.get("markers", []):
+        anchor = (marker.get("ordinal"), marker.get("anchor"))
+        if anchor not in anchors:
+            return state, "cache_continuity_invalid", latest, False
+    current_has_marker = any(
+        marker.get("ordinal") == latest[0] and marker.get("anchor") == latest[1]
+        for marker in state.get("markers", [])
+    )
+    full = len(state.get("markers", [])) >= max(1, int(max_turns)) and not current_has_marker
+    return state, None, latest, full
+
+
+def _is_effort_marker(message: Any) -> Optional[str]:
+    if not isinstance(message, dict) or message.get("role") != "system" \
+            or message.get("content") != []:
+        return None
+    config = message.get("output_config")
+    if not isinstance(config, dict) or set(config) != {"effort"}:
+        return None
+    effort = config.get("effort")
+    return effort if isinstance(effort, str) else None
+
+
+def _claude_apply_choice(route_key: str, request: Dict[str, Any], target: str,
+                         max_turns: int) -> Tuple[Optional[Dict[str, Any]], str, bool,
+                                                  Optional[str]]:
+    """Replay stored per-turn markers and append one validated choice, if needed."""
+    state, failure, latest, full = _claude_history_snapshot(route_key, request, max_turns)
+    if failure or state is None or latest is None:
+        return None, "absent", False, failure or "cache_continuity_invalid"
+    markers = [dict(marker) for marker in state.get("markers", [])]
+    effective_before = (markers[-1].get("effort") if markers else state.get("initial")) or "absent"
+    changed_effort = target != effective_before
+    if changed_effort:
+        if full:
+            target = effective_before if effective_before != "absent" else target
+            changed_effort = False
+        else:
+            markers.append({"ordinal": latest[0], "anchor": latest[1], "effort": target})
+
+    anchors, _ = _claude_user_anchors(request.get("messages"))
+    anchor_by_index = {index: digest for (ordinal, digest), index in anchors.items()}
+    markers_by_anchor: Dict[Tuple[int, str], list] = {}
+    for marker in markers:
+        key = (marker["ordinal"], marker["anchor"])
+        markers_by_anchor.setdefault(key, []).append(marker["effort"])
+    output = []
+    ordinal = 0
+    messages = request.get("messages")
+    if not isinstance(messages, list):
+        return None, effective_before, False, "cache_continuity_invalid"
+    for index, message in enumerate(messages):
+        if isinstance(message, dict) and message.get("role") == "user":
+            content = message.get("content")
+            if isinstance(content, list) and any(
+                    isinstance(block, dict) and block.get("type") == "tool_result"
+                    for block in content):
+                output.append(message)
+                continue
+            ordinal += 1
+            key = (ordinal, anchor_by_index.get(index, ""))
+            expected = markers_by_anchor.get(key, [])
+            if expected:
+                observed = []
+                cursor = len(output)
+                while cursor > 0:
+                    effort = _is_effort_marker(output[cursor - 1])
+                    if effort is None:
+                        break
+                    observed.insert(0, effort)
+                    cursor -= 1
+                if observed and observed != expected:
+                    return None, effective_before, changed_effort, "cache_continuity_invalid"
+                if observed != expected:
+                    output.extend({"role": "system", "content": [],
+                                   "output_config": {"effort": effort}}
+                                  for effort in expected)
+        output.append(message)
+    new_request = request
+    if output != messages:
+        new_request = dict(request)
+        new_request["messages"] = output
+    if markers:
+        new_request = _with_anthropic_effort_beta(new_request)
+        if new_request is None:
+            return None, effective_before, changed_effort, "cache_continuity_invalid"
+    next_state = {
+        "session_id": state.get("session_id"),
+        "initial": state.get("initial"),
+        "markers": markers,
+    }
+    with _lock:
+        if route_key not in _CLAUDE_HISTORY and \
+                len(_CLAUDE_HISTORY) >= max(1, int(max_turns)):
+            return None, effective_before, changed_effort, "cache_continuity_invalid"
+        _CLAUDE_HISTORY[route_key] = next_state
+        _CLAUDE_HISTORY.move_to_end(route_key)
+    return new_request, effective_before, changed_effort, None
+
+
+def _invalidate_claude_history(route_key: str) -> None:
+    with _lock:
+        existing = _CLAUDE_HISTORY.get(route_key)
+        if existing:
+            _CLAUDE_HISTORY[route_key] = {
+                "session_id": existing.get("session_id"), "invalid": True, "markers": []}
+            _CLAUDE_HISTORY.move_to_end(route_key)
+
+
 def _copy_decision(source: Dict[str, Any], target: Dict[str, Any]) -> None:
     """Copy only prompt-free decision fields between the turn and route ledgers."""
     for field in ("state", "label", "target", "score", "failure", "elapsed_ms",
                   "probes", "provider", "model", "api_mode", "scorer_provider",
-                  "scorer_model", "updated_at"):
+                  "scorer_model", "updated_at", "decision_type", "choices",
+                  "cache_behavior", "_applied_from"):
         target[field] = source.get(field)
 
 
@@ -1145,6 +1478,12 @@ def on_llm_request(**kwargs: Any) -> Optional[Dict[str, Any]]:
     try:
         return _handle(kwargs)
     except Exception:
+        session_id = str(kwargs.get("session_id") or "")
+        if (session_id and str(kwargs.get("provider") or "").lower() == "anthropic"
+                and str(kwargs.get("api_mode") or "").lower() == "anthropic_messages"):
+            _invalidate_claude_history(_pin_key(
+                session_id, _route_identity(kwargs.get("provider"), kwargs.get("model"),
+                                            kwargs.get("api_mode"))))
         logger.debug("hermes-adaptive-effort: middleware error; failing open", exc_info=True)
         return None
 
@@ -1201,11 +1540,19 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if child_goal is not None:
         mode = settings["subagent_mode"]
 
-    slot = _effort_slot(request)
+    base_url = kwargs.get("base_url")
+    slot = _effort_slot(request, provider, model, api_mode, base_url)
     injection_path = None
     if slot is None and mode in ("auto", "once", "always"):
         injection_path = _injection_path(
-            request, provider, model, api_mode, settings["effort_models"])
+            request, provider, model, api_mode, settings["effort_models"], base_url)
+    thinking = request.get("thinking")
+    if (str(provider or "").strip().lower() == "anthropic"
+            and str(api_mode or "").strip().lower() == "anthropic_messages"
+            and _effort.route_choice_levels(provider, model, api_mode, base_url)
+            and isinstance(thinking, dict) and thinking.get("type") == "between_tools"):
+        slot = None
+        injection_path = None
     if _reasoning_is_explicitly_disabled(request):
         key = _decision_key(session_id, kwargs.get("turn_id"))
         entry = _touch(key, settings, mode, provider, model, api_mode,
@@ -1229,12 +1576,36 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     turn_id = kwargs.get("turn_id")
     turn_key = _decision_key(session_id, turn_id)
     route = _route_identity(provider, model, api_mode)
+    route_choices = _effort.route_choice_levels(provider, model, api_mode, base_url)
+    dynamic_route = _dynamic_effort_route(
+        provider, model, api_mode, request=request, base_url=base_url)
     persistent_scope = (
         mode == "once"
-        or (mode == "auto" and not _dynamic_effort_route(provider, model, api_mode))
+        or (mode == "auto" and not dynamic_route)
         or not str(turn_id or "").strip()
     )
     route_key = _pin_key(session_id, route)
+    claude_per_message = (
+        not persistent_scope and mode in ("auto", "always")
+        and str(provider or "").strip().lower() == "anthropic"
+        and str(api_mode or "").strip().lower() == "anthropic_messages"
+        and dynamic_route
+    )
+    claude_history = None
+    claude_latest_anchor = None
+    claude_at_capacity = False
+    if claude_per_message:
+        claude_history, history_failure, claude_latest_anchor, claude_at_capacity = \
+            _claude_history_snapshot(route_key, request, settings["max_turns"])
+        if history_failure:
+            _invalidate_claude_history(route_key)
+            key = _decision_key(session_id, turn_id)
+            entry = _touch(key, settings, mode, provider, model, api_mode,
+                           conversation_id=session_id)
+            entry.update(state="unsupported", failure=history_failure, score=None,
+                         cache_behavior="invalidated")
+            _publish_desktop_decision(session_id, provider, model, api_mode, entry)
+            return None
     seed_pin = False
 
     # Keep one per-turn record for tool-loop reuse, even when this route is
@@ -1271,6 +1642,24 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if entry.get("state") == "probing":
         return None
 
+    if claude_per_message and claude_at_capacity \
+            and (entry.get("state") not in ("decided", "unsupported")
+                 or not entry.get("label")):
+        markers = claude_history.get("markers", []) if claude_history else []
+        retained = (markers[-1].get("effort") if markers else None) \
+            or (claude_history.get("initial") if claude_history else None)
+        if not retained:
+            _invalidate_claude_history(route_key)
+            entry.update(state="unsupported", failure="cache_continuity_invalid",
+                         cache_behavior="invalidated")
+            _publish_desktop_decision(session_id, provider, model, api_mode, entry)
+            return None
+        entry.update(
+            state="decided", decision_type="fixed", choices=list(route_choices),
+            score=None, label=retained, target=retained, failure=None,
+            cache_behavior="per_message", updated_at=time.time(),
+        )
+
     if entry.get("state") not in ("decided", "unsupported") or not entry.get("label"):
         # A subagent classifies the terse goal its parent wrote; a normal session
         # classifies its current user message, not the oldest one in its history.
@@ -1280,80 +1669,111 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         # One scorer call per user turn even when a provider changes route during
         # a tool loop. Persistent decisions are copied into the route ledger below.
         claim_key = turn_key
-        if not _claim_scoring(claim_key, route_key, persistent_scope):
+        fixed_choice = len(route_choices) == 1
+        if fixed_choice:
+            label = route_choices[0]
+            entry.update(
+                state="decided", decision_type="fixed", choices=list(route_choices),
+                score=None, label=label, target=label, failure=None, elapsed_ms=0.0,
+                cache_behavior=("per_message" if claude_per_message else
+                                "top_level_cache_may_reset"
+                                if str(provider or "").strip().lower() == "anthropic"
+                                and mode == "always" else
+                                "route_pinned" if str(provider or "").strip().lower()
+                                == "anthropic" and persistent_scope else None),
+                updated_at=time.time(),
+            )
+            if persistent_scope:
+                pinned = _touch_pin(route_key, settings, mode, provider, model, api_mode, session_id)
+                _copy_decision(entry, pinned)
+        elif not _claim_scoring(
+                claim_key, route_key, persistent_scope, serialize_route=claude_per_message):
             # Another request of this same session is classifying right now:
             # never a second scorer call, and its entry stays untouched.
             logger.debug("hermes-adaptive-effort: probe already in flight; failing open")
             return None
-        try:
-            entry = turn_entry
-            entry["state"] = "probing"
-            _publish_desktop_decision(session_id, provider, model, api_mode, entry)
-            started = time.monotonic()
-            scoring_prompt = prompt
-            scoring_settings = settings
-            if settings["use_target_model_context"]:
-                try:
-                    task_text = _jev_client.truncate_prompt(prompt, settings["prompt_chars"])
-                    context = _model_profiles.target_context(
-                        provider, model, api_mode, slot[2] if slot is not None else None)
-                    scoring_prompt = _model_profiles.wrap_task(task_text, context)
-                    scoring_settings = dict(settings)
-                    # Adapters also bound input at their transport boundary. The task
-                    # was already capped above; let the complete context+task prefix
-                    # through without consuming the independent task-text allowance.
-                    scoring_settings["prompt_chars"] = len(scoring_prompt)
-                except Exception:
-                    logger.debug(
-                        "hermes-adaptive-effort: target context preparation failed; failing open",
-                        exc_info=True,
-                    )
-                    scoring_prompt = ""
-                    scoring_settings = settings
-                    score, failure = None, "classifier_error"
+        else:
+            try:
+                entry = turn_entry
+                entry["state"] = "probing"
+                _publish_desktop_decision(session_id, provider, model, api_mode, entry)
+                started = time.monotonic()
+                scoring_prompt = prompt
+                scoring_settings = settings
+                if settings["use_target_model_context"]:
+                    try:
+                        task_text = _jev_client.truncate_prompt(prompt, settings["prompt_chars"])
+                        context = _model_profiles.target_context(
+                            provider, model, api_mode, slot[2] if slot is not None else None)
+                        scoring_prompt = _model_profiles.wrap_task(task_text, context)
+                        scoring_settings = dict(settings)
+                        # Task text has its own cap; context is a separate, opt-in addition.
+                        scoring_settings["prompt_chars"] = len(scoring_prompt)
+                    except Exception:
+                        logger.debug(
+                            "hermes-adaptive-effort: target context preparation failed; failing open",
+                            exc_info=True,
+                        )
+                        scoring_prompt = ""
+                        scoring_settings = settings
+                        result, failure = None, "classifier_error"
+                    else:
+                        result, failure = _classify(
+                            scoring_prompt, scoring_settings,
+                            tuple(route_choices) if len(route_choices) > 1 else None)
                 else:
-                    score, failure = _classify(scoring_prompt, scoring_settings)
-            else:
-                score, failure = _classify(scoring_prompt, scoring_settings)
-            entry["elapsed_ms"] = (time.monotonic() - started) * 1000.0
-            entry["probes"] = int(entry.get("probes") or 0) + 1
-            entry["score"] = score
-            entry["failure"] = None if score is not None else failure
-            entry["updated_at"] = time.time()
-            if score is None:
-                entry["state"] = "failed"
-                if persistent_scope:
-                    pinned = _touch_pin(
-                        route_key, settings, mode, provider, model, api_mode, session_id)
-                    _copy_decision(entry, pinned)
-                _publish_desktop_decision(session_id, provider, model, api_mode, entry)
-                return None
-            label = _effort.score_to_label(score)
-            if label is None:
-                # A number the rubric cannot express: a malformed answer.
-                entry["state"] = "failed"
-                entry["failure"] = "malformed_response"
-                if persistent_scope:
-                    pinned = _touch_pin(
-                        route_key, settings, mode, provider, model, api_mode, session_id)
-                    _copy_decision(entry, pinned)
-                _publish_desktop_decision(session_id, provider, model, api_mode, entry)
-                return None
-            entry["label"] = label
-            target = _effort.map_effort(label, provider, model)
-            entry["target"] = target
-            entry["provider"] = provider
-            entry["model"] = model
-            entry["api_mode"] = api_mode
-            entry["state"] = "decided" if target is not None else "unsupported"
-            entry["failure"] = None if target is not None else "effort_value_unsupported"
-            if persistent_scope:
-                pinned = _touch_pin(route_key, settings, mode, provider, model, api_mode, session_id)
-                _copy_decision(entry, pinned)
-        finally:
-            _release_scoring(claim_key, route_key, persistent_scope)
+                    result, failure = _classify(
+                        scoring_prompt, scoring_settings,
+                        tuple(route_choices) if len(route_choices) > 1 else None)
+                entry["elapsed_ms"] = (time.monotonic() - started) * 1000.0
+                entry["probes"] = int(entry.get("probes") or 0) + 1
+                entry["updated_at"] = time.time()
+                entry["cache_behavior"] = (
+                    "per_message" if claude_per_message else
+                    "top_level_cache_may_reset"
+                    if str(provider or "").strip().lower() == "anthropic" and mode == "always" else
+                    "route_pinned" if str(provider or "").strip().lower() == "anthropic"
+                    and persistent_scope else None)
+                if failure or result is None:
+                    entry.update(state="failed", score=None, failure=failure or "classifier_error")
+                    if claude_per_message:
+                        _invalidate_claude_history(route_key)
+                    if persistent_scope:
+                        pinned = _touch_pin(
+                            route_key, settings, mode, provider, model, api_mode, session_id)
+                        _copy_decision(entry, pinned)
+                    _publish_desktop_decision(session_id, provider, model, api_mode, entry)
+                    return None
 
-    target = _target_for_route(entry, provider, model, api_mode)
+                if len(route_choices) > 1:
+                    label = result
+                    entry.update(decision_type="native_choice", choices=list(route_choices),
+                                 score=None, label=label)
+                    target = _effort.map_effort(label, provider, model, route_choices)
+                else:
+                    score = result
+                    entry["score"] = score
+                    label = _effort.score_to_label(score)
+                    entry.update(decision_type="legacy_score", choices=[], label=label)
+                    target = _effort.map_effort(label, provider, model) if label else None
+                entry["target"] = target
+                entry["provider"] = provider
+                entry["model"] = model
+                entry["api_mode"] = api_mode
+                entry["state"] = "decided" if target is not None else "unsupported"
+                entry["failure"] = None if target is not None else "effort_value_unsupported"
+                if target is None and label is None:
+                    entry["state"] = "failed"
+                    entry["failure"] = "malformed_response"
+                if persistent_scope:
+                    pinned = _touch_pin(
+                        route_key, settings, mode, provider, model, api_mode, session_id)
+                    _copy_decision(entry, pinned)
+            finally:
+                _release_scoring(
+                    claim_key, route_key, persistent_scope, serialize_route=claude_per_message)
+
+    target = _target_for_route(entry, provider, model, api_mode, base_url)
     if target is None:
         entry["state"] = "unsupported"
         entry["failure"] = "effort_value_unsupported"
@@ -1371,6 +1791,41 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         _copy_decision(entry, pinned)
         # This route inherits the turn's score; no scorer call was made for it.
         pinned["probes"] = 0
+    if claude_per_message:
+        new_request, before, changed_effort, failure = _claude_apply_choice(
+            route_key, request, target, settings["max_turns"])
+        if failure or new_request is None:
+            _invalidate_claude_history(route_key)
+            entry.update(state="unsupported", failure=failure or "cache_continuity_invalid",
+                         cache_behavior="invalidated")
+            _publish_desktop_decision(session_id, provider, model, api_mode, entry)
+            return None
+        event = None
+        if changed_effort:
+            event = _record_effort_change(
+                turn_key, before, target, session_id, provider, model, api_mode,
+                details=entry)
+            if event is not None:
+                entry["_applied_from"] = before
+        applied = event
+        if applied is None and entry.get("_applied_from"):
+            applied = _existing_effort_change(turn_key, entry["_applied_from"], target)
+        _publish_desktop_decision(
+            session_id, provider, model, api_mode, entry, applied=applied)
+        if new_request is request:
+            return None
+        if event is not None:
+            try:
+                logger.info("Effort changed: %s -> %s", event["from"], event["to"])
+            except Exception:
+                pass
+            _update_cli_status(f"Effort: {event['to']}")
+            _notify_cli(f"Effort changed: {event['from']} -> {event['to']}")
+        return {
+            "request": new_request,
+            "source": PLUGIN_ID,
+            "reason": f"{mode} {before} -> {target} ({entry.get('label')}, per-message)",
+        }
     before = slot[2] if slot is not None else "absent"
     if target == before:
         # The route already sits at the level the scorer picked: nothing to send, so we
@@ -1382,7 +1837,9 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if new_request is request:
         _publish_desktop_decision(session_id, provider, model, api_mode, entry)
         return None
-    event = _record_effort_change(turn_key, before, target)
+    event = _record_effort_change(
+        turn_key, before, target, session_id, provider, model, api_mode,
+        details=entry)
     applied = event or _existing_effort_change(turn_key, before, target)
     _publish_desktop_decision(
         session_id, provider, model, api_mode, entry, applied=applied)

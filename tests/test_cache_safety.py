@@ -24,7 +24,7 @@ import threading
 
 import pytest
 
-from conftest import import_plugin
+from conftest import import_plugin, score_to_effort_choice
 
 middleware = import_plugin("middleware")
 cache = import_plugin("cache_safety")
@@ -40,6 +40,11 @@ class FakeClassifier:
         self.calls.append(prompt)
         return self.score, None
 
+    def classify_effort_detail(self, prompt, choices):
+        score, failure = self.classify_detail(prompt)
+        choice = score_to_effort_choice(score, choices)
+        return (choice, None) if choice is not None else (None, failure or "malformed_response")
+
 
 class ScoreSequence:
     def __init__(self, scores):
@@ -54,7 +59,13 @@ class ScoreSequence:
             parent.calls.append(prompt)
             return (parent.scores.pop(0) if parent.scores else 0.0), None
 
+        def classify_effort_detail(prompt, choices):
+            score, failure = classify_detail(prompt)
+            choice = score_to_effort_choice(score, choices)
+            return (choice, None) if choice is not None else (None, failure or "malformed_response")
+
         client.classify_detail = classify_detail
+        client.classify_effort_detail = classify_effort_detail
         return client
 
 
@@ -306,6 +317,11 @@ def test_concurrent_route_change_cannot_make_second_scorer_call(monkeypatch):
             assert release.wait(5)
             return 1.0, None
 
+        def classify_effort_detail(self, prompt, choices):
+            score, failure = self.classify_detail(prompt)
+            choice = score_to_effort_choice(score, choices)
+            return (choice, None) if choice is not None else (None, failure or "malformed_response")
+
     monkeypatch.setattr(middleware, "_classifier_factory", lambda **kwargs: BlockingClassifier())
     results = []
     worker = threading.Thread(target=lambda: results.append(
@@ -336,6 +352,11 @@ def test_concurrent_turns_cannot_classify_the_same_persistent_route_twice(monkey
             started.set()
             assert release.wait(5)
             return 1.9, None
+
+        def classify_effort_detail(self, prompt, choices):
+            score, failure = self.classify_detail(prompt)
+            choice = score_to_effort_choice(score, choices)
+            return (choice, None) if choice is not None else (None, failure or "malformed_response")
 
     monkeypatch.setattr(middleware, "_classifier_factory", lambda **kwargs: BlockingClassifier())
     results = []

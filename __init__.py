@@ -29,6 +29,10 @@ def register(ctx: Any) -> None:
     # edit is picked up per call rather than frozen at import time.
     if hasattr(ctx, "get_config"):
         _middleware._settings_provider = ctx.get_config
+    state = getattr(ctx, "state", None)
+    if state is not None:
+        _middleware.set_history_path_provider(
+            lambda: state.data_dir / "effort-history.sqlite3")
 
     # Newer Hermes hosts expose a thread-safe TUI status item. Older hosts keep
     # working with the CLI log and /status command until that API is available.
@@ -58,10 +62,10 @@ def register(ctx: Any) -> None:
     ctx.register_hook("subagent_start", _middleware.on_subagent_start)
     ctx.register_hook("subagent_stop", _middleware.on_subagent_stop)
     command_description = (
-        "Hermes Adaptive Effort reasoning-effort router: status, bounded probe, and "
+        "Hermes Adaptive Effort: conversation history, status, bounded probe, and "
         "auto|once|always|off for future requests"
     )
-    command_args = "<status|status json|probe <text>|auto|once|always|off>"
+    command_args = "[history [N|all] [full]|status [full|json]|probe <text>|auto|once|always|off]"
     ctx.register_command(
         "hae",
         handler=_command.handle,

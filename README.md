@@ -84,30 +84,35 @@ flowchart TD
     B -->|"No"| U["Keep original request"]
     B -->|"Yes"| D["Reuse a decision<br/>or ask the selected scorer"]
     D -->|"No valid decision"| U
-    D -->|"Valid label"| C["Map label to<br/>accepted effort values"]
+    D -->|"Named choice or legacy score"| C["Check the route's<br/>accepted effort values"]
     C -->|"No legal value"| U
     C -->|"Supported value"| R["Keep or update the effort field"]
     R --> M["Send to your<br/>conversation model"]
     U --> M
 ```
 
-The scorer receives the latest user text, or the parent-written goal for a registered subagent. It returns a score mapped to `low`, `medium` or `high`. The plugin then maps that label onto the current route's accepted effort values. Scoring and answering are separate calls with separate costs.
+For exact registered routes, the selected scorer chooses directly from that route's allowed levels. For example, Kimi K3 offers `low/high/max`, OpenAI's GPT-6.1 Sol route offers `low/medium/high/xhigh/max`, and native Claude Opus 5.5 offers those same five levels. Claude Opus 4.6 offers `low/medium/high/max`, without `xhigh`. One-level routes are fixed without a scorer call. Routes without an exact choice vocabulary keep the legacy finite `0..2` score mapped to `low`, `medium` or `high`; `/hae probe` also keeps that score contract. A route change re-clamps the stored named level using the compatibility rules and never promotes `xhigh` to the new route's `max` automatically.
+
+The scorer receives the latest user text, or the parent-written goal for a registered subagent. Scoring and answering are separate calls with separate costs. The allowed levels are included in the scorer question; model identity and observed effort are shared only when `use_target_model_context` is enabled.
 
 See [Design](docs/DESIGN.md) for the component diagram and [Contracts](docs/CONTRACTS.md) for the tool-loop sequence and failure rules.
 
 ## Desktop and terminal
 
-The optional Desktop extension adds an Effort chip with a compact **Routing mode** popup. **More** reveals conversation and scorer details; **Activity** shows aggregate status. The terminal can show the last applied effort.
+The optional Desktop extension adds an Effort chip with a compact **Routing mode** popup. **More** reveals conversation and scorer details plus recent applied changes for that chat; **Activity** shows aggregate status. In a Hermes chat, `/hae` opens the same conversation's recent history, and `/hae status` summarizes its model, selected effort and cache behavior.
 
 ![Compact Routing mode popup in Hermes Desktop](docs/images/routing-mode-popover.png)
 
 The popup keeps the four routing modes together. See the [interface guide](docs/USAGE.md#desktop-and-terminal) for notifications, focused-chat status and the native effort selector.
 
+The chip matches decisions to the chat's stored conversation ID; Desktop's temporary runtime ID is used only for session actions. Both live events and status polling follow this distinction.
+
 ## Data sharing and limits
 
-- Enabling routing sends at most `prompt_chars` task characters (default 4,000), plus optional classifier guidance, to the selected scorer. Target model context is a separate opt-in setting.
+- Enabling routing sends at most `prompt_chars` task characters (default 4,000), plus optional classifier guidance and the allowed level names for named-choice routes, to the selected scorer. Target model context is a separate opt-in setting.
 - `/hae probe <text>` explicitly scores the text you type, even while routing is off. It stores no decision and may incur charges.
 - The plugin excludes prompts and guidance from status, logs and change events. Provider retention is separate; see [data sharing](docs/CONFIGURATION.md#data-sharing).
+- Applied-change history stores only effort transitions, model names and bounded decision metadata in the active Hermes profile. It retains at most 64 changes per conversation and 64 conversations; a conversation reset clears its history. It never stores task or prompt text.
 - Reasoning support alone does not prove that a route accepts an effort field. The [compatibility matrix](docs/MODEL_COMPATIBILITY.md) distinguishes registered controls, documentation and live observations.
 - Explicitly disabled or malformed reasoning controls stay untouched. Subagents have an independent mode that also defaults to `off`.
 - Cost savings, cache benefits and answer-quality improvements remain unmeasured. Classification adds latency and may add cost.
@@ -129,7 +134,7 @@ For migration from `jev-auto-effort`, follow [migration instructions](docs/USAGE
 | --- | --- |
 | Configure a scorer, keys or advanced settings | [Configuration](docs/CONFIGURATION.md) |
 | Choose a mode or diagnose a missing change | [Usage](docs/USAGE.md) |
-| Understand the implementation and trade-offs | [Design](docs/DESIGN.md) |
+| Understand the implementation and trade-offs | [Design](docs/DESIGN.md) · [Version française expliquée](docs/DESIGN.fr.md) |
 | Check exact behavior and API contracts | [Contracts](docs/CONTRACTS.md) |
 | Check a model/provider route | [Compatibility](docs/MODEL_COMPATIBILITY.md) |
 | Contribute and reproduce checks | [Development](docs/DEVELOPMENT.md) |

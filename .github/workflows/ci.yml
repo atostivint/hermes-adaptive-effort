@@ -91,7 +91,9 @@ jobs:
           .venv/bin/python -m pip install -r requirements-dev.txt
           ./scripts/run_lint.sh
           .venv/bin/ruff check .github/scripts
-      - name: Desktop JavaScript syntax
-        run: node --check desktop/plugin.js
+      - name: Desktop JavaScript syntax and behavior
+        run: |
+          node --check desktop/plugin.js
+          node --test tests/desktop_decision_event_behavior.test.mjs
       - name: GitHub workflow validation
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12

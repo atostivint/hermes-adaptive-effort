@@ -14,7 +14,7 @@ Start with the [project README](../README.md) to install the plugin and try a ro
 
 | Reference | What it covers |
 | --- | --- |
-| [Design and architecture](DESIGN.md) | Component diagram and reasons behind the routing/safety choices |
+| [Design and architecture](DESIGN.md) · [Version française expliquée](DESIGN.fr.md) | Component diagram and reasons behind the routing/safety choices |
 | [Runtime contracts](CONTRACTS.md) | Decision scopes, tool-loop sequence, controls, errors, schemas and APIs |
 | [Development](DEVELOPMENT.md) | Source layout, profile maintenance and reproducible checks |
 | [Automated checks](CI.md) | GitHub Actions and security-check coverage/limits |

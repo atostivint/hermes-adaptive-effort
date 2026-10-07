@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from conftest import import_plugin
+from conftest import import_plugin, score_to_effort_choice
 
 middleware = import_plugin("middleware")
 
@@ -24,6 +24,20 @@ class FakeClassifier:
         if self.error is not None:
             raise self.error
         return self.score
+
+    def classify_effort_detail(self, prompt, choices):
+        try:
+            scorer = getattr(self, "classify_detail", None)
+            if callable(scorer):
+                score, failure = scorer(prompt)
+            else:
+                score, failure = self.classify(prompt), None
+        except Exception:
+            return None, "classifier_error"
+        if score is None or failure:
+            return None, failure or "classifier_error"
+        choice = score_to_effort_choice(score, choices)
+        return (choice, None) if choice is not None else (None, "malformed_response")
 
 
 class RecordingClassifierFactory:

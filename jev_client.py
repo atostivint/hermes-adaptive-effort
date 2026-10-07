@@ -25,7 +25,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 from . import rubric
 
@@ -146,7 +146,8 @@ class JevClient:
         """Rubric score for *prompt*, or ``None`` (fail-open) on any problem."""
         return self.classify_detail(prompt)[0]
 
-    def classify_detail(self, prompt: Optional[str]) -> "tuple[Optional[float], Optional[str]]":
+    def classify_detail(self, prompt: Optional[str],
+                        choices: Optional[Sequence[str]] = None) -> "tuple[Any, Optional[str]]":
         """``(score, failure)`` — the same call as :meth:`classify`, plus the reason.
 
         ``failure`` is ``None`` when a score came back, otherwise one of the
@@ -175,7 +176,7 @@ class JevClient:
         body = {
             "state": {"prompt": truncate_prompt(prompt, self.max_prompt_chars)},
             "model": self.model,
-            "questions": rubric.questions_for(self.classification_instructions),
+            "questions": rubric.questions_for(self.classification_instructions, choices),
         }
         request = urllib.request.Request(
             self.endpoint,
@@ -233,10 +234,18 @@ class JevClient:
                          (time.monotonic() - started) * 1000)
             return None, "malformed_response"
 
-        score, failure = _extract_score_detail(data)
+        levels = rubric.normalize_effort_choices(choices)
+        if levels:
+            score, failure = rubric.systemone_choice(data, levels)
+        else:
+            score, failure = _extract_score_detail(data)
         logger.debug("hermes-adaptive-effort: classified in %.0fms (valid=%s, failure=%s)",
                      (time.monotonic() - started) * 1000, score is not None, failure)
         return score, failure
+
+    def classify_effort_detail(self, prompt: Optional[str], choices: Sequence[str]):
+        """Return one route-authorized named level using a System One Choice question."""
+        return self.classify_detail(prompt, choices=choices)
 
 
 def credential_present(key_reader: Optional[Callable[[], str]] = None) -> bool:

@@ -2,7 +2,7 @@
 
 [Quick start](../README.md#quick-start) · [Usage and troubleshooting](USAGE.md) · [Runtime contracts](CONTRACTS.md)
 
-The scorer classifies the task; your conversation model answers it. Selecting a scorer while `mode: off` sends no task text. Enabling `auto`, `once` or `always` authorizes sharing the bounded task and configured guidance with that scorer.
+The scorer classifies the task; your conversation model answers it. Selecting a scorer while `mode: off` sends no task text. Enabling `auto`, `once` or `always` authorizes sharing the bounded task, configured guidance and—on exact named-choice routes—the allowed effort names with that scorer.
 
 ## Save settings
 
@@ -98,7 +98,7 @@ settings:
 
 The plugin uses the fixed `https://api.openai.com/v1/decisions` endpoint and defaults to `gpt-6-luna`. `scorer_model` can pass an explicit model, but the [official Decisions guide](https://developers.openai.com/api/docs/guides/decisions) listed only `gpt-6-luna` during the 2026-10-07 review. The API was in public beta at that review.
 
-The adapter asks one ordered effort-score question and accepts one valid named score. A refusal, unavailable model or invalid response leaves the original request unchanged.
+For an exact model/API route with a registered effort vocabulary, the adapter asks one choice question containing those named levels and accepts exactly one of them. Other routes use the legacy ordered score question. A refusal, unavailable model or invalid response leaves the original request unchanged.
 
 ### OpenRouter
 
@@ -143,7 +143,7 @@ settings:
 
 This example assumes you already run a local System One server at that address. A local server such as llama.cpp or a llama-swap setup must expose the exact route and model you configure.
 
-For an OpenAI-compatible Chat Completions server, use its complete URL, such as `http://127.0.0.1:8099/v1/chat/completions`, and set `custom_api_format: chat_completions`. That format requires a JSON object with a finite numeric `score` in `0..2`; System One uses `answers.effort.score`. See [adapter contracts](CONTRACTS.md#scorer-adapter-contracts).
+For an OpenAI-compatible Chat Completions server, use its complete URL, such as `http://127.0.0.1:8099/v1/chat/completions`, and set `custom_api_format: chat_completions`. On exact registered routes, the server must return only `{"effort":"<allowed level>"}`; on other routes and for `/hae probe`, it must return a finite numeric `score` in `0..2`. System One uses `answers.effort.choice` for named choices or `answers.effort.score` for the legacy rubric. The server must implement the matching named-choice response when you use a registered route; an old score-only server fails open, with no second call or score fallback. See [adapter contracts](CONTRACTS.md#scorer-adapter-contracts).
 
 For bearer authentication, set `custom_auth: bearer` and supply `CUSTOM_SCORER_API_KEY`. With `none`, the plugin does not look up a key. It uses the endpoint exactly as configured, rejects embedded credentials and fragments, and does not follow redirects. Status masks query parameter values.
 
@@ -164,7 +164,7 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | `cloudflare_account_id` | empty | Cloudflare account ID |
 | `cloudflare_model` | `clef` | `clef` or `clef-flash` |
 | `custom_endpoint` | empty | Exact HTTP(S) scoring URL |
-| `custom_api_format` | `systemone` | `systemone` or `chat_completions` |
+| `custom_api_format` | `systemone` | `systemone` or `chat_completions`; exact-choice routes require named-choice support |
 | `custom_auth` | `none` | `none` or `bearer` |
 | `classification_instructions` | empty | Extra guidance, capped at 2,000 characters |
 | `use_target_model_context` | `false` | Include bounded target route/profile context when classifying a request |
@@ -183,7 +183,7 @@ settings:
   use_target_model_context: false
 ```
 
-Merge these fields into your scorer settings. Guidance supplements the fixed score rubric; it cannot replace the `0..2` format or label definitions. The rubric considers complexity, ambiguity, scope, reasoning steps, tool/research depth and explicit speed/cost priorities.
+Merge these fields into your scorer settings. Guidance supplements the fixed legacy score rubric and named-choice instructions; it cannot change the route's allowed values or output format. The evaluator considers complexity, ambiguity, scope, reasoning steps, tool/research depth and explicit speed/cost priorities. A longer prompt or technical subject alone is not a reason to select more effort.
 
 With `use_target_model_context: true`, a request classification also shares target provider, exact model, API mode, observed effort and any matching local model profile. The context has its own 1,400-character cap. The observed effort is reference context, not a desired score. Profiles use exact IDs and never grant route support. Probe remains typed text plus guidance, without target context.
 
@@ -198,12 +198,12 @@ This is an operator assertion. It cannot establish dynamic effort support, enabl
 | Action | Data sent to the selected scorer |
 | --- | --- |
 | Install, select a scorer, read status, or leave routing `off` | None |
-| Eligible classification in an active mode | Bounded latest user text, plus optional guidance |
-| Child classification with both gates enabled | Bounded parent-written goal, plus optional guidance |
+| Eligible classification in an active mode | Bounded latest user text, optional guidance, and the route's allowed effort names when using named-choice classification |
+| Child classification with both gates enabled | Bounded parent-written goal, optional guidance, and allowed effort names on named-choice routes |
 | Request classification with target context enabled | The above task/guidance plus bounded target route/profile context |
 | Explicit `probe`, including while `off` | Operator-typed text plus optional guidance; no target context |
 
-A reused decision makes no new scoring request. The plugin sends neither the whole conversation nor tool results as task text. It excludes prompts, guidance contents and composed target context from logs, status and change feeds. Child goals exist transiently in bounded memory.
+A reused decision makes no new scoring request. The plugin sends neither the whole conversation nor tool results as task text. The allowed-choice list is part of the question; model identity, observed effort and any local model profile remain governed by `use_target_model_context`. It excludes prompts, guidance contents and composed target context from logs, status and change feeds. Child goals exist transiently in bounded memory.
 
 These limits describe the plugin. They do not guarantee how an external service retains data:
 
