@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -207,10 +209,59 @@ def test_changes_feed_degrades_when_the_feed_raises(monkeypatch):
     assert payload["error"] == "changes_failed"
 
 
+def test_desktop_focus_helpers_select_only_the_focused_conversation():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is unavailable")
+
+    script = r"""
+const fs = require('node:fs')
+const assert = require('node:assert/strict')
+const source = fs.readFileSync(process.argv[1], 'utf8')
+const start = source.indexOf('function entryForConversation')
+const end = source.indexOf('function ChangeNotifications', start)
+assert(start >= 0 && end > start, 'Desktop focus helper block was not found')
+const helpers = new Function(`${source.slice(start, end)}\nreturn {
+  entryForConversation, effortForConversation, routeForConversation, ownerMatchesActiveBackend
+}`)()
+
+const status = { sessions: [
+  { conversation_id: 'focused', state: 'decided', target: 'high', provider: 'local',
+    model: 'focused-model', updated_at: 10 },
+  { conversation_id: 'other', state: 'decided', target: 'low', provider: 'remote',
+    model: 'newer-model', updated_at: 99 },
+  { conversation_id: 'unsupported', state: 'unsupported', target: null, updated_at: 100 }
+] }
+assert.equal(helpers.entryForConversation(status, 'focused').model, 'focused-model')
+assert.equal(helpers.effortForConversation(status, 'focused'), 'high')
+assert.equal(helpers.routeForConversation(status, 'focused'), 'local · focused-model')
+assert.equal(helpers.effortForConversation(status, 'unsupported'), 'N/A')
+assert.equal(helpers.effortForConversation(status, 'missing'), 'N/A')
+
+const localDefaultOwner = { connectionId: 'local', profile: '' }
+assert.equal(helpers.ownerMatchesActiveBackend(localDefaultOwner, 'local', ''), true)
+assert.equal(helpers.ownerMatchesActiveBackend(localDefaultOwner, null, ''), false)
+assert.equal(helpers.ownerMatchesActiveBackend(localDefaultOwner, null, 'work'), false)
+assert.equal(helpers.ownerMatchesActiveBackend(
+  { connectionId: 'local', profile: 'work' }, 'local', 'default'), false)
+"""
+    result = subprocess.run(
+        [node, "-e", script, str(DESKTOP_JS)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
 def test_desktop_plugin_static_contract():
     text = DESKTOP_JS.read_text(encoding="utf-8")
-    chip = text.split("function AdaptiveEffortChip", 1)[1].split(
-        "function AdaptiveEffortPane", 1)[0]
+    chip = text.split("function AdaptiveEffortChip", 1)[1].split("export default", 1)[0]
+    details = text.split("function AdaptiveEffortDetails", 1)[1].split(
+        "function AdaptiveEffortChip", 1)[0]
+    conversation_effort = text.split("function effortForConversation", 1)[1].split(
+        "function routeForConversation", 1)[0]
     assert "const ID = 'hermes-adaptive-effort'" in text  # folder name must equal plugin id
     assert "id: ID" in text
     assert "defaultEnabled: false" in text  # opt-in, mirrors plugins.enabled gate
@@ -218,20 +269,83 @@ def test_desktop_plugin_static_contract():
     assert "rest('/status'" in text
     assert "rest('/mode'" in text
     assert "rest('/changes'" in text  # the chip's effort-change feed is a real backend route
+    assert "Global effort activity: ${event.from} → ${event.to}" not in text
+    assert "title: 'Effort changed'" in text
+    change_notifications = text.split("function ChangeNotifications", 1)[1].split(
+        "function DecisionNotifications", 1)[0]
+    assert "function ChangeNotifications({ query, statusQuery })" in text
+    assert "if (fresh.length > 0 && typeof refetchStatus === 'function')" in change_notifications
+    assert "refetchStatus()" in change_notifications  # feed invalidates status; it never sets chip effort
+    assert "effortNotice" not in change_notifications  # anonymous feed cannot toast for a specific chat
     assert "useValue(host.state.focusedSessionId)" in text
+    assert "queryKey: [ID, 'status', focusedSessionId" in chip
+    assert "refetchOnMount: 'always'" in chip
+    assert "refetchOnWindowFocus: true" in chip
     assert "useValue(host.state.focusedSessionOwner)" in text
     assert "effortForConversation(data, focusedSessionId)" in text
     assert "routeForConversation(data, focusedSessionId)" in text
-    assert "Route: ${route}" in chip
+    assert "useValue(host.state.gateway)" in chip
+    assert "Route: ${route}" in details
     assert "route: ${route}" in chip
     assert "show_desktop_popup === false" in chip
+    assert "Routing mode" in chip
+    assert "Show details" in chip and "Hide details" in chip
+    assert "onOpenChange: nextOpen =>" in chip
+    assert "if (!nextOpen) setShowDetails(false)" in chip
+    assert "function DecisionNotifications" in text
+    assert "Effort not applied" in text
+    assert "kind: 'warning'" in text
+    assert "ownerMatchesBackend" in text
+    assert "effort_control_unsupported" in text
+    assert "reasoning_disabled" in text
+    assert "No request status is available for this chat yet." in text
+    assert "Why: ${reason}" in text
+    assert "Request sent unchanged." in text
+    assert "showActivity" in details
+    assert "Latest applied effort:" not in details
+    assert "Tip" in text
+    for help_text in (
+        "Recheck each turn when supported; otherwise reuse per route.",
+        "Keep one decision per route in this conversation.",
+        "Score every new user message.",
+        "No scoring or request changes.",
+    ):
+        assert help_text in text
+    assert "area: 'panes'" not in text
+    assert "AdaptiveEffortPane" not in text
+    assert "status-pane" not in text
+    assert "Adaptive Effort: Status" not in text
+    assert "${ID}.status" not in text
+    for detail in (
+        "This chat",
+        "Effort: ${effort}",
+        "Route: ${route}",
+        "Scorer",
+        "${credential} key",
+        "Gateway ${gateway}",
+        "Activity ▸",
+        "Activity ▾",
+        "Counts and latest result across all conversations.",
+        "Sessions ${data?.counts?.sessions",
+        "Last: ${last.state} · effort",
+        "No recent status.",
+    ):
+        assert detail in details
+    assert "const [showActivity, setShowActivity] = useState(false)" in details
+    assert "Latest applied effort:" not in details
+    assert "changesQuery.data" not in conversation_effort
+    assert "changesQuery.data" not in chip
     assert "entry?.conversation_id === conversationId" in text
-    assert "focusedOwner?.connectionId === activeConnectionId" in text
-    assert "focusedOwner?.profile === activeProfile" in text
     assert "focusedOwner?.connectionId, focusedOwner?.profile" in text
-    assert "changesQuery.data?.latest" not in chip  # a global feed cannot pick the chip effort
+    owner_match = text.split("function ownerMatchesActiveBackend", 1)[1].split(
+        "function ChangeNotifications", 1)[0]
+    assert "function ownerMatchesActiveBackend(owner, connectionId, profile)" in text
+    assert "const ownerMatchesBackend = ownerMatchesActiveBackend(" in chip
+    assert "focusedOwner, activeConnectionId, activeProfile" in chip
+    assert "const activeConnectionId = typeof connectionId === 'string' ? connectionId.trim() : ''" in owner_match
+    assert "return ownerConnectionId === activeConnectionId &&" in owner_match
+    assert "(ownerProfile || 'default') === (activeProfile || 'default')" in owner_match
     assert "latest?.state === 'decided'" in text  # unsupported / in-flight focus shows N/A
-    assert "latest applied effort (all conversations)" in text
     for allowed in ("@hermes/plugin-sdk", "react", "react/jsx-runtime"):
         assert allowed in text
     assert "localStorage" not in text  # UI prefs belong to ctx.storage, decisions to backend

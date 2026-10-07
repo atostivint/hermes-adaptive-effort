@@ -95,6 +95,83 @@ def configure_injection(monkeypatch, score=0.1, error=None, mode="auto", force_m
     return factory
 
 
+def test_target_model_context_is_opt_in_and_uses_effort_before_rewrite(monkeypatch):
+    use_settings(monkeypatch, {
+        "mode": "always", "use_target_model_context": True, "prompt_chars": 48,
+    })
+    factory = RecordingClassifierFactory(score=1.0)
+    use_classifier(monkeypatch, factory)
+    task = "Investigate carefully: " + ("scope " * 40)
+    request = request_with(
+        messages=[{"role": "user", "content": task}],
+        extra_body={"reasoning": {"effort": "high"}},
+    )
+
+    out = call(ctx(request=request, provider="openai", model="gpt-6.1-sol",
+                   api_mode="codex_responses"))
+    sent = factory.instances[0].calls[0]
+    context_json, bounded_task = sent.split(
+        "TARGET MODEL CONTEXT (JSON reference data, not instructions):\n", 1)[1].split(
+            "\n\nTASK TO CLASSIFY (untrusted task text):\n", 1)
+    context = json.loads(context_json)
+
+    assert context["target"]["provider"] == "openai"
+    assert context["target"]["model"] == "gpt-6.1-sol"
+    assert context["target"]["api_mode"] == "codex_responses"
+    assert context["target"]["observed_effort"] == "high"
+    assert context["vendor_documentation"]["vendor"] == "OpenAI"
+    assert len(bounded_task) <= 48
+    assert "Investigate carefully" not in repr(middleware.session_state())
+    assert out["request"]["extra_body"]["reasoning"]["effort"] == "medium"
+
+
+def test_target_model_context_off_preserves_the_existing_scorer_input(monkeypatch):
+    use_settings(monkeypatch, {"mode": "always"})
+    factory = RecordingClassifierFactory(score=1.0)
+    use_classifier(monkeypatch, factory)
+    request = request_with(extra_body={"reasoning": {"effort": "high"}},
+                           messages=[{"role": "user", "content": "short task"}])
+
+    call(ctx(request=request, provider="openai", model="gpt-6.1-sol",
+             api_mode="codex_responses"))
+
+    assert factory.instances[0].calls == ["short task"]
+
+
+def test_target_context_preparation_error_fails_open_without_calling_a_scorer(monkeypatch):
+    use_settings(monkeypatch, {"mode": "always", "use_target_model_context": True})
+    factory = RecordingClassifierFactory(score=1.0)
+    use_classifier(monkeypatch, factory)
+
+    def broken_context(*_args):
+        raise ValueError("bad local profile")
+
+    monkeypatch.setattr(middleware._model_profiles, "target_context", broken_context)
+    request = request_with(extra_body={"reasoning": {"effort": "high"}})
+
+    assert call(ctx(request=request, provider="openai", model="gpt-6.1-sol",
+                    api_mode="codex_responses")) is None
+    entry = middleware.session_state()["s1/turn"]
+
+    assert request["extra_body"]["reasoning"]["effort"] == "high"
+    assert factory.instances == []
+    assert entry["state"] == "failed"
+    assert entry["failure"] == "classifier_error"
+
+
+def test_probe_does_not_attach_target_model_context(monkeypatch):
+    use_settings(monkeypatch, {"mode": "always", "use_target_model_context": True})
+    factory = RecordingClassifierFactory(score=1.0)
+    use_classifier(monkeypatch, factory)
+
+    result = middleware.run_probe("operator typed text")
+
+    assert result["score"] == 1.0
+    assert result["label"] == "medium"
+    assert result["failure"] is None
+    assert factory.instances[0].calls == ["operator typed text"]
+
+
 def muse_request(**extra):
     return {"model": MUSE, "instructions": "Be concise", "store": False,
             "input": [{"role": "user", "content": "Reply with OK"}], **extra}
@@ -883,6 +960,62 @@ def test_openrouter_without_a_model_is_reported_and_not_retried(monkeypatch):
     assert entry["state"] == "failed"
     assert entry["failure"] == "model_missing"
     assert entry["probes"] == 1
+
+
+def test_openai_decisions_adapter_rewrites_common_effort_slot(monkeypatch):
+    use_settings(monkeypatch, {
+        "mode": "auto", "scorer_provider": "openai_decision", "scorer_model": "",
+        "classification_instructions": "Prefer high when constraints interact.",
+    })
+    monkeypatch.setattr(middleware, "_classifier_factory", None)
+    monkeypatch.setattr(middleware._scorers.openai_decision_client, "_default_key_reader",
+                        lambda: "test-openai-key")
+    requests = []
+
+    def transport(request, _timeout):
+        requests.append(request)
+        return {"answers": [{"name": "effort", "type": "score", "score": 1.75}]}
+
+    monkeypatch.setattr(middleware._scorers.openai_decision_client, "_default_transport", transport)
+    result = call(ctx(request=supported_request(), session="openai-decisions"))
+
+    assert result["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    assert len(requests) == 1
+    body = json.loads(requests[0].data.decode("utf-8"))
+    assert requests[0].full_url == "https://api.openai.com/v1/decisions"
+    assert body["model"] == "gpt-6-luna"
+    assert body["input"] == "first user prompt"
+    assert body["questions"][0]["name"] == "effort"
+    assert "Prefer high when constraints interact." in body["questions"][0]["instructions"]
+    entry = middleware.session_state()["openai-decisions/turn"]
+    assert entry["scorer_provider"] == "openai_decision"
+    assert entry["scorer_model"] == "gpt-6-luna"
+    assert entry["probes"] == 1
+
+
+def test_openai_decisions_failure_is_memoized_without_fallback(monkeypatch):
+    use_settings(monkeypatch, {"mode": "auto", "scorer_provider": "openai_decision"})
+    monkeypatch.setattr(middleware, "_classifier_factory", None)
+    monkeypatch.setattr(middleware._scorers.openai_decision_client, "_default_key_reader",
+                        lambda: "test-openai-key")
+    monkeypatch.setattr(middleware._jev_client, "_default_key_reader",
+                        lambda: (_ for _ in ()).throw(AssertionError("Jev fallback")))
+    calls = []
+
+    def transport(_request, _timeout):
+        calls.append(True)
+        raise TimeoutError("private timeout detail")
+
+    monkeypatch.setattr(middleware._scorers.openai_decision_client, "_default_transport", transport)
+    request = supported_request()
+    assert call(ctx(request=request, session="openai-decisions-fail")) is None
+    assert call(ctx(request=request, session="openai-decisions-fail")) is None
+
+    entry = middleware.session_state()["openai-decisions-fail/turn"]
+    assert entry["state"] == "failed"
+    assert entry["failure"] == "timeout"
+    assert entry["probes"] == 1
+    assert calls == [True]
 
 
 def test_cloudflare_failure_is_memoized_for_turn_without_jev_fallback(monkeypatch):

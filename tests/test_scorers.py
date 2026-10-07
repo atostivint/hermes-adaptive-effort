@@ -8,6 +8,7 @@ jev_client = import_plugin("jev_client")
 openrouter_client = import_plugin("openrouter_client")
 cloudflare_client = import_plugin("cloudflare_client")
 custom_client = import_plugin("custom_client")
+openai_decision_client = import_plugin("openai_decision_client")
 scorers = import_plugin("scorers")
 middleware = import_plugin("middleware")
 
@@ -44,6 +45,27 @@ def test_openrouter_missing_model_fails_open_without_jev_fallback():
     client, failure = scorers.build_client(settings(scorer_provider="openrouter", scorer_model=""))
     assert client is None
     assert failure == "model_missing"
+
+
+def test_openai_decisions_defaults_model_and_uses_fixed_endpoint():
+    client, failure = scorers.build_client(settings(scorer_provider="openai_decision"))
+    assert failure is None
+    assert isinstance(client, openai_decision_client.OpenAIDecisionClient)
+    assert client.model == "gpt-6-luna"
+    assert scorers.model_for("openai_decision", "") == "gpt-6-luna"
+    assert scorers.endpoint_for("openai_decision", "ignored") == (
+        "https://api.openai.com/v1/decisions", "https://api.openai.com/v1/decisions")
+    assert scorers.credential_required("openai_decision") is True
+
+
+def test_openai_decisions_uses_an_explicit_model_and_shared_guidance():
+    guidance = "Prefer high when the task spans independent systems."
+    client, failure = scorers.build_client(settings(
+        scorer_provider="openai_decision", scorer_model="configured-model",
+        classification_instructions=guidance))
+    assert failure is None
+    assert client.model == "configured-model"
+    assert client.classification_instructions == guidance
 
 
 def test_cloudflare_uses_fixed_model_and_requires_a_valid_account():
@@ -99,6 +121,7 @@ def test_classifier_guidance_is_shared_by_every_provider():
                  cloudflare_account_id="0123456789abcdef0123456789abcdef"),
         settings(**common, scorer_provider="custom", scorer_model="local-model",
                  custom_endpoint="http://127.0.0.1:8080/v1/systemone"),
+        settings(**common, scorer_provider="openai_decision"),
     )
 
     for configured in configurations:
@@ -115,6 +138,9 @@ def test_status_endpoint_and_model_follow_selected_scorer():
     assert endpoint == effective == openrouter_client.DEFAULT_ENDPOINT
     assert scorers.model_for("jev", "ignored") == jev_client.JEV_MODEL
     assert scorers.model_for("openrouter", "openai/gpt-4o-mini") == "openai/gpt-4o-mini"
+    assert scorers.model_for("openai_decision", "") == "gpt-6-luna"
+    assert scorers.endpoint_for("openai_decision", "ignored")[1] == \
+        openai_decision_client.DEFAULT_ENDPOINT
     account_id = "0123456789abcdef0123456789abcdef"
     endpoint, effective = scorers.endpoint_for("cloudflare", "jev-endpoint", account_id)
     assert endpoint == effective == cloudflare_client.endpoint_for(account_id)

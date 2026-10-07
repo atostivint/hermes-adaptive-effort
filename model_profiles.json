@@ -1,0 +1,778 @@
+{
+  "schema_version": 1,
+  "profiles": [
+    {
+      "id": "openai-gpt-6-astra",
+      "vendor": "OpenAI",
+      "model_ids": ["gpt-6-astra"],
+      "effort_levels": ["low", "medium", "high", "xhigh", "max"],
+      "default_effort": null,
+      "summary": "Effort guides how much the model thinks: lower levels favor speed and fewer tokens; higher levels reason more completely. The model does not accept none.",
+      "source": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "openai-gpt-6-1-sol",
+      "vendor": "OpenAI",
+      "model_ids": ["gpt-6.1-sol"],
+      "effort_levels": ["low", "medium", "high", "xhigh", "max"],
+      "default_effort": "medium",
+      "summary": "Effort guides reasoning depth; lower levels favor speed and fewer tokens, while higher levels reason more completely. none and minimal are unsupported.",
+      "source": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "openai-gpt-6-sol",
+      "vendor": "OpenAI",
+      "model_ids": ["gpt-6-sol"],
+      "effort_levels": ["none", "low", "medium", "high", "xhigh", "max"],
+      "default_effort": "medium",
+      "summary": "Effort guides reasoning depth; lower levels favor speed and fewer tokens, while higher levels reason more completely.",
+      "source": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "openai-gpt-6-luna",
+      "vendor": "OpenAI",
+      "model_ids": ["gpt-6-luna"],
+      "effort_levels": ["none", "low", "medium", "high", "xhigh", "max"],
+      "default_effort": "medium",
+      "summary": "Effort guides reasoning depth; lower levels favor speed and fewer tokens, while higher levels reason more completely.",
+      "source": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "openai-gpt-5-6-sol",
+      "vendor": "OpenAI",
+      "model_ids": ["gpt-5.6-sol", "gpt-5.6"],
+      "effort_levels": ["none", "low", "medium", "high", "xhigh", "max"],
+      "default_effort": "medium",
+      "summary": "Effort guides reasoning depth; lower levels favor speed and fewer tokens, while higher levels reason more completely. The gpt-5.6 alias routes to this Sol tier.",
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "openai-gpt-5-6-terra",
+      "vendor": "OpenAI",
+      "model_ids": ["gpt-5.6-terra"],
+      "effort_levels": ["none", "low", "medium", "high", "xhigh", "max"],
+      "default_effort": "medium",
+      "summary": "A balance of intelligence and cost. Effort guides reasoning depth; lower levels favor speed and fewer tokens, while higher levels reason more completely.",
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "openai-gpt-5-6-luna",
+      "vendor": "OpenAI",
+      "model_ids": ["gpt-5.6-luna"],
+      "effort_levels": ["none", "low", "medium", "high", "xhigh", "max"],
+      "default_effort": "medium",
+      "summary": "Designed for cost-sensitive, high-volume workloads. Effort guides reasoning depth; lower levels favor speed and fewer tokens.",
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "openai-gpt-5-5",
+      "vendor": "OpenAI",
+      "model_ids": ["gpt-5.5", "gpt-5.5-2026-04-23"],
+      "effort_levels": ["none", "low", "medium", "high", "xhigh"],
+      "default_effort": "medium",
+      "summary": "Effort tunes reasoning; medium is the balanced default, low favors speed and cost, and high or xhigh are for harder work when evaluations justify the extra latency and cost.",
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.5",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "openai-gpt-5-5-pro",
+      "vendor": "OpenAI",
+      "model_ids": ["gpt-5.5-pro"],
+      "effort_levels": ["medium", "high", "xhigh"],
+      "default_effort": "high",
+      "summary": "A higher-compute variant for tougher problems. Requests may take several minutes; high is the default and xhigh is available for more compute.",
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.5-pro",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "anthropic-fable-5-1",
+      "vendor": "Anthropic",
+      "model_ids": ["claude-fable-5-1", "claude-mythos-5-1"],
+      "effort_levels": ["low", "medium", "high", "xhigh", "max"],
+      "default_effort": "high",
+      "summary": "Effort applies to response text, tool calls, and thinking when active. It is a behavioral signal, not a strict token budget; higher levels suit capability-sensitive, long-horizon work.",
+      "source": "https://platform.claude.com/docs/en/build-with-claude/effort",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "anthropic-fable-5",
+      "vendor": "Anthropic",
+      "model_ids": ["claude-fable-5", "claude-mythos-5"],
+      "effort_levels": ["low", "medium", "high", "xhigh", "max"],
+      "default_effort": "high",
+      "summary": "Effort applies to response text, tool calls, and thinking when active. It is a behavioral signal, not a strict token budget; higher levels suit capability-sensitive work.",
+      "source": "https://platform.claude.com/docs/en/build-with-claude/effort",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "anthropic-opus-5-5",
+      "vendor": "Anthropic",
+      "model_ids": ["claude-opus-5-5"],
+      "effort_levels": ["low", "medium", "high", "xhigh", "max"],
+      "default_effort": "medium",
+      "summary": "Effort affects response text, tool calls, and thinking. Adaptive thinking is always on; effort is the main control for reasoning depth and request cost. The default differs from Opus 5 and earlier.",
+      "source": "https://platform.claude.com/docs/en/build-with-claude/effort",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "anthropic-opus-5-family",
+      "vendor": "Anthropic",
+      "model_ids": ["claude-opus-5", "claude-opus-4-8", "claude-opus-4-7"],
+      "effort_levels": ["low", "medium", "high", "xhigh", "max"],
+      "default_effort": "high",
+      "summary": "Effort affects response text, tool calls, and thinking. It is a behavioral signal rather than a strict token budget; high is the documented default for these models.",
+      "source": "https://platform.claude.com/docs/en/build-with-claude/effort",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "anthropic-opus-4-6",
+      "vendor": "Anthropic",
+      "model_ids": ["claude-opus-4-6"],
+      "effort_levels": ["low", "medium", "high", "max"],
+      "default_effort": "high",
+      "summary": "Effort affects response text, tool calls, and thinking; it is not a strict token budget. The current effort guide lists max but not xhigh for this model.",
+      "source": "https://platform.claude.com/docs/en/build-with-claude/effort",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "anthropic-sonnet-5-family",
+      "vendor": "Anthropic",
+      "model_ids": ["claude-sonnet-5-5", "claude-sonnet-5"],
+      "effort_levels": ["low", "medium", "high", "xhigh", "max"],
+      "default_effort": "high",
+      "summary": "Effort affects response text, tool calls, and thinking when active. It is a behavioral signal rather than a strict token budget; higher levels suit longer-horizon work.",
+      "source": "https://platform.claude.com/docs/en/build-with-claude/effort",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "anthropic-sonnet-4-6",
+      "vendor": "Anthropic",
+      "model_ids": ["claude-sonnet-4-6"],
+      "effort_levels": ["low", "medium", "high", "max"],
+      "default_effort": "high",
+      "summary": "Effort applies to response text, tool calls, and thinking. The current effort guide lists max but not xhigh for this model.",
+      "source": "https://platform.claude.com/docs/en/build-with-claude/effort",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "vendor": "DeepSeek",
+      "model_ids": ["deepseek-v4-pro"],
+      "effort_levels": ["none", "low", "high", "max"],
+      "default_effort": null,
+      "summary": "In the Responses API, effort controls both thinking mode and intensity: none disables thinking; low, high, and max enable it. medium maps to high and minimal maps to low for compatibility.",
+      "source": "https://api-docs.deepseek.com/api/create-response/",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "deepseek-flash",
+      "vendor": "DeepSeek",
+      "model_ids": ["deepseek-flash"],
+      "effort_levels": ["none", "low", "high", "max"],
+      "default_effort": null,
+      "summary": "In the Responses API, effort controls both thinking mode and intensity: none disables thinking; low, high, and max enable it. medium maps to high and minimal maps to low for compatibility.",
+      "source": "https://api-docs.deepseek.com/api/create-response/",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "deepseek-v4-1-flash-go-aliases",
+      "vendor": "DeepSeek",
+      "model_ids": ["deepseek-v4.1-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"],
+      "effort_levels": ["low", "high", "max"],
+      "default_effort": "high",
+      "summary": "DeepSeek V4.1-Flash accepts low/high/max, with high as the documented default. These are lab model values; the separate OpenCode Go route registry governs whether an effort field may be inserted.",
+      "source": "https://api-docs.deepseek.com/api/list-models/",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "google-gemini-3-8-and-3-7-flash",
+      "vendor": "Google",
+      "model_ids": ["gemini-3.8-flash", "gemini-3.7-flash"],
+      "effort_levels": ["low", "medium", "high"],
+      "default_effort": "medium",
+      "summary": "Thinking is dynamic by default. Low favors latency and cost, medium is balanced, and high maximizes reasoning depth; minimal is unsupported for these models.",
+      "source": "https://ai.google.dev/gemini-api/docs/thinking",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "google-gemini-3-6-flash",
+      "vendor": "Google",
+      "model_ids": ["gemini-3.6-flash"],
+      "effort_levels": ["minimal", "low", "medium", "high"],
+      "default_effort": "medium",
+      "summary": "Thinking is dynamic by default. Minimal is supported but does not guarantee thinking is fully off; low favors latency and cost, while high maximizes reasoning depth.",
+      "source": "https://ai.google.dev/gemini-api/docs/thinking",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "google-gemini-3-5-flash-lite",
+      "vendor": "Google",
+      "model_ids": ["gemini-3.5-flash-lite"],
+      "effort_levels": ["minimal", "low", "medium", "high"],
+      "default_effort": "minimal",
+      "summary": "Thinking defaults to minimal. Minimal does not guarantee reasoning is fully off; low favors latency and cost, while high maximizes reasoning depth.",
+      "source": "https://ai.google.dev/gemini-api/docs/thinking",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "google-gemini-3-1-pro-preview",
+      "vendor": "Google",
+      "model_ids": ["gemini-3.1-pro-preview"],
+      "effort_levels": ["low", "medium", "high"],
+      "default_effort": "high",
+      "summary": "Thinking defaults to high and cannot be disabled. Low favors latency and cost, medium is balanced, and high maximizes reasoning depth.",
+      "source": "https://ai.google.dev/gemini-api/docs/thinking",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "google-gemini-3-1-flash-lite-image",
+      "vendor": "Google",
+      "model_ids": ["gemini-3.1-flash-lite-image"],
+      "effort_levels": ["minimal", "high"],
+      "default_effort": "minimal",
+      "summary": "Thinking defaults to minimal; only minimal and high are supported. Minimal does not guarantee thinking is fully off; high maximizes reasoning depth.",
+      "source": "https://ai.google.dev/gemini-api/docs/thinking",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "google-gemini-3-flash-preview",
+      "vendor": "Google",
+      "model_ids": ["gemini-3-flash-preview"],
+      "effort_levels": ["minimal", "low", "medium", "high"],
+      "default_effort": "high",
+      "summary": "Thinking defaults to high. Minimal is not a guarantee that thinking is fully off; low favors latency and cost, while high maximizes reasoning depth.",
+      "source": "https://ai.google.dev/gemini-api/docs/thinking",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "google-gemini-3-5-flash",
+      "vendor": "Google",
+      "model_ids": ["gemini-3.5-flash"],
+      "effort_levels": ["minimal", "low", "medium", "high"],
+      "default_effort": "medium",
+      "summary": "Thinking defaults to medium. Minimal does not guarantee reasoning is fully off; low favors latency and cost, while high maximizes reasoning depth.",
+      "source": "https://ai.google.dev/gemini-api/docs/thinking",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "google-gemini-3-1-flash-lite",
+      "vendor": "Google",
+      "model_ids": ["gemini-3.1-flash-lite"],
+      "effort_levels": ["minimal", "low", "medium", "high"],
+      "default_effort": "minimal",
+      "summary": "Thinking defaults to minimal. Minimal does not guarantee reasoning is fully off; low favors latency and cost, while high maximizes reasoning depth.",
+      "source": "https://ai.google.dev/gemini-api/docs/thinking",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "google-gemini-3-8-live-extended-thinking",
+      "vendor": "Google",
+      "model_ids": ["gemini-3.8-live-extended-thinking"],
+      "effort_levels": ["low", "medium", "high"],
+      "default_effort": null,
+      "summary": "The Live API model supports configurable background reasoning at low, medium, or high. The guide does not specify a default level.",
+      "source": "https://ai.google.dev/gemini-api/docs/live-api/thinking",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "google-gemini-robotics-er-2",
+      "vendor": "Google",
+      "model_ids": ["gemini-robotics-er-2-preview"],
+      "effort_levels": ["minimal", "low", "medium", "high"],
+      "default_effort": "high",
+      "summary": "Thinking defaults to high. Minimal does not guarantee reasoning is fully off; low favors latency and cost, while high maximizes reasoning depth.",
+      "source": "https://ai.google.dev/gemini-api/docs/thinking",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "xai-grok-4-7-and-4-6",
+      "vendor": "xAI",
+      "model_ids": ["grok-4.7", "grok-4.6"],
+      "effort_levels": ["low", "medium", "high", "xhigh"],
+      "default_effort": "high",
+      "summary": "Effort controls reasoning depth and cannot disable reasoning. High is the default; xhigh is available on Grok 4.6 and later for maximum depth at greater latency.",
+      "source": "https://docs.x.ai/developers/model-capabilities/text/reasoning",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "xai-grok-4-5",
+      "vendor": "xAI",
+      "model_ids": ["grok-4.5"],
+      "effort_levels": ["low", "medium", "high"],
+      "default_effort": "high",
+      "summary": "Effort controls reasoning depth and cannot disable reasoning. High is the default; xhigh is not a distinct setting on Grok 4.5 and is treated as high.",
+      "source": "https://docs.x.ai/developers/model-capabilities/text/reasoning",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "xai-grok-4-20-multi-agent",
+      "vendor": "xAI",
+      "model_ids": ["grok-4.20-multi-agent"],
+      "effort_levels": ["low", "medium", "high", "xhigh"],
+      "default_effort": null,
+      "summary": "Here reasoning.effort controls how many agents collaborate, rather than reasoning depth. The documentation does not state a default level.",
+      "source": "https://docs.x.ai/developers/model-capabilities/text/multi-agent",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "cohere-command-a-reasoning",
+      "vendor": "Cohere",
+      "model_ids": ["command-a-reasoning-08-2025"],
+      "effort_levels": ["none", "high"],
+      "default_effort": null,
+      "summary": "Thinking is enabled by default and can be disabled. OpenAI-compatible reasoning_effort exposes only none/high; a separate token_budget caps thinking tokens rather than providing graded effort levels.",
+      "source": "https://docs.cohere.com/docs/reasoning",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "mistral-adjustable-reasoning",
+      "vendor": "Mistral",
+      "model_ids": ["mistral-small-latest", "mistral-medium-3-5"],
+      "effort_levels": ["none", "high"],
+      "default_effort": null,
+      "summary": "The model guide confirms reasoning_effort is adjustable and explicitly describes none/high; high surfaces a thinking chunk at increased token use. Model-specific defaults and support for other values are not listed.",
+      "source": "https://docs.mistral.ai/studio/conversations/reasoning",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "mistral-large-4-adjustable-reasoning",
+      "vendor": "Mistral",
+      "model_ids": ["mistral-large-4-0"],
+      "effort_levels": ["none", "high"],
+      "default_effort": null,
+      "summary": "The model guide confirms reasoning_effort is adjustable and explicitly describes none/high; high surfaces a thinking chunk at increased token use. Model-specific defaults and support for other values are not listed.",
+      "source": "https://docs.mistral.ai/studio/conversations/reasoning",
+      "reviewed": "2026-10-06"
+    },
+    {
+      "id": "openrouter-free-router",
+      "vendor": "OpenRouter",
+      "model_ids": ["openrouter/free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "This router selects a free model at random and may choose a different underlying model per request. No stable target-model effort levels or default can be documented for the router ID.",
+      "source": "https://openrouter.ai/openrouter/free",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-apodex-1-1-mini",
+      "vendor": "Apodex",
+      "model_ids": ["apodex/apodex-1.1-mini:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "A reasoning-first research and forecasting model. Its research paper describes capabilities but no discrete request effort levels or default.",
+      "source": "https://arxiv.org/abs/2608.23283",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-mercury-decide",
+      "vendor": "Inception",
+      "model_ids": ["inception/mercury-decide:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Structured System One decision model returning typed probabilities rather than generated chat. No model-specific reasoning-effort levels are documented.",
+      "source": "https://openrouter.ai/inception/mercury-decide:free",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-span-01-lite",
+      "vendor": "Respan",
+      "model_ids": ["respan/span-01-lite:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "A behavior-scoring model that returns probabilities for requested conversation behaviors. Its API guide documents scoring, not reasoning-effort controls.",
+      "source": "https://www.respan.ai/docs/documentation/span-01/concept",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-ling-3-flash-sante",
+      "vendor": "InclusionAI",
+      "model_ids": ["inclusionai/ling-3.0-flash-sante:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Medical-reasoning Ling 3.0 Flash variant. Its model card describes reasoning and agent capabilities but no discrete request effort levels or default.",
+      "source": "https://openrouter.ai/inclusionai/ling-3.0-flash-sante:free",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-lfm-embedding-350m",
+      "vendor": "Liquid AI",
+      "model_ids": ["liquid/lfm-2.5-embedding-350m:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Text embedding model for retrieval and semantic search; it returns vectors rather than generated responses. Reasoning effort does not apply.",
+      "source": "https://huggingface.co/LiquidAI/LFM2.5-Embedding-350M",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-dots3-note-preview",
+      "vendor": "Dots Studio",
+      "model_ids": ["dots-studio/dots-3-note-preview:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Multimodal model for reasoning, coding, long-context work, and agent workflows. Its model card does not publish discrete request effort levels or a default.",
+      "source": "https://github.com/studio-dots-ai/dots3-note-prev",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-lfm-2-6b",
+      "vendor": "Liquid AI",
+      "model_ids": ["liquid/lfm-2.5-2.6b:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Compact reasoning model for agent workflows, extraction, and retrieval. The model guidance describes capabilities but no discrete request effort levels or default.",
+      "source": "https://www.liquid.ai/blog/lfm2-5-2-6b",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-nemotron-3-5-lightning",
+      "vendor": "NVIDIA",
+      "model_ids": ["nvidia/nemotron-3.5-lightning:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "High-throughput agentic language model. NVIDIA's model card does not document discrete reasoning-effort levels or a default for this model.",
+      "source": "https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b/modelcard",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-inkling-small",
+      "vendor": "Thinking Machines Lab",
+      "model_ids": ["thinkingmachines/inkling-small:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Smaller multimodal Inkling model for general reasoning, coding, and agent use. Its model card documents no discrete request effort levels or default.",
+      "source": "https://thinkingmachines.ai/model-card/inkling-small/",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-fish-audio-s2-1-pro",
+      "vendor": "Fish Audio",
+      "model_ids": ["fish-audio/s2.1-pro-free:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Speech-synthesis model variant for generating audio, not a text reasoning target. Its API announcement documents no effort levels.",
+      "source": "https://beta.fish.audio/blog/s2-1-pro-free-api/",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-poolside-laguna-s-2-1",
+      "vendor": "Poolside",
+      "model_ids": ["poolside/laguna-s-2.1:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Coding-agent model for software engineering and long-horizon tasks. Its model documentation does not publish discrete request effort levels or a default.",
+      "source": "https://poolside.ai/blog/introducing-laguna-s-2-1",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-inkling",
+      "vendor": "Thinking Machines Lab",
+      "model_ids": ["thinkingmachines/inkling:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Multimodal model for reasoning, coding, tool use, and agent workflows. Its model card documents no discrete request effort levels or default.",
+      "source": "https://thinkingmachines.ai/model-card/inkling/",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-nemotron-3-embed-1b",
+      "vendor": "NVIDIA",
+      "model_ids": ["nvidia/nemotron-3-embed-1b:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Text embedding model for enterprise search and retrieval; it returns vectors rather than generated responses. Reasoning effort does not apply.",
+      "source": "https://build.nvidia.com/nvidia/nemotron-3-embed-1b/modelcard",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-poolside-laguna-xs-2-1",
+      "vendor": "Poolside",
+      "model_ids": ["poolside/laguna-xs-2.1:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Compact coding-agent model with tool use and reasoning capabilities. Its documentation does not publish discrete request effort levels or a default.",
+      "source": "https://poolside.ai/blog/introducing-laguna-xs-2-1",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-cohere-north-mini-code",
+      "vendor": "Cohere",
+      "model_ids": ["cohere/north-mini-code:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Agentic coding model with interleaved reasoning and tool use. Cohere's announcement documents no discrete request effort levels or default.",
+      "source": "https://cohere.com/blog/north-mini-code",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-nemotron-rerank-vl-1b-v2",
+      "vendor": "NVIDIA",
+      "model_ids": ["nvidia/llama-nemotron-rerank-vl-1b-v2:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Multimodal reranker scoring query-document relevance, not a generative reasoning model. Discrete reasoning effort does not apply.",
+      "source": "https://build.nvidia.com/nvidia/llama-nemotron-rerank-vl-1b-v2/modelcard",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-nemotron-content-safety",
+      "vendor": "NVIDIA",
+      "model_ids": ["nvidia/nemotron-3.5-content-safety:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Multimodal content-moderation model with a reasoning-mode toggle. The model card does not document graded effort levels or a default.",
+      "source": "https://build.nvidia.com/nvidia/nemotron-3.5-content-safety/modelcard",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-nemotron-3-ultra",
+      "vendor": "NVIDIA",
+      "model_ids": ["nvidia/nemotron-3-ultra-550b-a55b:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Frontier reasoning and orchestration model for long-running agent workflows. NVIDIA's report does not publish request effort levels or a default.",
+      "source": "https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Ultra-Technical-Report.pdf",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-nemotron-nano-omni",
+      "vendor": "NVIDIA",
+      "model_ids": ["nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Multimodal perception and reasoning model. OpenRouter describes extended thinking as enabled via a boolean; no discrete effort levels or default are documented.",
+      "source": "https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Super-Technical-Report.pdf",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-gemma-4-26b",
+      "vendor": "Google DeepMind",
+      "model_ids": ["google/gemma-4-26b-a4b-it:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Multimodal instruction model with configurable thinking mode. Google documents a prompt-level thinking toggle, not a discrete effort-level enum.",
+      "source": "https://ai.google.dev/gemma/docs/core/model_card_4",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-gemma-4-31b",
+      "vendor": "Google DeepMind",
+      "model_ids": ["google/gemma-4-31b-it:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Multimodal instruction model with configurable thinking mode. Google documents a prompt-level thinking toggle, not a discrete effort-level enum.",
+      "source": "https://ai.google.dev/gemma/docs/core/model_card_4",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-nemotron-3-super",
+      "vendor": "NVIDIA",
+      "model_ids": ["nvidia/nemotron-3-super-120b-a12b:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Open hybrid model for multi-agent applications and long-context reasoning. NVIDIA's model report does not document discrete request effort levels or a default.",
+      "source": "https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Omni-report.pdf",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "openrouter-free-nemotron-embed-vl-1b-v2",
+      "vendor": "NVIDIA",
+      "model_ids": ["nvidia/llama-nemotron-embed-vl-1b-v2:free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Multimodal embedding model for visual document retrieval; it returns vectors rather than generated responses. Reasoning effort does not apply.",
+      "source": "https://build.nvidia.com/nvidia/llama-nemotron-embed-vl-1b-v2/modelcard",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "zai-glm-5-3",
+      "vendor": "Z.ai",
+      "model_ids": ["glm-5.3", "z-ai/glm-5.3"],
+      "effort_levels": ["low", "high", "max"],
+      "default_effort": "max",
+      "summary": "Thinking is always on. GLM-5.3 accepts low, high, and max reasoning effort; max is the documented default.",
+      "source": "https://docs.z.ai/guides/overview/concept-param",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "zai-glm-5-3-flash",
+      "vendor": "Z.ai",
+      "model_ids": ["glm-5.3-flash", "z-ai/glm-5.3-flash"],
+      "effort_levels": ["low", "high", "max"],
+      "default_effort": "max",
+      "summary": "Thinking is always on. GLM-5.3-Flash accepts low, high, and max reasoning effort; max is the documented default.",
+      "source": "https://docs.z.ai/guides/overview/concept-param",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "zai-glm-5-2",
+      "vendor": "Z.ai",
+      "model_ids": ["glm-5.2", "z-ai/glm-5.2"],
+      "effort_levels": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+      "default_effort": "max",
+      "summary": "GLM-5.2 documents none/minimal/low/medium/high/xhigh/max, default max. none/minimal skip thinking; low/medium map to high and xhigh maps to max.",
+      "source": "https://docs.z.ai/guides/overview/concept-param",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "zai-glm-auto-thinking",
+      "vendor": "Z.ai",
+      "model_ids": [
+        "glm-5.1", "glm-5", "glm-4.6", "glm-4.5",
+        "z-ai/glm-5.1", "z-ai/glm-5", "z-ai/glm-4.6", "z-ai/glm-4.5"
+      ],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "These versions support the thinking toggle, but the guide says they auto-determine whether to think and documents no graded reasoning-effort levels for them.",
+      "source": "https://docs.z.ai/guides/overview/concept-param",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "zai-glm-forced-thinking-family",
+      "vendor": "Z.ai",
+      "model_ids": [
+        "glm-4.7", "glm-4.5v",
+        "z-ai/glm-4.7", "z-ai/glm-4.5v"
+      ],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "The guide describes thinking as forced when enabled for GLM-4.7 and GLM-4.5V. It documents no graded reasoning-effort levels for these versions.",
+      "source": "https://docs.z.ai/guides/overview/concept-param",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "zai-glm-vision-family",
+      "vendor": "Z.ai",
+      "model_ids": [
+        "glm-4.6v", "glm-4.6v-flash", "glm-4.6v-flashx",
+        "glm-4.5-air", "glm-4.5-x", "glm-4.5-airx", "glm-4.5-flash",
+        "z-ai/glm-4.6v", "z-ai/glm-4.5-air"
+      ],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "These Z.ai multimodal GLM variants are listed in the parameter guide; no model-specific discrete reasoning-effort levels or default are documented.",
+      "source": "https://docs.z.ai/guides/overview/concept-param",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "moonshot-kimi-k3",
+      "vendor": "Moonshot AI",
+      "model_ids": ["kimi-k3", "moonshotai/kimi-k3"],
+      "effort_levels": ["low", "high", "max"],
+      "default_effort": "max",
+      "summary": "Kimi K3 always reasons. The API accepts reasoning_effort low/high/max, with max as the documented default.",
+      "source": "https://platform.kimi.ai/docs/guide/use-thinking-models",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "moonshot-kimi-k2-7-code",
+      "vendor": "Moonshot AI",
+      "model_ids": [
+        "kimi-k2.7-code", "kimi-k2.7-code-highspeed",
+        "moonshotai/kimi-k2.7-code"
+      ],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "K2.7 Code always thinks and does not support reasoning_effort. Its highspeed variant has the same documented thinking behavior.",
+      "source": "https://platform.kimi.ai/docs/guide/use-thinking-models",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "moonshot-kimi-k2-6",
+      "vendor": "Moonshot AI",
+      "model_ids": ["kimi-k2.6", "moonshotai/kimi-k2.6"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Kimi K2.6 thinking is enabled by default and can be disabled with thinking.type. Its API does not support discrete reasoning_effort levels.",
+      "source": "https://platform.kimi.ai/docs/guide/use-thinking-models",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "longcat-go-models",
+      "vendor": "LongCat (Meituan)",
+      "model_ids": ["longcat-2.0", "longcat-2.5-preview-free"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "LongCat documents a thinking.type enabled/disabled toggle, not discrete effort levels. LongCat-2.5-Preview thinking is enabled by default; OpenCode Go exposes it as longcat-2.5-preview-free.",
+      "source": "https://longcat.chat/platform/docs/OpenCode.html",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "xiaomi-mimo-go-models",
+      "vendor": "Xiaomi MiMo",
+      "model_ids": ["mimo-v2.6-flash", "mimo-v2.6-pro", "mimo-v2.5", "mimo-v2.5-pro"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "These MiMo models support a thinking.type enabled/disabled toggle, enabled by default. Xiaomi's API guide documents no discrete reasoning-effort levels for this family.",
+      "source": "https://mimo.mi.com/docs/en-US/api/chat/anthropic-api",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "minimax-m3-and-m2-7",
+      "vendor": "MiniMax",
+      "model_ids": ["minimax-m3", "minimax-m2.7"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "M3 thinking is off by default on the Anthropic API and can be enabled with adaptive mode. M2.7 cannot disable thinking. The docs list no discrete effort values for either model.",
+      "source": "https://platform.minimax.io/docs/api-reference/text-anthropic-api",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "meta-muse-spark-contributor",
+      "vendor": "Meta",
+      "model_ids": ["muse-spark-1.3-contributor", "muse-spark-1.2-contributor"],
+      "effort_levels": ["minimal", "low", "medium", "high", "xhigh"],
+      "default_effort": null,
+      "summary": "Contributor tiers support minimal through xhigh reasoning effort. none is rejected; max is available only on standard Muse Spark 1.3, not Contributor models.",
+      "source": "https://dev.meta.ai/docs/reasoning",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "alibaba-qwen-3-8-max-flash",
+      "vendor": "Alibaba Cloud (Qwen)",
+      "model_ids": ["qwen3.8-max", "qwen3.8-flash"],
+      "effort_levels": ["low", "medium", "xhigh"],
+      "default_effort": "xhigh",
+      "summary": "Thinking is enabled by default. reasoning.effort accepts low/medium/xhigh; minimal maps to low, high/max map to xhigh, and none disables thinking.",
+      "source": "https://help.aliyun.com/en/model-studio/qwen-api-via-openai-responses",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "alibaba-qwen-3-7-plus",
+      "vendor": "Alibaba Cloud (Qwen)",
+      "model_ids": ["qwen3.7-plus"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Alibaba lists thinking as enabled by default and supports reasoning.effort on the Responses API, but its guide does not give this model a specific accepted-level set.",
+      "source": "https://help.aliyun.com/en/model-studio/qwen-api-via-openai-responses",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "tencent-hy3-hy4",
+      "vendor": "Tencent (Hy)",
+      "model_ids": ["hy3", "hy4-preview"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "Tencent lists both models as supporting deep thinking. The model catalog documents no discrete reasoning-effort values or default level.",
+      "source": "https://cloud.tencent.com/document/product/1823/130051",
+      "reviewed": "2026-10-07"
+    },
+    {
+      "id": "opencode-go-space-bunny",
+      "vendor": "OpenCode Go (upstream lab undisclosed)",
+      "model_ids": ["space-bunny"],
+      "effort_levels": [],
+      "default_effort": null,
+      "summary": "OpenCode Go lists Space Bunny, but the upstream lab and its effort documentation are not public. No model-specific effort levels are asserted.",
+      "source": "https://opencode.ai/docs/go/",
+      "reviewed": "2026-10-07"
+    }
+  ]
+}

@@ -151,8 +151,30 @@ def test_route_that_cannot_express_the_label_rewrites_nothing(monkeypatch):
     entry = entries()[0]
     assert entry["state"] == "unsupported"
     assert entry["target"] is None        # the label stands, but this route has no wire level
+    assert entry["failure"] == "effort_value_unsupported"
     assert entry["probes"] == 1          # and the turn is never re-classified
     assert len(jev.calls) == 1
+
+
+def test_route_without_a_supported_effort_control_has_a_specific_reason(monkeypatch):
+    use_settings(monkeypatch, mode="auto")
+    jev = CountingJev(1.9)
+    request = {
+        "model": "unknown/model",
+        "messages": [{"role": "user", "content": "Summarize this task"}],
+    }
+
+    assert route(monkeypatch, jev, provider="unknown", model="unknown/model",
+                 api_mode="unknown", request=request) is None
+
+    entry = entries()[0]
+    assert entry["state"] == "unsupported"
+    assert entry["failure"] == "effort_control_unsupported"
+    assert entry["probes"] == 0
+    assert jev.calls == []
+    payload = json.loads(command.handle("status json"))
+    assert payload["sessions"][0]["failure"] == "effort_control_unsupported"
+    assert "failure=effort_control_unsupported" in command.handle("status")
 
 
 def test_once_pins_one_decision_per_session_route(monkeypatch):
@@ -216,5 +238,7 @@ def test_status_reports_the_route_even_when_nothing_was_rewritten(monkeypatch):
     session = payload["sessions"][0]
     assert (session["state"], session["provider"], session["model"]) == (
         "unsupported", "openrouter", "openrouter/x/y")
+    assert session["failure"] == "reasoning_disabled"
     assert payload["counts"]["unsupported"] == 1
     assert payload["counts"]["probes"] == 0     # no scorer call without a writable field
+    assert "failure=reasoning_disabled" in command.handle("status")

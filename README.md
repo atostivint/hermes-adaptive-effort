@@ -4,7 +4,7 @@
 
 A small Hermes plugin that chooses reasoning effort for each user turn, using an external scorer. It changes an existing effort setting and can fill a missing field on exact, documented model routes.
 
-Built for everyday use: one focused job, a quiet interface, and a scorer you can choose. Choose Jev (TypeSafe), a model you configure through OpenRouter, Cloudflare Clef / Clef Flash, or your own custom scorer endpoint. Jev is the default. The scorer is independent of the model answering the conversation: it only evaluates the task against the rubric and selects an effort level; Hermes still sends the request to your chosen conversation model.
+Built for everyday use: one focused job, a quiet interface, and a scorer you can choose. Choose Jev (TypeSafe), OpenAI Decisions, a model you configure through OpenRouter, Cloudflare Clef / Clef Flash, or your own custom scorer endpoint. Jev is the default. The scorer is independent of the model answering the conversation: it only evaluates the task against the rubric and selects an effort level; Hermes still sends the request to your chosen conversation model.
 
 The custom provider can connect to a hosted service or a local model server that implements either System One or OpenAI Chat Completions. Point it at the exact HTTP(S) endpoint and choose the model name your server exposes. This makes the classifier replaceable without changing the conversation model.
 
@@ -33,6 +33,7 @@ Scorer keys are **not** pre-installed: you must provide the key for whichever sc
 | Scorer | Key | Where to get it |
 | --- | --- | --- |
 | Jev (default) | `TYPESAFE_API_KEY` | From your TypeSafe account — the same key used by the Jev approvals plugin against `https://api.typesafe.ai`. The model defaults to `jev-latest` and can be changed with `jev_model`. |
+| OpenAI Decisions | `OPENAI_API_KEY` | From your OpenAI API account. The Decisions API is in public beta; the model defaults to `gpt-6-luna`, and `scorer_model` can override it. |
 | OpenRouter | `OPENROUTER_API_KEY` | Create one at [openrouter.ai/keys](https://openrouter.ai/keys). You must also set `scorer_model` to the exact model slug you want to pay for (e.g. a small cheap classifier). The adapter requests ZDR-only routing and refuses data-collecting endpoints. |
 | Cloudflare | `CLOUDFLARE_AUTH_TOKEN` + 32-hex account ID | In the Cloudflare dashboard: copy the **Account ID** from the Workers & Pages overview (it is the 32-character hexadecimal `cloudflare_account_id` setting), then create an API token under **My Profile → API Tokens** with Workers AI permission and use it as `CLOUDFLARE_AUTH_TOKEN`. Choose `clef` or `clef-flash` as `cloudflare_model`. |
 | Custom (hosted) | `CUSTOM_SCORER_API_KEY` only when `custom_auth: bearer` | From whoever runs the endpoint. The plugin posts to your exact `custom_endpoint` with your `scorer_model`; there is no fallback to another scorer. |
@@ -49,7 +50,7 @@ Add the line to your Hermes home's `.env` file, then restart Hermes so the servi
 TYPESAFE_API_KEY=YOUR_KEY
 ```
 
-One line per scorer if you run several (`OPENROUTER_API_KEY=…`, `CLOUDFLARE_AUTH_TOKEN=…`, `CUSTOM_SCORER_API_KEY=…`). For a gateway service, use its environment or service `EnvironmentFile` instead — a key exported in your terminal does not reach an already-running service.
+One line per scorer if you run several (`OPENAI_API_KEY=…`, `OPENROUTER_API_KEY=…`, `CLOUDFLARE_AUTH_TOKEN=…`, `CUSTOM_SCORER_API_KEY=…`). For a gateway service, use its environment or service `EnvironmentFile` instead — a key exported in your terminal does not reach an already-running service.
 
 #### Option B — shell export (this terminal session only)
 
@@ -75,6 +76,7 @@ Any manager works as long as the value ends up in the Hermes process environment
 
 ```bash
 export TYPESAFE_API_KEY="$(bw get password hermes/TYPESAFE_API_KEY)"
+export OPENAI_API_KEY="$(op read 'op://Private/hermes/OPENAI_API_KEY')"
 export OPENROUTER_API_KEY="$(op read 'op://Private/hermes/OPENROUTER_API_KEY')"
 ```
 
@@ -125,13 +127,17 @@ Use `/hae probe <text>` to score text you type without changing a request or sto
 
 To keep that mode after a restart, save it in **Desktop → Capabilities → Plugins → Hermes Adaptive Effort → Mode**, or use the optional configuration below. Chat mode commands apply only to the current process.
 
-You can check the scorer independently with `/hae probe What is 2 + 2?`. It scores the text you type, plus any optional configured classifier guidance, and stores no decision. Scoring can incur provider charges.
+You can check the scorer independently with `/hae probe What is 2 + 2?`. It scores the text you type, plus any optional configured classifier guidance, and stores no decision. Probe never attaches a target route or model profile. Scoring can incur provider charges.
 
 ### Prefer OpenRouter?
 
 In the plugin's Desktop settings, select `openrouter` and enter your scorer model slug. Make `OPENROUTER_API_KEY` available to the serving Hermes process, then use the same chat commands above. No YAML editing is needed when your Desktop host exposes the settings form.
 
 The scorer is separate from your conversation model. You choose which OpenRouter model to pay for; no model is silently selected and no failure falls back to Jev. The adapter requests JSON and caps completion output at 32 tokens; invalid answers or timeouts preserve the original request.
+
+### Prefer OpenAI Decisions?
+
+Select `openai_decision` and make `OPENAI_API_KEY` available to the serving Hermes process. The adapter sends one bounded task input and one ordered `low` / `medium` / `high` score question to the fixed [Decisions API](https://developers.openai.com/api/docs/guides/decisions) endpoint. It defaults to `gpt-6-luna`; `scorer_model` is optional and an explicit value is sent as configured. A refusal, API error, timeout or invalid answer leaves the request unchanged, with no retry or fallback to Jev. OpenAI documents ZDR for eligible customers; confirm your own project's eligibility in OpenAI's settings.
 
 ### Use your own hosted or local classifier?
 
@@ -172,6 +178,15 @@ settings:
   scorer_model: "YOUR_OPENROUTER_MODEL_SLUG"
 ```
 
+For OpenAI Decisions, the model setting is optional:
+
+```yaml
+settings:
+  mode: auto
+  scorer_provider: openai_decision
+  # scorer_model: gpt-6-luna # default; override only with a supported model
+```
+
 For Cloudflare:
 
 ```yaml
@@ -201,6 +216,7 @@ Replace the model or account placeholder before using it. Use `/hae probe <text>
 | Scorer | Credential | Model |
 | --- | --- | --- |
 | Jev (default) | `TYPESAFE_API_KEY` | `jev_model` (defaults to `jev-latest`) |
+| OpenAI Decisions | `OPENAI_API_KEY` | `scorer_model` (defaults to `gpt-6-luna`) |
 | OpenRouter | `OPENROUTER_API_KEY` | Explicit `scorer_model` slug |
 | Cloudflare | `CLOUDFLARE_AUTH_TOKEN` | `clef` (default) or `clef-flash`; requires an account ID |
 | Custom | None for `custom_auth: none`; `CUSTOM_SCORER_API_KEY` for `bearer` | Required `scorer_model`; exact `custom_endpoint`; System One or Chat Completions |
@@ -240,37 +256,40 @@ When Hermes prepares a model request after a new user instruction, the plugin:
 
 1. Checks the configured mode. With `off`, it records only bounded route/status metadata for the Desktop popup, then returns without scoring or changing the request. For other modes, the independent subagent gate is also checked.
 2. Reads the latest user message from that request, not the opening message or the whole conversation. It first checks whether the request contains a supported writable effort field or can receive one on an exact supported route. Unsupported routes make no scorer call.
-3. Chooses the decision scope. `always` evaluates each new user message. `once` keeps one decision per exact model and route. `auto` evaluates each message only for exact models with documented dynamic-effort support and a transport verified to keep effort changes out of the prompt cache; other routes keep one decision per model and route. All modes reuse one decision during a tool loop, including when the conversation model changes mid-turn. The `prompt_chars` setting caps the user text at 4,000 characters by default; custom guidance is separately capped at 2,000 characters.
+3. Chooses the decision scope. `always` evaluates each new user message. `once` keeps one decision per exact model and route. `auto` evaluates each message only for exact models with documented dynamic-effort support and a transport verified to keep effort changes out of the prompt cache; other routes keep one decision per model and route. All modes reuse one decision during a tool loop, including when the conversation model changes mid-turn. The `prompt_chars` setting caps the user text at 4,000 characters by default; custom guidance is separately capped at 2,000 characters. When `use_target_model_context` is enabled, a bounded route/profile prefix is added without reducing the task-text allowance.
 4. Converts a valid score from `0` to `2` into `low` (< `0.5`), `medium` (< `1.5`) or `high`, then clamps that label to the effort values supported by the current route.
 5. Changes an existing effort field, or injects one only on an exact verified route. It preserves explicitly disabled or malformed controls. If the chosen effort already matches, there is no rewrite or change notification.
-6. Fails open on scorer errors, missing credentials, malformed responses or unsupported request shapes: the original request continues unchanged. Applied changes are shown by enabled status surfaces; prompt and guidance contents are not written to logs, status, or the change feed.
+6. Fails open on scorer errors, missing credentials, malformed responses or unsupported request shapes: the original request continues unchanged. Applied changes are shown by enabled status surfaces; task text, guidance and target context are not written to logs, status, or the change feed.
 
-Enabling a routing mode authorizes sending task text and any configured classification guidance to the selected scorer. Provider retention policies are separate: truncation does not guarantee non-retention. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints, but OpenRouter still processes the prompt. This plugin cannot assure ZDR for Jev, Cloudflare or custom endpoints. Subagent goals are held transiently in memory and classified only when both the main mode and `subagent_mode` permit it.
+Enabling a routing mode authorizes sending task text and any configured classification guidance to the selected scorer. `use_target_model_context` defaults to false; enabling it also shares the target provider, exact model, API mode, observed effort and any matching local model profile during active request classification. Model profiles are exact-ID documentation summaries and do not prove that the current provider route supports an effort control. The observed value is reference context, not a recommendation. Probe remains text-only. Provider retention policies are separate: truncation does not guarantee non-retention. OpenRouter requests require ZDR endpoints and deny data-collecting endpoints, but OpenRouter still processes the prompt. OpenAI documents ZDR support for eligible Decisions API customers; the plugin cannot verify account eligibility. This plugin cannot assure ZDR for Jev, Cloudflare or custom endpoints. Subagent goals are held transiently in memory and classified only when both the main mode and `subagent_mode` permit it.
 
 ### What guides the classifier
 
-Anthropic's [Effort guide](https://platform.claude.com/docs/en/build-with-claude/effort) frames effort as a trade-off between thoroughness and token efficiency. Its typical examples associate lower effort with simple, scoped or speed-sensitive work; medium with balanced tasks; and higher effort with complex reasoning, difficult coding and agentic work. The recommendations vary by model, so this plugin uses them as qualitative cues rather than universal thresholds or a measured quality/cost promise. The built-in rubric considers task complexity, ambiguity, scope, number of reasoning steps, tool or research depth, and explicit speed/cost priorities. An operator can add bounded guidance in the plugin settings; it supplements the fixed `low` / `medium` / `high` score definitions.
+The built-in rubric considers task complexity, ambiguity, scope, number of reasoning steps, tool or research depth, and explicit speed/cost priorities. With `use_target_model_context`, the selected scorer also receives a local profile when the model ID exactly matches an entry in `model_profiles.json`. The catalog covers OpenAI, Anthropic, DeepSeek, Google Gemini, xAI Grok, Cohere, Mistral, Z.ai GLM, Moonshot Kimi, LongCat, Xiaomi MiMo, MiniMax, Meta Muse Spark Contributor, Alibaba Qwen, and Tencent Hy. It includes all 23 free model variants in OpenRouter's listing as reviewed on 2026-10-07, plus a separate `openrouter/free` router profile. OpenCode Go's current 30-model roster is represented by exact IDs; Space Bunny is listed under OpenCode Go because its upstream lab is undisclosed. This is a static snapshot, not a runtime model directory.
+
+Add coverage with a data-only edit: exact model IDs, documented levels and defaults, a concise summary, an HTTPS source URL, and a review date. Keep profiles separate when controls differ. `effort_levels: []` means the documentation does not define discrete effort values; use the summary to distinguish a thinking toggle, a model without effort controls, and a non-generative task such as embeddings or reranking. It does not prove route support or unsupported status. Google's [Gemini thinking guide](https://ai.google.dev/gemini-api/docs/thinking) lists model-specific levels and defaults; xAI's [reasoning guide](https://docs.x.ai/developers/model-capabilities/text/reasoning) varies xhigh by Grok version, and its [multi-agent guide](https://docs.x.ai/developers/model-capabilities/text/multi-agent) uses effort to select agent count instead of reasoning depth. Cohere's [reasoning guide](https://docs.cohere.com/docs/reasoning) describes a thinking toggle and token budget, while its [compatibility guide](https://docs.cohere.com/docs/compatibility-api) maps only `none` and `high` to that toggle. Mistral's [reasoning guide](https://docs.mistral.ai/studio/conversations/reasoning) documents adjustable effort for its current Small, Medium, and Large models. Z.ai's [core parameter guide](https://docs.z.ai/guides/overview/concept-param) differentiates GLM-5.2/5.3 effort levels from older models' thinking controls; Moonshot's [thinking-model guide](https://platform.kimi.ai/docs/guide/use-thinking-models) documents K3 effort and K2 thinking behavior. OpenAI's [reasoning guide](https://developers.openai.com/api/docs/guides/reasoning?api-mode=responses), Anthropic's [Effort guide](https://platform.claude.com/docs/en/build-with-claude/effort), and DeepSeek's [Responses API reference](https://api-docs.deepseek.com/api/create-response/) describe their provider-specific controls. Profiles are qualitative references, not task-specific recommendations or evidence about a proxy route. Operator guidance supplements, but cannot replace, the fixed `low` / `medium` / `high` score definitions.
 
 ## Settings
 
 The Desktop settings form is a flat list. Its fields are ordered by task: mode, scorer and
-provider-specific details, classification guidance, advanced limits, then display switches.
+provider-specific details, classification controls, advanced limits, then display switches.
 Provider-prefixed labels make related fields easier to scan.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `mode` | `off` | Main routing mode; `off` disables scoring and rewrites |
 | `subagent_mode` | `off` | Independent child-agent mode |
-| `scorer_provider` | `jev` | `jev`, `openrouter`, `cloudflare` or `custom`; no automatic fallback |
+| `scorer_provider` | `jev` | `jev`, `openai_decision`, `openrouter`, `cloudflare` or `custom`; no automatic fallback |
 | `jev_model` | `jev-latest` | Model sent to the Jev scoring endpoint |
 | `endpoint` | `https://api.typesafe.ai/v1/systemone` | Jev endpoint; ignored by other scorers |
-| `scorer_model` | empty | Required OpenRouter model slug or custom model name; ignored by Jev and Cloudflare |
+| `scorer_model` | empty | Optional OpenAI Decisions model (defaults to `gpt-6-luna`); required OpenRouter slug or custom model name; ignored by Jev and Cloudflare |
 | `cloudflare_account_id` | empty | Required 32-character hexadecimal account ID for Cloudflare |
 | `cloudflare_model` | `clef` | Cloudflare model selector: `clef` or `clef-flash` |
 | `custom_endpoint` | empty | Complete HTTP(S) endpoint URL for the custom scorer; no path is appended |
 | `custom_api_format` | `systemone` | Custom request/response contract: `systemone` or `chat_completions` |
 | `custom_auth` | `none` | Custom endpoint auth: `none` or `bearer` |
 | `classification_instructions` | empty | Optional extra scoring guidance, capped at 2,000 characters; visible in Desktop plugin settings |
+| `use_target_model_context` | `false` | Also send bounded target route metadata and an exact-ID local model profile to the scorer; does not apply to probe |
 | `effort_models` | empty | Optional exact model IDs separated by commas or newlines; operator assertion that a known Responses/Chat Completions request shape accepts an effort field |
 | `timeout_s` | `3.0` | HTTP timeout for classification |
 | `prompt_chars` | `4000` | Maximum task characters sent to the selected scorer; not a retention control |
@@ -278,9 +297,9 @@ Provider-prefixed labels make related fields easier to scan.
 | `show_tui_status` | `true` | Show or hide the Hermes terminal Effort status item |
 | `show_desktop_popup` | `true` | Show or hide the bottom-right Desktop effort chip, mode popup and its change notifications |
 
-Set `classification_instructions` in **Desktop → Capabilities → Plugins → Hermes Adaptive Effort** or under `plugins.entries.hermes-adaptive-effort.settings` in `config.yaml`. For example, `classification_instructions: "Prefer low for short, clearly scoped requests; reserve high for ambiguous, multi-step work."` adds a preference to the shared rubric. Leave it empty to use the built-in guidance only. Both display switches can be changed in that same Desktop settings form or configuration section.
+Set `classification_instructions` and `use_target_model_context` in **Desktop → Capabilities → Plugins → Hermes Adaptive Effort** or under `plugins.entries.hermes-adaptive-effort.settings` in `config.yaml`. For example, `classification_instructions: "Prefer low for short, clearly scoped requests; reserve high for ambiguous, multi-step work."` adds a preference to the shared rubric. Leave it empty to use the built-in guidance only. Target context is opt-in because it sends route metadata to the selected scorer. Both display switches can be changed in that same Desktop settings form or configuration section.
 
-Jev sends the selected `jev_model` in its System One request body and accepts a full route, API base or bare host; `status` shows the selected model and effective URL. OpenRouter uses its fixed chat-completions endpoint and requests `provider.zdr=true` plus `data_collection=deny`; if no eligible route is available the request fails open rather than using a non-ZDR endpoint. Cloudflare uses the account-scoped Workers AI route for the selected `cloudflare_model` (`clef` or `clef-flash`); it requires `CLOUDFLARE_AUTH_TOKEN` and a valid account ID. The custom provider posts to the exact `custom_endpoint`, passes `scorer_model`, and supports System One (`state.prompt`, `questions`, and `answers.effort.score`) or Chat Completions (JSON response with a numeric score). `custom_auth: bearer` requires `CUSTOM_SCORER_API_KEY`; `none` does not inspect credentials. Status reports readiness without exposing keys and masks URL query values. Configured scorer failures leave requests unchanged and appear in status.
+Jev sends the selected `jev_model` in its System One request body and accepts a full route, API base or bare host; `status` shows the selected model and effective URL. OpenAI Decisions posts to its fixed `/v1/decisions` endpoint with one score question and the configured model, or `gpt-6-luna` when `scorer_model` is empty; the native result must contain exactly one named `effort` score from 0 through 2. See the [Decisions guide](https://developers.openai.com/api/docs/guides/decisions) and [official changelog](https://developers.openai.com/api/docs/changelog). OpenRouter uses its fixed chat-completions endpoint and requests `provider.zdr=true` plus `data_collection=deny`; if no eligible route is available the request fails open rather than using a non-ZDR endpoint. Cloudflare uses the account-scoped Workers AI route for the selected `cloudflare_model` (`clef` or `clef-flash`); it requires `CLOUDFLARE_AUTH_TOKEN` and a valid account ID. The custom provider posts to the exact `custom_endpoint`, passes `scorer_model`, and supports System One (`state.prompt`, `questions`, and `answers.effort.score`) or Chat Completions (JSON response with a numeric score). `custom_auth: bearer` requires `CUSTOM_SCORER_API_KEY`; `none` does not inspect credentials. Status reports readiness without exposing keys and masks URL query values. Configured scorer failures leave requests unchanged and appear in status.
 
 Cloudflare Clef and Clef Flash receive the same bounded `state.prompt` and typed score question as Jev. Their REST response must have `success: true` and a finite numeric `result.answers.effort.score` from 0 through 2. See the [Clef](https://developers.cloudflare.com/workers-ai/models/clef/), [Clef Flash](https://developers.cloudflare.com/workers-ai/models/clef-flash/) and [Workers AI REST API](https://developers.cloudflare.com/workers-ai/get-started/rest-api/) documentation.
 
@@ -290,13 +309,17 @@ Cloudflare configuration failures use `account_missing` or `account_invalid`; tr
 
 The CLI reports actual applied changes, such as `Effort changed: high -> low`. On hosts with the CLI status-item API, it also shows the last applied effort. Set `show_tui_status: false` to hide that status item; the setting is read on the next outgoing request.
 
-The optional Desktop extension provides a small effort chip, a mode-selection popup, a details pane and mode controls. The popup groups the active mode and its effect, the focused conversation's effort and route, scorer/model readiness, and whether extra classification guidance is configured. Enable the extension in Desktop's plugin controls after installing the package; if the host does not discover the package's `desktop/` extension, that extension must be deployed to the host's `desktop-plugins/hermes-adaptive-effort/` directory separately. The agent plugin must also be enabled for its backend to work. Set `show_desktop_popup: false` in **Capabilities → Plugins → Hermes Adaptive Effort** to hide the bottom-right chip, popup and its change notifications; the details pane remains available.
+The optional Desktop extension provides a compact **Routing mode** popup from the Effort chip. Hover over a mode for a short explanation, then use **More** to see the focused chat's effort and route, scorer/model readiness, guidance and gateway status. If effort is `N/A`, the details give the reason; a newly observed unsupported route or scorer failure also shows one warning toast while that chat is open. The toast says the request was sent unchanged and is not added to transcript history. **Activity** expands separately to show aggregate counters and the latest result across conversations; the sidebar already shows the last applied effort. Closing the popup returns to the compact view. After an effort rewrite reaches a request in the focused chat, Desktop updates that chat's native reasoning selector through a session-scoped Hermes API call and shows the same `from → to` transition in a toast. Background chats are cached for the chip when focused later, but their changes do not toast or synchronize the native selector. Hermes child-isolated turns cannot be synchronized through the parent session API; Desktop reports that limitation and leaves the selector unchanged. A rejected or unconfirmed selector update reports a short notice without affecting the request. This feature does not write global Hermes settings. Enable the extension in Desktop's plugin controls after installing the package; if the host does not discover the package's `desktop/` extension, that extension must be deployed to the host's `desktop-plugins/hermes-adaptive-effort/` directory separately. The agent plugin must also be enabled for its backend to work. Set `show_desktop_popup: false` in **Capabilities → Plugins → Hermes Adaptive Effort** to hide the chip, popup and notifications; focused-session synchronization continues independently of the display setting.
 
-The chip follows the focused conversation and backend/profile, including after a completed turn while its result remains cached. In `off`, the popup can still identify a route observed on that conversation; effort stays `N/A` until there is a usable decision. Change notifications and the pane's latest transition reflect activity across conversations.
+![Hermes Desktop Routing mode popup in its compact view](docs/images/routing-mode-popover.png)
+
+The chip follows the focused conversation and backend/profile, including after a completed turn while its result remains cached. In `off`, the popup can still identify a route observed on that conversation; effort stays `N/A` until there is a usable decision. Applied-change toasts come from the session-scoped decision event, so the transition is paired with the effort shown for that focused chat. The anonymous `/changes` feed remains global and only refreshes status; it cannot supply the focused conversation's effort.
+
+Middleware also publishes `plugin.hermes-adaptive-effort.decision.updated` with a versioned, allowlisted status snapshot so Desktop can receive child-process decisions promptly. The event is scoped by source connection, profile, runtime session, stream and revision. It contains no prompt, guidance text or credentials. The existing `/changes` endpoint remains an anonymous feed of applied effort values and does not identify a conversation.
 
 ## Compatibility and limits
 
-A reasoning-capable model is not enough: its vendor must accept an effort control on the exact route. `unsupported` with zero probes usually means there is no field to change. OpenCode Go's `space-bunny-free` profile remains outside the verified route list. All active modes can add a missing field only for exact routes in the compatibility matrix, or for exact IDs an operator manually lists in `effort_models`. That list is an operator assertion, never vendor evidence; it uses no wildcards and works only with known Responses or Chat Completions containers. Generic OpenAI-compatible fallback does not prove route support.
+A reasoning-capable model is not enough: its vendor must accept an effort control on the exact route. `unsupported` with zero probes usually means there is no field to change. Current `space-bunny` has a profile, while it and the legacy `space-bunny-free` alias remain outside the verified injection list. All active modes can add a missing field only for exact routes in the compatibility matrix, or for exact IDs an operator manually lists in `effort_models`. That list is an operator assertion, never vendor evidence; it uses no wildcards and works only with known Responses or Chat Completions containers. Generic OpenAI-compatible fallback does not prove route support.
 
 The route vocabulary comes from Hermes plus narrow mappings for Kimi K3, GLM-5.2/5.3 and the exact Muse tiers listed below. Unknown routes use Hermes' broad OpenAI-compatible vocabulary for existing-field rewrites, which cannot guarantee vendor acceptance and never makes a route eligible for injection. **Known gap:** Ox Alpha / `x-preview-f-free` can reject `medium` with HTTP 400. That gap is documented rather than silently remapped.
 
@@ -339,7 +362,7 @@ At revision `7ad378a`, the full network-free suite passed on Iris (Linux, Python
 
 ### Exact-route effort-field support
 
-The plugin defaults to `off`. A missing effort field is added only for positively verified routes or exact model IDs explicitly listed in `effort_models`. The current OpenCode Go registry includes exact Responses models, effort-only Chat Completions models, and paired controls only when the request already enables thinking. Every model published in the current Go catalog has an explicit tested add/no-op outcome in the [compatibility matrix](docs/MODEL_COMPATIBILITY.md).
+The plugin defaults to `off`. A missing effort field is added only for positively verified routes or exact model IDs explicitly listed in `effort_models`. The current OpenCode Go registry includes exact Responses models, effort-only Chat Completions models, and paired controls only when the request already enables thinking. Every model published in the current Go docs has an explicit compatibility disposition in the [compatibility matrix](docs/MODEL_COMPATIBILITY.md); this does not mean every upstream route has been live-tested.
 
 | Provider | Exact model IDs | `api_mode` | Wire values |
 | --- | --- | --- | --- |

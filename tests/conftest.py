@@ -119,6 +119,26 @@ def no_network():
         yield guard
 
 
+@pytest.fixture(scope="session", autouse=True)
+def no_live_plugin_event_broadcast():
+    """Keep ordinary middleware tests from writing into a running Hermes gateway.
+
+    The dedicated Desktop-event contract tests install their own fake event module
+    and verify the payload. Everywhere else, event delivery is an external app
+    surface and should stay hermetic like network access.
+    """
+    try:
+        from hermes_cli import plugin_events
+    except Exception:
+        yield
+        return
+
+    from unittest.mock import patch
+
+    with patch.object(plugin_events, "broadcast_plugin_event", lambda *args, **kwargs: None):
+        yield
+
+
 @pytest.fixture(autouse=True)
 def hermetic_plugin_settings(monkeypatch):
     """Every test starts from the documented defaults, never from the live profile.

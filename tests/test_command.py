@@ -124,6 +124,25 @@ def test_status_reports_selected_scorer_and_active_endpoint(monkeypatch):
         "https://openrouter.ai/api/v1/chat/completions"
 
 
+def test_openai_decisions_status_reports_default_model_fixed_endpoint_and_credential(monkeypatch):
+    configured = {"scorer_provider": "openai_decision"}
+    monkeypatch.setattr(middleware, "_settings_provider",
+                        lambda key, default=None: configured.get(key, default))
+    monkeypatch.setattr(middleware._scorers.openai_decision_client, "_default_key_reader",
+                        lambda: "")
+
+    payload = json.loads(command.handle("status json"))
+    rendered = command.handle("status")
+    endpoint = "https://api.openai.com/v1/decisions"
+    assert payload["settings"]["scorer_provider"] == "openai_decision"
+    assert payload["settings"]["scorer_model_effective"] == "gpt-6-luna"
+    assert payload["settings"]["endpoint_effective"] == endpoint
+    assert payload["credential_required"] is True
+    assert payload["credential"] is False
+    assert f"endpoint: {endpoint}" in rendered
+    assert "configured: https://api.typesafe.ai" not in rendered
+
+
 def test_custom_scorer_status_redacts_endpoint_query_values(monkeypatch):
     configured = {
         "scorer_provider": "custom",
@@ -275,6 +294,35 @@ def test_probe_reports_score_and_label(monkeypatch, no_network):
     assert payload["label"] == "high"
     assert payload["failure"] is None
     assert payload["elapsed_ms"] >= 0
+
+
+def test_openai_decisions_probe_sends_only_typed_text_and_hides_it_from_output(
+        monkeypatch, no_network):
+    configured = {
+        "mode": "auto",
+        "scorer_provider": "openai_decision",
+        "classification_instructions": "PRIVATE_GUIDANCE_MARKER",
+    }
+    use_settings(monkeypatch, configured)
+    monkeypatch.setattr(middleware._scorers.openai_decision_client, "_default_key_reader",
+                        lambda: "test-openai-key")
+    requests = []
+
+    def transport(request, _timeout):
+        requests.append(request)
+        return {"answers": [{"name": "effort", "type": "score", "score": 1.0}]}
+
+    monkeypatch.setattr(middleware._scorers.openai_decision_client, "_default_transport", transport)
+    text = "PRIVATE_OPERATOR_PROBE_TEXT"
+    rendered = command.handle(f"probe {text}")
+    payload = json.loads(rendered)
+    body = json.loads(requests[0].data.decode("utf-8"))
+
+    assert payload["score"] == 1.0
+    assert body["input"] == text
+    assert "PRIVATE_GUIDANCE_MARKER" in body["questions"][0]["instructions"]
+    assert text not in rendered and "PRIVATE_GUIDANCE_MARKER" not in rendered
+    assert middleware.session_state() == {}
 
 
 def test_probe_is_bounded_and_writes_no_session_state(monkeypatch, no_network):

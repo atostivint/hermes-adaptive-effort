@@ -8,13 +8,15 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
 
-from . import cloudflare_client, custom_client, jev_client, openrouter_client
+from . import (cloudflare_client, custom_client, jev_client, openai_decision_client,
+               openrouter_client)
 
 JEV = "jev"
 OPENROUTER = "openrouter"
 CLOUDFLARE = "cloudflare"
 CUSTOM = "custom"
-PROVIDERS = (JEV, OPENROUTER, CLOUDFLARE, CUSTOM)
+OPENAI_DECISION = "openai_decision"
+PROVIDERS = (JEV, OPENROUTER, CLOUDFLARE, CUSTOM, OPENAI_DECISION)
 
 
 def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]]:
@@ -38,6 +40,16 @@ def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]
         try:
             return openrouter_client.OpenRouterClient(
                 model=model,
+                timeout=settings["timeout_s"],
+                max_prompt_chars=settings["prompt_chars"],
+                classification_instructions=settings.get("classification_instructions", ""),
+            ), None
+        except Exception:
+            return None, "classifier_error"
+    if provider == OPENAI_DECISION:
+        try:
+            return openai_decision_client.OpenAIDecisionClient(
+                model=settings.get("scorer_model") or openai_decision_client.DEFAULT_MODEL,
                 timeout=settings["timeout_s"],
                 max_prompt_chars=settings["prompt_chars"],
                 classification_instructions=settings.get("classification_instructions", ""),
@@ -85,6 +97,8 @@ def credential_present(provider: Any = JEV, custom_auth: Any = "none") -> bool:
         return jev_client.credential_present()
     if selected == OPENROUTER:
         return openrouter_client.credential_present()
+    if selected == OPENAI_DECISION:
+        return openai_decision_client.credential_present()
     if selected == CLOUDFLARE:
         return cloudflare_client.credential_present()
     if selected == CUSTOM and str(custom_auth or "none").strip().lower() == "bearer":
@@ -97,7 +111,7 @@ def credential_required(provider: Any = JEV, custom_auth: Any = "none") -> bool:
     selected = str(provider or JEV).strip().lower()
     if selected == CUSTOM:
         return str(custom_auth or "none").strip().lower() == "bearer"
-    return selected in (JEV, OPENROUTER, CLOUDFLARE)
+    return selected in (JEV, OPENROUTER, CLOUDFLARE, OPENAI_DECISION)
 
 
 def endpoint_for(provider: Any, jev_endpoint: Any, cloudflare_account_id: Any = "",
@@ -107,6 +121,9 @@ def endpoint_for(provider: Any, jev_endpoint: Any, cloudflare_account_id: Any = 
     selected = str(provider or JEV).strip().lower()
     if selected == OPENROUTER:
         endpoint = openrouter_client.DEFAULT_ENDPOINT
+        return endpoint, endpoint
+    if selected == OPENAI_DECISION:
+        endpoint = openai_decision_client.DEFAULT_ENDPOINT
         return endpoint, endpoint
     if selected == CLOUDFLARE:
         endpoint = cloudflare_client.endpoint_for(cloudflare_account_id, cloudflare_model)
@@ -127,6 +144,9 @@ def model_for(provider: Any, configured_model: Any,
         return str(jev_model or jev_client.JEV_MODEL).strip() or jev_client.JEV_MODEL
     if selected == CLOUDFLARE:
         return cloudflare_client.model_path_for(cloudflare_model)
+    if selected == OPENAI_DECISION:
+        return str(configured_model or openai_decision_client.DEFAULT_MODEL).strip() \
+            or openai_decision_client.DEFAULT_MODEL
     return str(configured_model or "").strip()
 
 

@@ -171,6 +171,47 @@ def test_real_dispatcher_discovers_registers_and_rewrites(dispatched, no_network
     assert payload["last"]["score"] == pytest.approx(1.9)
 
 
+def test_real_dispatcher_routes_through_openai_decisions_adapter(dispatched, no_network, monkeypatch):
+    from hermes_cli.middleware import apply_llm_request_middleware
+
+    middleware = dispatched["middleware"]
+    middleware.reset_state()
+    middleware._classifier_factory = None
+    settings = {"mode": "auto", "scorer_provider": "openai_decision", "scorer_model": ""}
+    monkeypatch.setattr(
+        middleware, "_settings_provider", lambda key, default=None: settings.get(key, default))
+    client = _payload_module(dispatched["home"], ".openai_decision_client")
+    monkeypatch.setattr(client, "_default_key_reader", lambda: "test-openai-key")
+    requests = []
+
+    def transport(request, _timeout):
+        requests.append(request)
+        return {"answers": [{"name": "effort", "type": "score", "score": 1.75}]}
+
+    monkeypatch.setattr(client, "_default_transport", transport)
+    request = _recorded()
+    result = apply_llm_request_middleware(
+        request,
+        session_id="sess-int-openai-decisions",
+        provider="openrouter",
+        model="openrouter/meta/llama-3.3-70b-instruct",
+        api_mode="chat",
+        turn_id="turn-openai-decisions",
+    )
+
+    assert result.changed is True
+    assert result.payload["extra_body"]["reasoning"]["effort"] == "high"
+    assert len(requests) == 1
+    body = json.loads(requests[0].data.decode("utf-8"))
+    assert requests[0].full_url == "https://api.openai.com/v1/decisions"
+    assert body["model"] == "gpt-6-luna"
+    assert body["input"] == "Design a multi-region failover plan."
+    entry = middleware.session_state()["sess-int-openai-decisions/turn-openai-decisions"]
+    assert entry["scorer_provider"] == "openai_decision"
+    assert entry["scorer_model"] == "gpt-6-luna"
+    assert entry["probes"] == 1
+
+
 def test_real_dispatcher_leaves_the_request_untouched_when_mode_is_off(dispatched, no_network):
     from hermes_cli.middleware import apply_llm_request_middleware
 
@@ -354,5 +395,6 @@ def test_real_dispatcher_marks_an_unwritable_request_unsupported(dispatched, no_
     assert result.payload["extra_body"]["reasoning"]["effort"] == "medium"
     entry = middleware.session_state()["sess-int-none/turn-none"]
     assert entry["state"] == "unsupported"
+    assert entry["failure"] == "reasoning_disabled"
     assert entry["probes"] == 0
     assert probes["n"] == 0

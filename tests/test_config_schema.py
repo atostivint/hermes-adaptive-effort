@@ -47,14 +47,17 @@ def test_effort_model_setting_replaces_the_injection_setting():
 def test_scorer_schema_keeps_jev_default_and_requires_model_for_openrouter():
     schema = _load_manifest()["config_schema"]
     assert set(schema["scorer_provider"].get("choices") or []) == {
-        "jev", "openrouter", "cloudflare", "custom"}
+        "jev", "openrouter", "cloudflare", "custom", "openai_decision"}
     assert schema["scorer_provider"].get("default") == middleware.DEFAULTS["scorer_provider"]
     assert schema["jev_model"].get("default") == middleware.DEFAULTS["jev_model"]
     assert schema["jev_model"].get("type") == "str"
     assert "Jev" in schema["jev_model"].get("label", "")
     assert schema["scorer_model"].get("default") == middleware.DEFAULTS["scorer_model"]
     assert "OPENROUTER_API_KEY" in schema["scorer_provider"].get("description", "")
+    assert "OPENAI_API_KEY" in schema["scorer_provider"].get("description", "")
+    assert "gpt-6-luna" in schema["scorer_provider"].get("description", "")
     assert "required when" in schema["scorer_model"].get("description", "")
+    assert "Optional for OpenAI Decisions" in schema["scorer_model"].get("description", "")
 
 
 def test_custom_scorer_schema_defaults_and_choices_match_settings():
@@ -87,6 +90,9 @@ def test_config_schema_types_and_defaults_match_middleware():
     for key in ("show_tui_status", "show_desktop_popup"):
         assert schema[key]["type"] == "bool"
         assert schema[key]["default"] is middleware.DEFAULTS[key] is True
+    assert schema["use_target_model_context"]["type"] == "bool"
+    assert schema["use_target_model_context"]["default"] is False
+    assert "observed effort" in schema["use_target_model_context"]["description"]
 
 
 def test_config_schema_declares_no_secret():

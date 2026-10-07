@@ -1,6 +1,6 @@
 # Handoff — `hermes-adaptive-effort`
 
-**Operator snapshot, updated 2026-10-06 after deployment.** Start with [README](../README.md) for user guidance, [runtime contracts](CONTRACTS.md) for behavior, [design choices](DESIGN.md) for rationale and [development](DEVELOPMENT.md) for contributor setup. Historical evidence is indexed in [docs/README.md](README.md).
+**Operator snapshot, updated 2026-10-07 after deployment.** Start with [README](../README.md) for user guidance, [runtime contracts](CONTRACTS.md) for behavior, [design choices](DESIGN.md) for rationale and [development](DEVELOPMENT.md) for contributor setup. Historical evidence is indexed in [docs/README.md](README.md).
 
 This file is the single entry point for an agent picking the work up cold. It states
 what the project is, what is verified today, what is *not* finished, and recorded operational gaps. Host state below is dated evidence, not a fresh health check.
@@ -33,17 +33,29 @@ restarted and is active. The local Hermes Agent lists `hermes-adaptive-effort` a
 Hermes Desktop was restarted after its extension files were updated. No operator settings
 were changed and no live scorer request was issued.
 
+The current local working tree additionally implements the OpenAI Decisions scorer and
+opt-in target-model scoring context. The catalog now has 76 profiles for 121 exact model IDs,
+including a reviewed snapshot of OpenRouter's 23 free variants, GLM, Kimi, and exact IDs for all
+30 models in the current OpenCode Go docs. Space Bunny has no identified upstream lab, so its
+profile cites OpenCode's own listing and asserts no effort levels. The network-free suite
+previously covered **503 tests**, including the real dispatcher path, and Ruff passed; the
+2026-10-07 catalog expansion has not been re-run through either command. These additions have
+not been pushed or deployed, and no live scorer request or account probe has been made; access,
+latency, quality and cost remain unverified.
+
 ---
 
 ## 1. What this is
 
 A Hermes plugin that lets a selected external rubric scorer choose the
 **reasoning effort** of each LLM request. Jev (TypeSafe) remains the default;
-OpenRouter, Cloudflare, and a configurable custom endpoint are other explicit choices;
+OpenAI Decisions, OpenRouter, Cloudflare, and a configurable custom endpoint are other explicit choices;
 Cloudflare's `clef` and `clef-flash` models are selectable. The classifier is independent of
 the model that answers the conversation. Enabling a routing mode authorizes sending task
-text to the selected scorer; choosing a provider while mode is `off` sends nothing. `probe`
-sends its typed text plus optional configured classification guidance.
+text to the selected scorer; choosing a provider while mode is `off` sends nothing. The
+opt-in `use_target_model_context` setting additionally shares route/model/current-effort
+metadata and an exact-ID local profile during active classifications. `probe` sends its
+typed text plus optional configured classification guidance, without target metadata.
 
 Jev's model is now configurable through the `jev_model` setting and defaults to
 `jev-latest`. The Desktop settings manifest is a flat field list, so it uses
@@ -69,6 +81,12 @@ endpoint privacy/retention is determined by the operator's service; the plugin d
 guarantee ZDR. The Zenon Kev benchmark ([report](reviews/local-scorer-benchmark-20261005T090911Z.md))
 exercised it live; see §2.
 
+OpenAI Decisions uses its fixed beta API endpoint, requires `OPENAI_API_KEY`, and defaults
+to `gpt-6-luna` when the shared `scorer_model` setting is empty. Explicit model values pass
+through to the API and fail open if rejected. The [official guide](https://developers.openai.com/api/docs/guides/decisions)
+defines the native ordered score question and response contract. This implementation has
+network-free fake-transport coverage; live account access and behavior remain unverified.
+
 The repository root is the **payload**; Hermes installs it at
 `~/.hermes/plugins/hermes-adaptive-effort`. Tests, docs and development tools live beside it.
 There is deliberately **no `[project]` table** — nothing here is pip-installable, so
@@ -86,10 +104,13 @@ The payload directory, plugin ID, slash command, dashboard route and Desktop ide
 `hermes-adaptive-effort`. Jev remains the default scorer. OpenRouter is explicit opt-in,
 requires a configured model and `OPENROUTER_API_KEY`; Cloudflare requires a valid account ID,
 `CLOUDFLARE_AUTH_TOKEN`, and can select `clef` or `clef-flash`. Providers never fall back to
-Jev. Enabling a routing mode sends task text to the selected scorer. OpenRouter requests
-require ZDR endpoints and deny data-collecting endpoints; the plugin cannot assure ZDR for
-Jev, Cloudflare, or custom endpoints. The custom provider implementation
-supports exact HTTP(S) endpoint URLs with `systemone` or `chat_completions` formats and
+Jev. OpenAI Decisions is an explicit choice using `OPENAI_API_KEY` and defaults to
+`gpt-6-luna`; a configured `scorer_model` is sent unchanged. Enabling a routing mode sends
+task text to the selected scorer. OpenRouter requests require ZDR endpoints and deny
+data-collecting endpoints; the plugin cannot assure ZDR for Jev, Cloudflare, or custom
+endpoints. OpenAI documents ZDR for eligible Decisions API customers; this account's
+eligibility has not been checked. The custom provider implementation supports exact
+HTTP(S) endpoint URLs with `systemone` or `chat_completions` formats and
 `none` or `bearer` authentication. Its code path has network-free unit-test coverage;
 the Zenon local-scorer evaluation below exercised it live with Kev models.
 
@@ -109,14 +130,15 @@ before a completion. This neither establishes whether the submitted effort field
 nor validates native OpenCode Zen's contributor-free route; that route remains unverified.
 No retry or code workaround followed.
 
-The expanded route registry and explicit no-op outcomes for all 43 IDs in the 2026-10-05
-OpenCode Go catalog snapshot are documented in [MODEL_COMPATIBILITY.md](MODEL_COMPATIBILITY.md).
-The matrix includes documented OpenAI, xAI, Kimi, Z.ai, DeepSeek and Muse effort routes when
-the exact carrier is known. Paired GLM-5.3/DeepSeek controls are eligible only when the request
-already enables thinking. The optional force list is exact, case-insensitive, comma/newline
-separated, and cross-provider by bare model ID; it is an operator assertion, not vendor proof.
-Only `codex_responses` and `chat_completions` have generic force-list carriers. All disabled or
-malformed controls remain untouched, and no thinking toggle is created.
+The route registry and compatibility dispositions for the 44-ID union of the 2026-10-05
+OpenCode Go catalog snapshot and current docs list are documented in
+[MODEL_COMPATIBILITY.md](MODEL_COMPATIBILITY.md). The matrix includes documented OpenAI, xAI,
+Kimi, Z.ai, DeepSeek and Muse effort routes when the exact carrier is known. Paired
+GLM-5.3/DeepSeek controls are eligible only when the request already enables thinking. The
+optional force list is exact, case-insensitive, comma/newline separated, and cross-provider by
+bare model ID; it is an operator assertion, not vendor proof. Only `codex_responses` and
+`chat_completions` have generic force-list carriers. All disabled or malformed controls remain
+untouched, and no thinking toggle is created.
 
 On 2026-10-05, the custom-provider implementation passed the Windows suite (**380 tests**), Ruff, and Hermes catalog validation (`validate_plugin_dir`, all checks passed). The Zenon setup installed the pinned Windows CUDA builds llama.cpp b11396 and llama-swap v262, verified both GGUF SHA-256 hashes, validated the two-model config, and exercised sequential model switching. Both Kev models returned System One scores through the plugin's `custom` provider. During the live run, 60 synthetic bilingual prompts were classified three times per model; all 180 warmed calls per model succeeded. Fixed-label agreement was **50%** for Kev 0.8B and **60%** for Kev 4B, with no `high` predictions from either model. Kev 4B's cold plugin probe hit the configured 3-second timeout; after loading, its warmup and measured calls succeeded. The observed GPU reached 58% utilization and 8,753 MiB used during the final run. These are exploratory synthetic results, not human-gold labels or a Jev comparison. See [the local scorer report](reviews/local-scorer-benchmark-20261005T090911Z.md).
 
@@ -133,13 +155,16 @@ up at `%LOCALAPPDATA%\Temp\hermes-adaptive-effort-deploy-20261006T102009\plugin.
 The full Windows suite and Ruff passed after the links were repaired; the suite used a new
 temporary directory because an older pytest temp directory has a foreign ACL.
 
-**Iris.** `/root/.hermes/plugins/hermes-adaptive-effort` is clean at `4517c38` on `master`.
-The separately installed Desktop file matches the checkout at SHA-256
-`d514792b49d0e768603f856375b5d9e7b5430a863c234fce311f7ce07bf63e0f`. The previous Desktop
-file is backed up at `/root/.hermes/cache/scratch/hermes-adaptive-effort-deploy-20261006T102100Z/`.
-All 387 tests, including Hermes dispatcher integration, and Ruff passed from this active
-checkout. `hermes-gateway.service` was restarted and confirmed active. No live scorer request
-or operator configuration change was made.
+**Iris.** The 2026-10-07 working-tree update is installed in
+`/root/.hermes/plugins/hermes-adaptive-effort`, based on commit `a267ceb`. The checkout is
+intentionally dirty because this deployment copied the current uncommitted working tree;
+the installed plugin and separate Desktop `plugin.js` match at SHA-256
+`04c3e26aad8d1ecec3ba6510a6d85d49f2ab5d13c02ee7969c2be7a156532ce8`. The prior Desktop
+file and a rollback script are kept in
+`/root/.hermes/cache/scratch/hermes-adaptive-effort-deploy-20261007T080404Z/`. All 503 pytest
+tests, the 9-case Desktop behavior harness, and Ruff passed from the Iris checkout, including
+real Hermes dispatcher integration. `hermes-gateway.service` was restarted and is active
+with `ExecMainStatus=0`. No live scorer request or operator configuration change was made.
 
 Historical migration diagnostic (2026-10-03): the Windows Plugin Doctor check passed. The
 Iris Doctor invocation also triggered Hermes' source/dependency updater and exited with a
@@ -169,15 +194,19 @@ hermes plugins install 'atostivint/hermes-adaptive-effort' --enable
 
 ## 3. Live configuration
 
-The unset mode remains `off` in this source revision. The 2026-10-06 deployment updated the
-Iris plugin checkout to `4517c38` and restarted the gateway; it did not read or modify the
-operator's config. The last recorded host snapshot showed `mode: auto` with
+The unset mode remains `off` in this source revision. The 2026-10-07 deployment updated the
+Iris plugin working tree based on `a267ceb` and restarted the gateway; it did not read or
+modify the operator's config. The last recorded host snapshot showed `mode: auto` with
 `endpoint: https://api.typesafe.ai/v1/systemone` and Jev as the effective scorer. Verify the
 live values before changing them. With `mode: auto`, bounded task text is sent to Jev for
 scoring. OpenRouter requires
 `scorer_provider: openrouter`, `scorer_model`, and `OPENROUTER_API_KEY`. Cloudflare requires
 `scorer_provider: cloudflare`, `cloudflare_account_id`, a `cloudflare_model` choice, and
 `CLOUDFLARE_AUTH_TOKEN`.
+
+OpenAI Decisions uses `scorer_provider: openai_decision` and `OPENAI_API_KEY`. Its model
+defaults to `gpt-6-luna`; an optional `scorer_model` is passed through as configured. Status
+reports credential presence and the fixed endpoint without making a scorer request.
 
 The endpoint is the full scoring route, retained from the prior install. Do not simplify it
 to `https://api.typesafe.ai/v1`; `jev_client.normalize_endpoint()` handles base URLs, but
@@ -196,8 +225,8 @@ is selected as an automatic fallback.
 The plugin directory and Desktop plugin are separate install surfaces. Deploy both when
 `desktop/plugin.js` changes, then restart the relevant Hermes process so already-imported
 Python modules reload. The Windows source junctions were verified against their old targets
-before being redirected to the current checkout. The Iris Git checkout can be rolled back to
-the recorded previous commit; the prior Desktop file is preserved in the backup above.
+before being redirected to the current checkout. The Iris working-tree update can be rolled
+back with the script in the backup above; the prior Desktop file is preserved alongside it.
 
 The Iris gateway is `hermes-gateway.service` in root's user systemd manager. Existing
 isolated Desktop serve processes are separate long-lived processes and may need to reconnect
@@ -234,7 +263,9 @@ or restart before they import changed Python modules.
    NaN/inf, bool, non-numeric → `None` → fail open. The default classifier guidance
    weighs task complexity, ambiguity, scope, reasoning steps, tool/research depth and
    explicit speed/cost priorities; optional `classification_instructions` supplements the
-   fixed score contract and is capped at 2,000 characters.
+   fixed score contract and is capped at 2,000 characters. `use_target_model_context` is
+   opt-in; it adds bounded route identity, observed effort and an exact-ID vendor profile
+   to normal scoring input. The observed effort is not a scoring recommendation.
    In `off`, the middleware may retain bounded provider/model/API-mode metadata for the
    Desktop popup; it never scores or changes the request in that mode.
 6. **Fail-open everywhere.** `on_llm_request` catches all exceptions. Stable reason codes:
@@ -248,8 +279,10 @@ or restart before they import changed Python modules.
 8. **Enabling a routing mode authorizes prompt sharing with the selected scorer.**
    Provider selection alone while mode is `off` sends nothing; `probe` sends only typed text
    plus optional operator guidance. Normal classifications send the bounded latest-user
-   excerpt plus optional guidance (maximum 2,000 characters); `prompt_chars` caps the excerpt
-   only and says nothing about provider retention. Guidance content is never returned in
+   excerpt plus optional guidance (maximum 2,000 characters); with `use_target_model_context`,
+   they also receive bounded target identity, observed effort and a local profile (maximum
+   1,400 characters). `prompt_chars` caps the excerpt only and says nothing about provider
+   retention. Guidance or target context is never returned in
    status, logs, probe output, session state or the change feed; status may report only its
    presence and character count. OpenRouter requests require ZDR endpoints and deny
    data-collecting endpoints. The plugin gives no ZDR guarantee for Jev, Cloudflare, or
@@ -280,6 +313,8 @@ The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separ
   `choices` **must** stay in sync with `middleware.DEFAULTS` / `VALID_MODES`; the
   settings writer refuses mismatches, and `tests/test_config_schema.py` enforces it.
   `classification_instructions` customizes the shared rubric across all providers;
+  `use_target_model_context` opt-ins to the common prefix; `model_profiles.json` holds
+  exact-ID reviewed profiles so new model coverage is a data-only edit;
   `show_tui_status` and `show_desktop_popup` control their respective visible elements.
 * **`dashboard/plugin_api.py`** — FastAPI backend mounted at
 `/api/plugins/hermes-adaptive-effort/`: `GET /status`, `GET /changes`, `POST /mode`,
@@ -303,23 +338,50 @@ The plugin, dashboard backend, Desktop surface and Hermes CLI host API are separ
   `stream_id`, which is the chip's signal to drop its cursor (it must — the sequence
   restarts). Degrades to a `503 agent_plugin_not_loaded` / `changes_failed` payload
   like `/status`.
+* **Public live decision event** — the request middleware broadcasts
+  `plugin.hermes-adaptive-effort.decision.updated` via Hermes' plugin event bridge.
+  Payload schema `hermes-adaptive-effort.desktop-status.v1` carries runtime session ID,
+  stream ID, increasing revision, exact provider/model/API-mode route, allowlisted status,
+  selector-sync capability and an optional actual-rewrite marker. Finalize/reset emits a
+  clear event. The status allowlist is shared with `/hae status`; payloads contain no prompt,
+  guidance text, request body or credential. Broadcasting is best effort and middleware
+  remains fail-open. `/changes` stays backward-compatible and anonymous.
 * **`desktop/plugin.js`** — opt-in desktop plugin (`defaultEnabled: false`): a status-bar
-  chip `Effort: <focused conversation's latest decided effort>`, with its focused route's
-  provider/model in the details, and an `Adaptive Effort` pane with
-  the global latest transition, and one toast per newly observed applied change. Toasts apply across conversations because the feed has no session id.
-  The mode popup groups the current mode/description, focused-chat effort, scorer/model and
-  credential readiness, live conversation route, plus whether extra classifier guidance is configured.
-  `show_desktop_popup: false` hides the bottom-right chip, its mode-selection popup and those
-  notifications; the details pane remains available. `show_tui_status: false` blanks the
+  chip `Effort: <focused conversation's latest decided effort>`, with a compact Routing mode
+  popup with hover explanations for each mode and a local details toggle. The complete view
+  retains focused-chat effort and route, scorer/model and credential readiness, guidance, and
+  gateway state, including a prompt-free explanation whenever focused-chat effort is `N/A`.
+  A newly observed failed/unsupported result on the open chat triggers one in-app warning toast
+  explaining why the request was left unchanged; the toast is not added to transcript history.
+  A separate Activity disclosure shows aggregate counters and the latest global
+  result; it omits the last-applied effort already visible in the sidebar. Closing the popup
+  collapses both disclosures. Global activity does not supply the focused-chat effort. An
+  applied-change toast comes from a fresh decision event for the focused owner/session and
+  shows the same `from → to` transition as its chip value; background changes do not toast.
+  `show_desktop_popup: false` hides the chip, popup and notifications. `show_tui_status: false` blanks the
   optional CLI status item, and the setting is re-read on an outgoing request.
-  The changes feed and chip status poll every 2 s;
-  the chip reads `host.state.focusedSessionId` and matches `conversation_id` exactly, so
+  The changes feed and focused-chat status poll every 2 s. Each new applied-change
+  feed item also refreshes focused-chat status immediately; the chip reads
+  `host.state.focusedSessionId` and matches `conversation_id` exactly, so
   another chat's activity cannot change its effort. A focused chat with no decision,
   an unsupported request, or an in-flight classification shows `Effort: N/A`. Mode `off`
   records provider/model/API-mode metadata for route display but never classifies or
   rewrites. The global changes feed never supplies a fallback effort. Initial history is treated as
-  a baseline, not replayed as toasts. Pane status/mode polling remains every 15 s.
+  a baseline, not replayed as toasts. The removed sidebar pane has no separate polling loop.
   Shows `Effort: N/A` when the backend is absent.
+  Live decisions are keyed by event source connection/profile and runtime session; replays,
+  stale revisions and retired streams are ignored. A fresh focused-chat event wins over an
+  empty or older parent-process status response. Events from background chats never trigger
+  selector updates, including when a chat is focused later.
+  An actual applied rewrite for the currently focused owner/session/model may update the native
+  reasoning selector through `config.set` with explicit `scope: "session"` and the runtime
+  session ID. No global write or active-backend fallback is allowed. Repeated markers, no-ops,
+  failures, unsupported decisions, `off`, stale events and background decisions cannot trigger
+  that RPC. The selected session effort remains after switching routing to `off`.
+  Child-isolated middleware advertises selector sync as unavailable; Desktop skips the RPC and
+  shows a concise notice. In supported sessions, a matching `session.info` event must confirm
+  the update within five seconds; refusal or timeout shows a notice and does not retry.
+  Display visibility (`show_desktop_popup`) does not gate event processing or session sync.
 * **Interactive CLI status bar** — the plugin registers `Effort: —` through the generic
   Hermes `PluginContext.register_cli_status_item()` host API and updates it after each
   distinct applied rewrite. The status handle also prints one bounded notice above the
@@ -340,9 +402,10 @@ plugin is disabled, or the dashboard half is not deployed), the chip correctly s
 2. **Cost effect is unmeasured.** No live A/B has been run, so every cost or cache claim
    in the README is an expectation, not a measurement. Do not restate them as results.
 3. **Custom scorer / Kev:** local setup, model loading, GPU use, and the initial warm-latency trial are verified. Both models missed the `high` class on the synthetic benchmark; agreement with its fixed labels was only 50% / 60%. No Jev A/B or human-labeled evaluation has been run. Treat quality as exploratory and do not claim parity or superiority.
-4. **Cloudflare Clef / Clef Flash:** the existing Clef adapter had network-free tests; the new Flash selector was not tested in this checkout. Live latency, scoring quality and cost evaluation remain pending; Iris has no Cloudflare account ID setting and no matching prompt-sharing consent, so no live request was sent.
-5. **OpenRouter evaluation:** OpenRouter ZDR routing is requested per call; no live scorer request or model comparison has been run.
-6. **Pre-install backups** sit in `~/.hermes/cache/scratch/` (`jev-backup-20260930-080501`,
+4. **Cloudflare Clef / Clef Flash:** the existing Clef adapter had network-free tests; the new Flash selector was not tested in this checkout. Live latency, scoring quality and cost evaluation remain pending; Iris has no Cloudflare account ID setting, so no live request was sent.
+5. **OpenAI Decisions evaluation:** no live request or account probe has been made. Verify account access and measure latency, quality and cost before enabling it for routing. The public API is beta; ZDR is documented only for eligible customers, and this account's eligibility is unknown.
+6. **OpenRouter evaluation:** OpenRouter ZDR routing is requested per call; no live scorer request or model comparison has been run.
+7. **Pre-install backups** sit in `~/.hermes/cache/scratch/` (`jev-backup-20260930-080501`,
    `jev-backup-20260930-082258`). Harmless, and they are the rollback path if the managed
    install ever needs undoing. Retain or remove them only under the operator's backup policy.
 

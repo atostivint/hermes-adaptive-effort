@@ -1,106 +1,168 @@
-# OpenAI Decision API integration plan
+# OpenAI Decisions API integration
 
-Deferred plan, 2026-10-03. Start implementation after OpenAI releases the Decision
-API and publishes its contract. The operator confirmed it is not released yet.
+Updated 2026-10-06 (Europe/Paris). Implementation is complete in the local working tree;
+it is not pushed or deployed. This records the approved plan and the implementation against
+the published beta contract. A Luna agent checked the official documentation before work.
 
-## Goal and evidence
+## Goal and verified contract
 
-Add the OpenAI Decision API as an explicitly selected effort scorer for
-`hermes-adaptive-effort`, returning a decision through the existing score, label,
-route clamp, and request rewrite pipeline.
+Add OpenAI Decisions as an explicitly selected scorer in `hermes-adaptive-effort`.
+Its numeric result will enter the existing score, label, route clamp, and request
+rewrite pipeline through `classify_detail(prompt) -> (score, failure)`.
 
-The current code registers Jev, OpenRouter, and Cloudflare in `scorers.py`.
-Adapters expose `classify_detail(prompt) -> (score, failure)` and accept injected
-transports and key readers. This is the proposed integration point.
+OpenAI released Decisions in public beta on October 6. The documented endpoint is
+`POST https://api.openai.com/v1/decisions`, with Bearer `OPENAI_API_KEY`
+authentication. The currently supported model is `gpt-6-luna`.
+[Official changelog](https://developers.openai.com/api/docs/changelog),
+[Decisions guide](https://developers.openai.com/api/docs/guides/decisions).
 
-Public OpenAI documentation searches and inspection of the API documentation
-index and changelog did not establish its public contract. Its endpoint, model,
-authentication, payload, availability, pricing, and retention behavior remain
-unverified. All API-specific names in this plan are provisional. Resolve them
-from the official release documentation before writing the adapter.
+Send `model`, a bounded text string in `input`, and one question in `questions`:
+`type: score`, `name: effort`, rubric `instructions`, and ordered `levels` with
+`label` and `description`. Use low, medium, high in that order. The native score
+is the probability-weighted mean of zero-based level indices, so these three
+levels produce a fractional `0..2` score. No scale conversion is needed.
+[Decisions guide](https://developers.openai.com/api/docs/guides/decisions).
 
-Sources inspected:
+The response has an `answers` array; a score answer carries `name`, `type`, and
+`score`, with probabilities and confidence. A question may return `type: refusal`
+instead. The documented request does not require remote rubric creation or
+polling. Use the synchronous endpoint without Responses-specific parameters.
+[Create decision reference](https://developers.openai.com/api/reference/resources/decisions/methods/create).
 
-- https://developers.openai.com/api/docs
-- https://developers.openai.com/api/docs/changelog
+> 🧠 **From Hindsight memory (Custom classifier provider and local System One trials)** — the adapter boundary preserves explicit provider selection, strict finite `0..2` scores, and fail-open behavior without fallback. These facts were checked against current `scorers.py`, `rubric.py`, and `middleware.py`.
+
+The current code has four scorers (`jev`, `openrouter`, `cloudflare`, `custom`) and
+four modes (`auto`, `once`, `always`, `off`). The old plan's `recommend` references
+are obsolete. Enabling a mode authorizes sharing with the selected scorer;
+there is no separate provider-consent setting. `timeout_s=3.0` is a transport
+timeout, not a delay between classifications.
+
+## Proposed configuration
+
+These are plugin design choices, separate from OpenAI's wire contract:
+
+| Setting or credential | Proposed behavior |
+| --- | --- |
+| `scorer_provider` | Add `openai_decision`; Jev remains the default |
+| `scorer_model` | Reuse it; empty means `gpt-6-luna` for this provider |
+| Explicit `scorer_model` | Send the configured identifier; report it accurately; API rejection fails open |
+| `OPENAI_API_KEY` | Resolve lazily through Hermes secret scope, then environment |
+| Endpoint | Fixed OpenAI Decisions URL; existing `endpoint` remains Jev-specific |
+| Shared settings | Reuse `timeout_s`, `prompt_chars`, and `classification_instructions` |
+
+No additional config key is needed. Update the model field's label/description
+to explain its different requirements: required for OpenRouter/custom, optional
+with a default for OpenAI Decisions. Do not silently substitute a model after
+an error. Account access is verified by an operator probe, not a status request.
 
 ## Implementation sequence
 
-1. **Review the release and confirm the API contract.** Check the official
-   changelog and API reference when the Decision API becomes available. Verify
-   that it supports effort classification using our rubric, rather than assuming
-   it is suitable from its name. Verify the canonical endpoint and HTTP method,
-   authentication and access requirements, model or decision configuration,
-   rubric support, success and error payloads, and score semantics. Confirm that
-   one synchronous request can provide a decision within `timeout_s` (currently
-   3 seconds by default). If the API requires polling or remote rubric creation,
-   revise the design before implementation: request middleware must not create
-   remote resources or introduce unbounded waits. Verify remote retention
-   separately from the plugin's local no-prompt-storage guarantee.
+The sequence below has been completed. The live API probe remains an operator follow-up;
+the implementation and deterministic validation do not require account access.
 
-2. **Add the adapter.** Proposed module: `openai_decision_client.py`, using the
-   existing stdlib HTTP transport pattern and injectable transport/key reader.
-   Send only text bounded by `prompt_chars`, using the existing effort criteria.
-   Expose `classify()` and `classify_detail()`. Resolve the documented credential
-   through lazy Hermes `agent.secret_scope`, then environment. `OPENAI_API_KEY`
-   is a provisional choice until the actual Decision API authentication is
-   confirmed. Return existing failure codes; perform no automatic HTTP retries.
+1. **Establish the baseline.** Recheck the working tree and run the canonical
+   tests/lint before code changes. There are existing edits in middleware,
+   Desktop, docs, and tests; preserve them and distinguish baseline failures
+   from new failures. Read the current contracts before integrating with those
+   edits. Record the initiative after the user approves this plan, before code.
 
-3. **Register and configure it.** Proposed provider value: `openai_decision`.
-   Extend `scorers.py` construction, credential presence, effective endpoint,
-   and model reporting; extend `plugin.yaml` choices and descriptions. Reuse
-   `scorer_model` only if the API actually requires an operator-selected model.
-   Add settings only for documented API requirements and keep manifest/defaults
-   aligned. Credentials belong in secret scope/environment, never config YAML.
+2. **Add a pure rubric builder and parser in `rubric.py`.** Build an independent
+   Decisions question from the existing rubric definitions, preserving their
+   wording and low/medium/high ordering. Adapt the instruction's `state.prompt`
+   reference to Decisions' supplied input; leave existing System One requests
+   unchanged. Append normalized operator guidance under its existing 2000-character
+   cap, preserving the fixed score contract. Require exactly one answer named
+   `effort`, with `type: score`, then use `numeric_score()` to validate it.
+   Refusals, missing/mismatched names, extra answers, wrong types, invalid JSON,
+   booleans, strings, non-finite values, and out-of-range scores return
+   `malformed_response`. Ignore confidence/probabilities for routing; introduce
+   no new confidence threshold or rounding.
 
-4. **Normalize results and expose status.** Prefer a native numeric score using
-   the shared 0..2 rubric. Accept only finite numeric values in range; reject
-   booleans, strings, missing answers, and malformed responses. If the API
-   returns categorical effort, explicitly map low/medium/high to 0/1/2 and reject
-   unknown values. If it returns another numeric scale, agree its conversion
-   before implementing; do not clip arbitrary values. Update `command.py`
-   endpoint rendering and readiness reporting as needed. Existing status,
-   probe, dashboard, and Desktop surfaces should consume the registered provider
-   through their current contracts. Add fields only when necessary; never expose
-   provider response prose, prompts, secrets, or unrestricted metadata.
+3. **Add `openai_decision_client.py`.** Implement `classify()` and
+   `classify_detail()` with injectable transport/key reader and stdlib HTTP.
+   Use the existing head/tail task truncation and the shared rubric builder.
+   Perform no HTTP call for invalid input or a missing key. Make one POST with
+   the configured timeout; do not retry or follow redirects. Close responses
+   and preserve existing transport/failure codes. Handle errors without logging
+   response bodies, exception text, prompts, guidance, or credentials. Keep
+   Hermes imports lazy; add no SDK/runtime dependency.
 
-5. **Validate the integration.** Add `tests/test_openai_decision_client.py` with
-   fake HTTP responses based on the verified contract. Cover request construction,
-   text bounds, credentials, score boundaries, malformed results, HTTP failures,
-   timeout, and prompt/secret isolation. Extend registry, config schema, command,
-   middleware, and dispatcher coverage where needed. Verify one call per turn,
-   memoized failure, concurrent claims, independent child mode, unsupported
-   request shapes making zero calls, recommend mode making zero rewrites, route
-   re-clamping, and actual-change feed behavior. Run the canonical
-   `scripts/run_tests.ps1` and `scripts/run_lint.ps1` commands after implementation.
+4. **Integrate settings and observability.** Extend `scorers.py` construction,
+   credential-required/presence checks, fixed endpoint reporting, and effective
+   model reporting. Add the provider choice to `plugin.yaml`, with defaults and
+   schema aligned. Existing `middleware._settings()` should consume the registry's
+   effective model/endpoint. Verify `/hae status`, `status json`, and `probe`
+   display the selected provider correctly. Dashboard and Desktop already consume
+   generic scorer fields; extend them only if an actual compatibility gap appears.
+   Keep their allowlists and existing schema versions. Raw API response metadata
+   must not enter session records or feeds.
 
-6. **Document and evaluate.** Update README, CONTRACTS, HANDOFF, DEVELOPMENT's
-   test inventory, and AGENTS where the provider list or layout changes. Start
-   live evaluation with operator-typed probes, then recommend mode. Measure
-   latency, timeout frequency, and agreement on representative low/medium/high
-   tasks before adopting automatic effort changes. Any cost or cache benefit
-   remains unmeasured until a live comparison establishes it. Deployment and
-   changes to operator configuration are separate from this planning task.
+5. **Validate with fake transports.** Add meaningful adapter/rubric coverage
+   and extend provider-selection, config-schema, command, middleware, and real
+   dispatcher tests at their existing boundaries. Keep the suite network-free
+   and settings hermetic. Reuse shared routing tests for unchanged behaviors;
+   exercise the new provider through the real registry and middleware at least
+   once. See the acceptance checks below.
 
-## Acceptance criteria
+6. **Document and review.** README, CONTRACTS, HANDOFF, DEVELOPMENT's test
+   inventory, and AGENTS' provider/layout descriptions have been updated. The
+   final diff was reviewed and both canonical checks pass.
 
-- Selecting the new scorer uses only that provider; failures never fall back.
-- Default scorer remains Jev; mode and subagent mode remain off by default.
-- Errors leave the original request untouched and are memoized within the turn.
-- The existing writable-field, thinking-disabled, route clamp, cache safety,
-  child classification, and applied-change feed contracts continue to hold.
-- Status performs no classification; probes store no decision or prompt text.
-- No prompt text or secrets reach logs, reason strings, status, or event feeds.
-- Adapter fixtures match verified API examples; canonical tests and lint pass.
-- Documentation clearly distinguishes verified functionality from unmeasured
-  latency, scoring quality, cost, and cache benefits.
+## Acceptance checks
 
-## Decisions still needed
+- Request fixture matches the documented Decisions structure, with only one
+  effort question, correct level order, bounded task text, and bounded guidance.
+- Empty model uses `gpt-6-luna`; explicit models remain explicit in transport and
+  status. The selected provider never falls back to another scorer.
+- Credential lookup uses secret scope then environment. Missing keys make zero
+  HTTP calls; status only checks presence and never classifies.
+- Scores at `0`, `0.5`, `1.5`, and `2`, plus intermediate values, pass through the
+  unchanged low/medium/high thresholds and route clamping. Invalid scores and
+  refusal/malformed answers leave the original LLM request untouched.
+- HTTP 401/403/429/5xx, timeout, connection failure, redirects, decoding errors,
+  and unexpected exceptions fail open without retry or body/secret disclosure.
+- Enabled routing makes at most one scorer call per turn, reuses it through tool
+  loops and route changes, and memoizes failures in the selected scope.
+- Off mode, disabled reasoning, and unsupported request controls make zero calls.
+  Child routing retains its independent gate; the applied-change feed records
+  only real rewrites and deduplicates them as before.
+- Probe shares only operator-typed text plus configured guidance, stores no
+  decision, and leaks neither input nor guidance in output/logs/events.
+- Existing tests continue to cover concurrent claims, bounded stores, retained
+  route behavior, and route re-clamping. Do not redesign the routing/cache logic
+  to add a scorer.
 
-When the API is released, finalize the provider identifier, authentication
-variable, model or decision settings, score conversion, and any retention
-controls from the published documentation. Record the verified contract and
-examples in this plan, then implement the sequence above. If the released API
-cannot provide bounded synchronous effort classification, record that finding
-and revise the scope before writing code. Release monitoring and automatic
-implementation are not configured by this document.
+Run exactly:
+
+```powershell
+.\scripts\run_tests.ps1
+.\scripts\run_lint.ps1
+```
+
+Do not skip real dispatcher integration or install the payload with pip.
+
+## Verification
+
+The final canonical Windows run passed all **503 tests**, including the new
+adapter and real-dispatcher coverage. Ruff reports `All checks passed!`. The
+test run used a fresh temporary directory to avoid stale Windows ACLs under the
+default pytest temp path. Tests use fake transports; no live API request was made.
+
+## Live evaluation and remaining limits
+
+Use operator-typed `/hae probe` examples to verify account access and score
+quality. Measure actual latency and timeout frequency against the 3-second
+default before enabling routing. A small labeled task set should cover
+low/medium/high and ambiguous boundary cases; comparisons with other scorers
+must use the same tasks and guidance. These measurements are separate from
+deterministic unit-test success.
+
+OpenAI documents ZDR support for eligible customers; that does not establish that
+this operator's project has it enabled. Document provider retention separately
+from the plugin's local no-prompt-storage contract.
+[Decisions guide](https://developers.openai.com/api/docs/guides/decisions).
+
+Beta availability and the API contract are verified against the official guide.
+This operator's account access, live timing, scoring quality, and total cost/cache
+effects remain unmeasured. No OpenAI request was made, no operator configuration
+was changed, and this implementation has not been deployed.

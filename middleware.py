@@ -26,6 +26,7 @@ prompt text is stored.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 import uuid
@@ -35,6 +36,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from . import cache_safety as _cache_safety
 from . import effort as _effort
 from . import jev_client as _jev_client
+from . import model_profiles as _model_profiles
 from . import rubric as _rubric
 from . import scorers as _scorers
 
@@ -59,6 +61,7 @@ DEFAULTS: Dict[str, Any] = {
     "cloudflare_account_id": "",
     "cloudflare_model": _scorers.cloudflare_client.DEFAULT_MODEL_SELECTOR,
     "classification_instructions": "",
+    "use_target_model_context": False,
     "show_tui_status": True,
     "show_desktop_popup": True,
 }
@@ -88,6 +91,7 @@ _CHANGE_HISTORY_LIMIT = 64
 _CHANGE_STREAM_ID = uuid.uuid4().hex
 _CHANGE_SEQUENCE = 0
 _EFFORT_CHANGES: "deque[Dict[str, Any]]" = deque(maxlen=_CHANGE_HISTORY_LIMIT)
+_DESKTOP_EVENT_REVISION = 0
 _CLI_STATUS_HANDLE: Any = None
 _CLI_STATUS_TEXT = "Effort: N/A"
 #: Sessions with a classification running right now — at most one probe per
@@ -112,6 +116,7 @@ def reset_state() -> None:
     mode", so no test can leak a mode into the next one.
     """
     global _MODE_OVERRIDE, _CHANGE_SEQUENCE, _CHANGE_STREAM_ID, _CLI_STATUS_HANDLE
+    global _DESKTOP_EVENT_REVISION
     global _CLI_STATUS_TEXT
     with _lock:
         _SESSIONS.clear()
@@ -122,6 +127,7 @@ def reset_state() -> None:
         _EFFORT_CHANGES.clear()
         _CHANGE_SEQUENCE = 0
         _CHANGE_STREAM_ID = uuid.uuid4().hex
+        _DESKTOP_EVENT_REVISION = 0
         _CLI_STATUS_HANDLE = None
         _CLI_STATUS_TEXT = "Effort: N/A"
         _MODE_OVERRIDE = None
@@ -243,6 +249,72 @@ def _record_effort_change(decision_key: str, before: Any, after: Any) -> Optiona
         }
         _EFFORT_CHANGES.append(event)
         return {key: event[key] for key in ("id", "from", "to", "at")}
+
+
+def _existing_effort_change(decision_key: str, before: Any,
+                            after: Any) -> Optional[Dict[str, Any]]:
+    """Find the stable applied marker for an already-recorded tool-loop rewrite."""
+    old_value, new_value = str(before), str(after)
+    with _lock:
+        for event in reversed(_EFFORT_CHANGES):
+            if (event.get("_decision_key") == decision_key
+                    and event.get("from") == old_value
+                    and event.get("to") == new_value):
+                return {key: event[key] for key in ("id", "from", "to", "at")}
+    return None
+
+
+def _publish_desktop_decision(session_id: str, provider: Any = None,
+                              model: Any = None, api_mode: Any = None,
+                              entry: Optional[Dict[str, Any]] = None,
+                              applied: Optional[Dict[str, Any]] = None,
+                              clear: bool = False) -> None:
+    """Broadcast a bounded, prompt-free snapshot through Hermes' public event API.
+
+    The import is intentionally lazy: the plugin still loads in CLI/test hosts that
+    do not provide the Desktop event bridge. Event failures never affect middleware.
+    """
+    global _DESKTOP_EVENT_REVISION
+    runtime_id = str(session_id or "")
+    if not runtime_id:
+        return
+    try:
+        # Reuse the status surface's explicit field allowlist; never serialize the
+        # mutable internal decision record or request kwargs wholesale.
+        if entry is None or clear:
+            status = None
+        else:
+            from .command import _ENTRY_FIELDS
+            status = {field: entry.get(field) for field in _ENTRY_FIELDS}
+
+        def route_value(value: Any) -> str:
+            return value if isinstance(value, str) else ""
+
+        with _lock:
+            _DESKTOP_EVENT_REVISION += 1
+            payload = {
+                "schema": "hermes-adaptive-effort.desktop-status.v1",
+                "stream_id": _CHANGE_STREAM_ID,
+                "revision": _DESKTOP_EVENT_REVISION,
+                "runtime_session_id": runtime_id,
+                "status": status,
+                "route": {
+                    "provider": route_value(provider),
+                    "model": route_value(model),
+                    "api_mode": route_value(api_mode),
+                },
+                "selector_sync_supported": (
+                    os.environ.get("HERMES_COMPUTE_HOST_CHILD") != "1"),
+                "applied": (dict(applied) if applied is not None else None),
+            }
+            if clear:
+                payload["clear"] = True
+        from hermes_cli.plugin_events import broadcast_plugin_event
+        broadcast_plugin_event(PLUGIN_ID, "decision.updated", payload)
+    except Exception:
+        # The event bridge is a best-effort Desktop surface. Never fail a request
+        # or prevent a genuine session boundary when it is unavailable.
+        logger.debug("hermes-adaptive-effort: Desktop decision event failed", exc_info=True)
 
 
 def _sync_cli_status(settings: Optional[Dict[str, Any]] = None) -> None:
@@ -431,6 +503,7 @@ def _clear_session_state(session_id: Optional[str]) -> None:
             _ROUTE_IN_FLIGHT.discard(key)
         _IN_FLIGHT.discard(session)
         _CHILD_GOALS.pop(session, None)
+    _publish_desktop_decision(session, clear=True)
 
 
 def on_session_end(session_id: Optional[str] = None, **kwargs: Any) -> None:
@@ -643,6 +716,8 @@ def _settings() -> Dict[str, Any]:
             _read_setting("cloudflare_model", DEFAULTS["cloudflare_model"])),
         "classification_instructions": _rubric.normalize_classification_instructions(
             _read_setting("classification_instructions", DEFAULTS["classification_instructions"])),
+        "use_target_model_context": _bool(
+            "use_target_model_context", DEFAULTS["use_target_model_context"]),
         "show_tui_status": _bool("show_tui_status", DEFAULTS["show_tui_status"]),
         "show_desktop_popup": _bool(
             "show_desktop_popup", DEFAULTS["show_desktop_popup"]),
@@ -1101,6 +1176,11 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                     entry.update(provider=kwargs.get("provider"), model=kwargs.get("model"),
                                  api_mode=kwargs.get("api_mode"))
                     entry.update(state="off", score=None, label=None, target=None, failure=None)
+            off_entry = dict(entry)
+            off_entry.update(state="off", score=None, label=None, target=None, failure=None)
+            _publish_desktop_decision(
+                session_id, kwargs.get("provider"), kwargs.get("model"),
+                kwargs.get("api_mode"), off_entry)
         return None  # no classification or request change
 
     session_id = str(kwargs.get("session_id") or "")
@@ -1131,7 +1211,8 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         entry = _touch(key, settings, mode, provider, model, api_mode,
                        conversation_id=session_id)
         if entry.get("state") == "new":
-            entry["state"] = "unsupported"
+            entry.update(state="unsupported", failure="reasoning_disabled")
+        _publish_desktop_decision(session_id, provider, model, api_mode, entry)
         return None
     if slot is None and injection_path is None:
         # Report the route to status without creating a persistent decision or
@@ -1140,7 +1221,8 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         entry = _touch(key, settings, mode, provider, model, api_mode,
                        conversation_id=session_id)
         if entry.get("state") == "new":
-            entry["state"] = "unsupported"
+            entry.update(state="unsupported", failure="effort_control_unsupported")
+        _publish_desktop_decision(session_id, provider, model, api_mode, entry)
         logger.debug("hermes-adaptive-effort: no writable effort field; no change")
         return None
 
@@ -1206,8 +1288,33 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         try:
             entry = turn_entry
             entry["state"] = "probing"
+            _publish_desktop_decision(session_id, provider, model, api_mode, entry)
             started = time.monotonic()
-            score, failure = _classify(prompt, settings)
+            scoring_prompt = prompt
+            scoring_settings = settings
+            if settings["use_target_model_context"]:
+                try:
+                    task_text = _jev_client.truncate_prompt(prompt, settings["prompt_chars"])
+                    context = _model_profiles.target_context(
+                        provider, model, api_mode, slot[2] if slot is not None else None)
+                    scoring_prompt = _model_profiles.wrap_task(task_text, context)
+                    scoring_settings = dict(settings)
+                    # Adapters also bound input at their transport boundary. The task
+                    # was already capped above; let the complete context+task prefix
+                    # through without consuming the independent task-text allowance.
+                    scoring_settings["prompt_chars"] = len(scoring_prompt)
+                except Exception:
+                    logger.debug(
+                        "hermes-adaptive-effort: target context preparation failed; failing open",
+                        exc_info=True,
+                    )
+                    scoring_prompt = ""
+                    scoring_settings = settings
+                    score, failure = None, "classifier_error"
+                else:
+                    score, failure = _classify(scoring_prompt, scoring_settings)
+            else:
+                score, failure = _classify(scoring_prompt, scoring_settings)
             entry["elapsed_ms"] = (time.monotonic() - started) * 1000.0
             entry["probes"] = int(entry.get("probes") or 0) + 1
             entry["score"] = score
@@ -1219,6 +1326,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                     pinned = _touch_pin(
                         route_key, settings, mode, provider, model, api_mode, session_id)
                     _copy_decision(entry, pinned)
+                _publish_desktop_decision(session_id, provider, model, api_mode, entry)
                 return None
             label = _effort.score_to_label(score)
             if label is None:
@@ -1229,6 +1337,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                     pinned = _touch_pin(
                         route_key, settings, mode, provider, model, api_mode, session_id)
                     _copy_decision(entry, pinned)
+                _publish_desktop_decision(session_id, provider, model, api_mode, entry)
                 return None
             entry["label"] = label
             target = _effort.map_effort(label, provider, model)
@@ -1237,6 +1346,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             entry["model"] = model
             entry["api_mode"] = api_mode
             entry["state"] = "decided" if target is not None else "unsupported"
+            entry["failure"] = None if target is not None else "effort_value_unsupported"
             if persistent_scope:
                 pinned = _touch_pin(route_key, settings, mode, provider, model, api_mode, session_id)
                 _copy_decision(entry, pinned)
@@ -1246,13 +1356,16 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     target = _target_for_route(entry, provider, model, api_mode)
     if target is None:
         entry["state"] = "unsupported"
+        entry["failure"] = "effort_value_unsupported"
         if seed_pin:
             pinned = _touch_pin(route_key, settings, mode, provider, model, api_mode, session_id)
             _copy_decision(entry, pinned)
             # This route inherits the turn's score; no scorer call was made for it.
             pinned["probes"] = 0
+        _publish_desktop_decision(session_id, provider, model, api_mode, entry)
         return None
     entry["state"] = "decided"
+    entry["failure"] = None
     if seed_pin:
         pinned = _touch_pin(route_key, settings, mode, provider, model, api_mode, session_id)
         _copy_decision(entry, pinned)
@@ -1262,12 +1375,17 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if target == before:
         # The route already sits at the level the scorer picked: nothing to send, so we
         # report no decision at all rather than a rewrite identical to the input.
+        _publish_desktop_decision(session_id, provider, model, api_mode, entry)
         return None
     new_request = (_apply(request, slot, target) if slot is not None
                    else _inject(request, injection_path, target))
     if new_request is request:
+        _publish_desktop_decision(session_id, provider, model, api_mode, entry)
         return None
     event = _record_effort_change(turn_key, before, target)
+    applied = event or _existing_effort_change(turn_key, before, target)
+    _publish_desktop_decision(
+        session_id, provider, model, api_mode, entry, applied=applied)
     if event is not None:
         try:
             logger.info("Effort changed: %s -> %s", event["from"], event["to"])
