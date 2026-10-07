@@ -31,9 +31,28 @@ Dependabot proposes weekly updates for GitHub Actions and Python requirements. U
 
 GitHub secret scanning and push protection complement the history scan. These repository settings depend on GitHub account permissions and should be checked in Settings → Code security.
 
+## Release workflow (`Release`)
+
+Triggered by pushing a `vX.Y.Z` tag:
+
+- Verifies the tag version matches plugin.yaml
+- Verifies the tag commit is on origin/master
+- Generates release notes from CHANGELOG.md
+- Creates a GitHub release with `--prerelease` when major version is 0 or a prerelease suffix is present
+
+No deployment occurs; release creation is a hosted operation only. The `contents: write` permission is held by this job only.
+
+## Coverage artifact
+
+CI collects coverage.xml on the ubuntu-24.04 Python 3.12 leg (informational, no threshold). The artifact is retained for 7 days for download and analysis.
+
+## Hermes canary (`hermes-canary`)
+
+Runs weekly (Monday 06:41 UTC) and on manual dispatch against Hermes master to detect compatibility issues. Non-blocking status check; the plugin should continue to work with the latest Hermes even between pinned-revision CI updates.
+
 ## Workflow permissions and cost
 
-Checkout and setup actions are pinned to immutable commit hashes. Workflows use `pull_request`, not `pull_request_target`, do not deploy, and do not receive scorer keys. Checkout does not persist Git credentials. The default token permission is `contents: read`; only CodeQL receives `security-events: write` and the read permissions needed for analysis. Jobs have timeouts, and newer runs cancel older runs for the same ref.
+Checkout and setup actions are pinned to immutable commit hashes. Workflows use `pull_request`, not `pull_request_target`, and do not receive scorer keys. Checkout does not persist Git credentials. The default token permission is `contents: read`. The Release job gets `contents: write`; CodeQL receives `security-events: write` and the read permissions needed for analysis. No workflow deploys. Jobs have timeouts, and newer runs cancel older runs for the same ref.
 
 The workflows use standard Ubuntu/Windows labels, no model API calls, no cache and short artifact retention. Check [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions) for the current compute and storage policy.
 

@@ -28,7 +28,7 @@ def _load_manifest_version() -> str:
 
 
 def _load_changelog() -> str:
-    changelog_path = Path(PLUGIN_DIR.parent) / "CHANGELOG.md"
+    changelog_path = PLUGIN_DIR / "CHANGELOG.md"
     return changelog_path.read_text(encoding="utf-8")
 
 

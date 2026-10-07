@@ -110,7 +110,6 @@ def cmd_bump(version):
         print(f"Error: '{version}' is not valid semver", file=sys.stderr)
         return 1
 
-    repo_root = get_repo_root()
     plugin_yaml_path = get_plugin_yaml_path()
     manifest_path = get_manifest_path()
     changelog_path = get_changelog_path()
@@ -138,7 +137,7 @@ def cmd_bump(version):
         print(f"Error: Version [{version}] already exists in {changelog_path}", file=sys.stderr)
         return 1
 
-    # Update plugin.yaml
+    # Update files
     plugin_yaml_text = plugin_yaml_path.read_text(encoding="utf-8")
     plugin_yaml_text = re.sub(
         r"^version:\s*[^\s]+$",
@@ -184,9 +183,6 @@ def cmd_bump(version):
         link_ref_end = changelog_new_text.find("\n[", link_ref_start + 1)
         if link_ref_end == -1:
             link_ref_end = len(changelog_new_text)
-
-        # Extract existing links
-        old_link_ref = changelog_new_text[link_ref_start:link_ref_end]
 
         # Build new links
         new_links = (
