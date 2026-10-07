@@ -21,10 +21,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: ubuntu-24.04, python: '3.11'}
-          - {os: ubuntu-24.04, python: '3.12'}
-          - {os: ubuntu-24.04, python: '3.14'}
-          - {os: windows-2025, python: '3.12'}
+          - {os: ubuntu-24.04, python: '3.11', coverage: false}
+          - {os: ubuntu-24.04, python: '3.12', coverage: true}
+          - {os: ubuntu-24.04, python: '3.14', coverage: false}
+          - {os: windows-2025, python: '3.12', coverage: false}
     env:
       HERMES_SOURCE_ROOT: ${{ github.workspace }}/.ci/hermes
       PYTHONPATH: ${{ github.workspace }}/.ci/hermes
@@ -49,7 +49,11 @@ jobs:
           python -m venv .venv
           .venv/bin/python -m pip install -r requirements-dev.txt
           .venv/bin/python -c "import agent.reasoning_effort; import hermes_cli.plugins"
-          ./scripts/run_tests.sh --junitxml=test-results.xml
+          if [ "${{ matrix.coverage }}" == "true" ]; then
+            ./scripts/run_tests.sh --junitxml=test-results.xml --cov=. --cov-report=xml:coverage.xml --cov-report=term
+          else
+            ./scripts/run_tests.sh --junitxml=test-results.xml
+          fi
       - name: Prepare and test (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -70,6 +74,14 @@ jobs:
           path: test-results.xml
           retention-days: 7
           if-no-files-found: error
+      - name: Retain coverage report
+        if: always() && matrix.coverage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-${{ matrix.os }}-${{ matrix.python }}
+          path: coverage.xml
+          retention-days: 7
+          if-no-files-found: ignore
 
   lint:
     name: Lint and workflow validation

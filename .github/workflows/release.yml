@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Verify tag matches plugin.yaml version
+        run: |
+          PLUGIN_VERSION=$(python .github/scripts/release_notes.py version)
+          TAG_VERSION=${GITHUB_REF_NAME#v}
+          if [ "$TAG_VERSION" != "$PLUGIN_VERSION" ]; then
+            echo "Error: tag $TAG_VERSION != plugin.yaml version $PLUGIN_VERSION"
+            exit 1
+          fi
+      - name: Verify tag is on origin/master
+        run: |
+          git fetch origin master
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "Error: tag commit is not on origin/master"
+            exit 1
+          fi
+      - name: Generate release notes
+        run: |
+          python .github/scripts/release_notes.py notes "${GITHUB_REF_NAME#v}" > release_notes.md
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          FLAGS=()
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Check if major version is 0 or version contains prerelease
+          if [[ "$VERSION" =~ ^0\. ]] || [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.]+ ]]; then
+            FLAGS+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" "${FLAGS[@]}" \
+            --verify-tag \
+            --title "Hermes Adaptive Effort $GITHUB_REF_NAME" \
+            --notes-file release_notes.md
