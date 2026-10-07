@@ -1,21 +1,22 @@
 # Draft for NousResearch/hermes-agent/plugin-catalog/hermes-adaptive-effort.yaml
-# Historical nested-payload pin. Regenerate and validate for the current root layout before submission.
-# Pinned to the implementation commit; update sha and version together for releases.
+# Pinned to the v0.3.0 pre-release merge commit (repository-root payload, so no subdir).
+# Update sha and version together for later releases; a bump is a new catalog PR.
 name: hermes-adaptive-effort
 repo: https://github.com/atostivint/hermes-adaptive-effort
-sha: 3e2bd41f785efc8b57ce058fdbf8c40a79084823
-subdir: hermes-adaptive-effort
+sha: 8b5381727bbe381becf051991aaf07768f832cef
 description: Choose a separate scorer to set the reasoning effort of each Hermes request.
 maintainer: atostivint
 tier: community
 category: models
-docs_url: https://github.com/atostivint/hermes-adaptive-effort
-version: "0.2.0"
+docs_url: https://github.com/atostivint/hermes-adaptive-effort/blob/8b5381727bbe381becf051991aaf07768f832cef/docs/README.md
+version: "0.3.0"
 readme: true
-# TODO before submission: add real GitHub-hosted screenshots of the Desktop settings/UI.
-screenshots: []
+screenshots:
+  - https://raw.githubusercontent.com/atostivint/hermes-adaptive-effort/8b5381727bbe381becf051991aaf07768f832cef/docs/images/routing-mode-popover.png
 platforms: []
 title: Hermes Adaptive Effort
+known_issues:
+  - "Pre-release: live effort acceptance is only partially validated; see the v0.3.0 release notes."
 capabilities:
   provides_tools: []
   provides_hooks:

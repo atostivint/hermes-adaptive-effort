@@ -45,7 +45,7 @@ These plans preserve their implementation rationale. They are not pending provid
 
 | Record | Boundary |
 | --- | --- |
-| [Catalog submission draft](catalog-submission/pr-description.md) | Historical pin/layout; not part of v0.3.0; needs a newly reviewed release pin and screenshots before submission |
+| [Catalog submission draft](catalog-submission/pr-description.md) | Entry and PR text pinned to the v0.3.0 merge commit; validated locally, not yet submitted to `NousResearch/hermes-agent` |
 
 ## Historical evidence
 
