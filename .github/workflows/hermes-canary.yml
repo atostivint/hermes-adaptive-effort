@@ -39,6 +39,6 @@ jobs:
       - name: Print Hermes commit
         run: |
           HERMES_SHA=$(git -C .ci/hermes rev-parse HEAD)
-          echo "Tested with Hermes: $HERMES_SHA" >> $GITHUB_STEP_SUMMARY
+          echo "Tested with Hermes: $HERMES_SHA" >> "$GITHUB_STEP_SUMMARY"
       - name: Require real integration tests and no skips
         run: python .github/scripts/verify_test_report.py test-results.xml
