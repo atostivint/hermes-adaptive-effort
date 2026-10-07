@@ -155,8 +155,8 @@ def test_manifest_schema_budget_and_blocked_reason_are_explicit():
     assert report["schema"] == "hermes-adaptive-effort.validation-check.v1"
     assert report["valid"] is True
     assert report["network_requests"] == 0
-    assert report["go_score_mappings"] == 39
-    assert report["go_distinct_wire_pairs"] == 33
+    assert report["go_score_mappings"] == 42
+    assert report["go_distinct_wire_pairs"] == 36
     assert report["run_ready"] is False
     assert list(find_mappings_with_values(report, CODEX_USAGE_POLICY))
     assert report["run_block_reason"] == (

@@ -48,6 +48,8 @@ sequenceDiagram
 
 A retained route decision can replace the first scoring call. Returning to an already retained route on a later turn reuses that route's decision. Inside a classified turn, its label wins across route changes; `_target_for_route` re-clamps it instead of replaying a stale wire value. A new route is seeded only if it has no prior retained decision.
 
+If a classified turn's fallback request has no usable effort control, the turn status names the fallback route, reports `unsupported` with the current failure reason, and clears the unapplied target. It retains the earlier label for a later eligible request in the same turn; that request re-clamps the label without another scorer call, including when a control appears on the same route. An earlier failed or in-flight scorer claim remains unchanged, so an ineligible fallback cannot trigger a second scoring attempt.
+
 `api_call_count` does not identify a new turn. `_IN_FLIGHT` and `_ROUTE_IN_FLIGHT` coordinate concurrent claims; another request does not spend a duplicate scoring call. Failed/unsupported decisions are not retried in their selected scope while retained. Ineligible controls exit before scorer transport and do not authorize later field insertion.
 
 Completed-turn `on_session_end` events with a turn ID preserve bounded decision state for status. Actual `on_session_finalize` / `on_session_reset` boundaries clear it. Child stop/cleanup also removes registered goals.

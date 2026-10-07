@@ -37,7 +37,7 @@ The OpenCode Go documentation reviewed on 2026-10-07 lists 30 curated model name
 | `deepseek-v4-flash` | `chat_completions` | **Inject:** same paired control and current vocabulary low/high/max. |
 | `deepseek-v4-flash-vision-exp` | `chat_completions` | **No-op if absent in current registry; positive vendor control exists.** [DeepSeek says this legacy ID temporarily routes to V4.1-Flash](https://api-docs.deepseek.com/news/news260910/), whose documented values are low/high/max; this exact route is not in the plugin's insertion table. |
 | `deepseek-flash` | inferred `chat_completions` | **No-op if absent:** DeepSeek's [Chat Completions reference](https://api-docs.deepseek.com/api/create-chat-completion/) documents the paired `reasoning_effort` and `thinking.type="enabled"` controls for its `deepseek-flash` API model. The legacy OpenCode Go catalog slug is outside the injection registry; Go-proxy mapping and acceptance are unverified. |
-| `mimo-v2.6-flash` | `chat_completions` | **No-op if absent:** Xiaomi documents thinking enabled/disabled, not graded effort; Go route acceptance is unverified. |
+| `mimo-v2.6-flash` | `chat_completions` | **Inject:** top-level `reasoning_effort`, low/medium/high, on this exact Go route. The [dsh-opencode-go maintainer's direct Go probes](https://github.com/Duskriver/dsh-opencode-go/blob/6a834cfda0f4db4e08243b40883eec71abddf655/docs/verification.md#issue-28-mimo-reasoning-controls-2026-10-02) returned HTTP 200 for all three values, despite [Go's catalog entry](https://github.com/anomalyco/models.dev/blob/dev/providers/opencode-go/models/mimo-v2.6-flash.toml) declaring `reasoning_options = []`. [Xiaomi's Responses API](https://mimo.mi.com/docs/en-US/api/chat/responses) says all non-`none` values enable reasoning with identical behavior; graded intensity and cache/cost savings have not been measured. `none` is never chosen automatically. |
 | `mimo-v2.6-pro` | `chat_completions` | **No-op if absent:** same thinking toggle; no discrete effort enum is documented. |
 | `mimo-v2.5` | `chat_completions` | **No-op if absent:** same thinking toggle; no discrete effort enum is documented. |
 | `mimo-v2.5-pro` | `chat_completions` | **No-op if absent:** same thinking toggle; no discrete effort enum is documented. |
@@ -68,6 +68,7 @@ On these exact routes, the scorer chooses one of the listed wire values directly
 | Provider | Exact model ID(s) | API route | Choice vocabulary | Turn/cache behavior |
 |---|---|---|---|---|
 | OpenCode Go | `kimi-k3` | `chat_completions` | `low/high/max` | Existing Go route; narrow vocabulary |
+| OpenCode Go | `mimo-v2.6-flash` | `chat_completions` | `low/medium/high` | Exact wire acceptance; no established intensity difference |
 | OpenAI Codex | `gpt-6.1-sol` | `codex_responses` | `low/medium/high/xhigh/max` | Dynamic only when transport cache-safety is positive |
 | Anthropic native | `claude-fable-5-1`, `claude-mythos-5-1`, `claude-opus-5-5`, `claude-opus-5`, `claude-sonnet-5-5` | `anthropic_messages` | `low/medium/high/xhigh/max` | Per-message updates only with an exposed `anthropic-beta` header; plugin appends the documented beta |
 | Anthropic native | `claude-fable-5`, `claude-mythos-5`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-sonnet-5` | `anthropic_messages` | `low/medium/high/xhigh/max` | Top-level effort only; `auto` retains a route decision |

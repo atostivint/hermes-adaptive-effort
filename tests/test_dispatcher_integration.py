@@ -337,6 +337,46 @@ def test_real_dispatcher_reclamps_a_stale_target_when_the_route_changes(
     assert probes["n"] == 1
 
 
+def test_real_dispatcher_injects_effort_on_mimo_go_fallback(dispatched, no_network):
+    """The fallback route receives the same turn decision in its own wire field."""
+    from hermes_cli.middleware import apply_llm_request_middleware
+
+    middleware = dispatched["middleware"]
+    middleware.reset_state()
+    probes = {"n": 0}
+    middleware._classifier_factory = _counting_factory(probes, 1.9)
+
+    first = apply_llm_request_middleware(
+        _recorded(), session_id="sess-int-mimo", provider="openrouter",
+        model="openrouter/meta/llama-3.3-70b-instruct", api_mode="chat_completions",
+        turn_id="turn-mimo", api_call_count=1,
+    )
+    assert first.changed is True
+
+    fallback_request = {
+        "model": "mimo-v2.6-flash",
+        "messages": [{"role": "user", "content": "Design a multi-region failover plan."}],
+    }
+    second = apply_llm_request_middleware(
+        fallback_request, session_id="sess-int-mimo", provider="opencode-go",
+        model="mimo-v2.6-flash", api_mode="chat_completions",
+        turn_id="turn-mimo", api_call_count=2,
+    )
+
+    assert second.changed is True
+    assert second.payload["reasoning_effort"] == "high"
+    assert "reasoning_effort" not in fallback_request
+    entry = middleware.session_state()["sess-int-mimo/turn-mimo"]
+    assert (entry["state"], entry["failure"], entry["target"]) == (
+        "decided", None, "high")
+    assert (entry["provider"], entry["model"]) == ("opencode-go", "mimo-v2.6-flash")
+    assert (entry["label"], entry["probes"], probes["n"]) == ("high", 1, 1)
+    reported = json.loads(dispatched["command"].handle("status json"))["last"]
+    assert (reported["state"], reported["provider"], reported["model"]) == (
+        "decided", "opencode-go", "mimo-v2.6-flash")
+    assert reported["target"] == "high"
+
+
 def test_real_dispatcher_fails_open_and_does_not_retry_a_failed_turn(
         dispatched, no_network):
     """A classifier failure must leave the request alone, and cost one probe only."""
