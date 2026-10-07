@@ -22,11 +22,15 @@ of a request. Fail-open by contract: any error leaves the request untouched.
   command.py              /hae: help, status, status json, probe, mode verbs
   dashboard/              optional Hermes dashboard backend
   desktop/                optional Desktop extension
+CHANGELOG.md              release notes in Keep a Changelog 1.1.0 format
 tests/                    one module per contract (see docs/DEVELOPMENT.md table)
-scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh
+scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh, release.sh, release.ps1
+.github/scripts/          release_notes.py, verify_test_report.py
+.github/pull_request_template.md
+.github/ISSUE_TEMPLATE/   bug_report.yml, feature_request.yml, config.yml
 pytest.ini                pytest config; no Python package metadata
 ruff.toml                 Ruff config; no Python package metadata
-requirements-dev.txt      pytest==9.1.1, ruamel.yaml==0.19.1, ruff==0.16.9
+requirements-dev.txt      pytest==9.1.1, pytest-cov==6.0.0, ruamel.yaml==0.19.1, httpx==0.28.1, ruff==0.16.9
 docs/                     design, contracts, development, dated reviews + operator handoff
 ```
 
@@ -44,6 +48,20 @@ Windows PowerShell equivalents:
 .\scripts\bootstrap_test_env.ps1
 .\scripts\run_tests.ps1
 .\scripts\run_lint.ps1
+```
+
+Releases (two-step: prepare, then tag):
+
+```bash
+./scripts/release.sh prepare X.Y.Z  # create release branch, bump, test, PR
+./scripts/release.sh tag X.Y.Z      # tag on master, push (Release workflow publishes)
+```
+
+PowerShell equivalents:
+
+```powershell
+.\scripts\release.ps1 prepare X.Y.Z
+.\scripts\release.ps1 tag X.Y.Z
 ```
 
 - Always use `.venv/bin/python` — it has the Hermes source tree (`agent/`, `hermes_cli/` from `/usr/local/lib/hermes-agent`, `HERMES_SOURCE_ROOT` override) on `sys.path` via `tests/conftest.py`.

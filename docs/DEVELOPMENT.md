@@ -72,6 +72,17 @@ A function autouse fixture resets plugin state and substitutes empty settings, s
 
 Keep test counts in dated result records, alongside revision, platform and command. This inventory describes contracts rather than a total that drifts with every change.
 
+## Releasing
+
+- **Version source of truth**: `plugin.yaml` carries the canonical version. `dashboard/manifest.json` and CHANGELOG.md must match; `test_version_parity.py` verifies alignment.
+- **CHANGELOG discipline**: Every user-visible change lands as an entry in the `## [Unreleased]` section. Empty Unreleased blocks fail the bump step.
+- **Two-step release flow**:
+  1. `./scripts/release.sh prepare X.Y.Z` creates a release branch, runs `python .github/scripts/release_notes.py bump X.Y.Z`, runs tests, and opens a PR.
+  2. After merge to master, `./scripts/release.sh tag X.Y.Z` tags the commit and pushes the tag. The Release workflow then publishes the release.
+- **Pre-release convention**: versions with major version 0 or a prerelease suffix (e.g., `-rc.1`) are marked `--prerelease` on GitHub.
+- **Optional long-form notes**: if `docs/releases/vX.Y.Z.md` exists, the release notes helper appends a link to it. Validation limits and breaking changes are good candidates for that file.
+- **Deployment**: remains a manual operator step on each host (see [Handoff](HANDOFF.md)). Workflows do not deploy.
+
 ### Real dispatcher integration
 
 `test_dispatcher_integration.py` creates a throwaway `HERMES_HOME`, copies the payload into its plugins directory, invokes Hermes' `PluginManager.discover_and_load()` and enters through `apply_llm_request_middleware`.
