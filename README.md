@@ -6,6 +6,8 @@ A Hermes plugin that asks a separate scorer to judge a task, then adjusts the re
 
 Your conversation model still answers the task. You choose the scorer: Jev (the default), OpenAI Decisions, an OpenRouter model, Cloudflare Clef / Clef Flash, or a custom hosted or local endpoint.
 
+> **Preview:** v0.3.0 is a pre-release. Live effort acceptance is only partially validated; see the [release notes](docs/releases/v0.3.0.md#validation-status--read-before-relying-on-it).
+
 The plugin starts **off**. When you enable routing, it changes a supported effort field and can add a missing field on exact registered routes. If classification fails, the original request continues unchanged.
 
 ## Quick start
@@ -139,3 +141,7 @@ For migration from `jev-auto-effort`, follow [migration instructions](docs/USAGE
 | Check a model/provider route | [Compatibility](docs/MODEL_COMPATIBILITY.md) |
 | Contribute and reproduce checks | [Development](docs/DEVELOPMENT.md) |
 | Find dated reports and operator notes | [Documentation index](docs/README.md) |
+
+## License
+
+[MIT](LICENSE) © 2026 Alexandre Tostivint and contributors.

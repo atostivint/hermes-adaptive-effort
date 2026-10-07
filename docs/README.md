@@ -20,6 +20,7 @@ Start with the [project README](../README.md) to install the plugin and try a ro
 | [Automated checks](CI.md) | GitHub Actions and security-check coverage/limits |
 | [Contributor instructions](../AGENTS.md) | Rules and invariants for implementation changes |
 | [Operator handoff](HANDOFF.md) | Current source reference, dated rollout evidence and open operational work |
+| [Release notes v0.3.0](releases/v0.3.0.md) | First tagged pre-release: features, contract changes and validation limits |
 
 Code defines current behavior. Operator host observations are dated snapshots, not installation prerequisites or fresh health checks.
 
@@ -32,14 +33,19 @@ These plans preserve their implementation rationale. They are not pending provid
 | [OpenAI Decisions](plans/openai-decision-api.md) | Adapter is implemented; live scorer evaluation remains separate |
 | [Target-model scoring context](plans/target-model-scoring-context.md) | Opt-in context and local catalog are implemented; quality/cost evaluation remains separate |
 
+## Validation records
+
+| Record | Boundary |
+| --- | --- |
+| [Live model effort validation plan](plans/live-model-effort-validation.md) | Campaign design, guards and spending envelopes |
+| [Live campaign report, 2026-10-07](validation/runs/live-20261007/report.md) | Partially executed Codex campaign with deterministic local scores; complete `low/medium/high` evidence only for `gpt-6.1-sol`; OpenRouter/Go cases blocked before send |
+| [Codex quota and catalog audit, 2026-10-07](validation/runs/codex-zero-send-audit-20261007/report.md) | Access and quota record; no compatibility result |
+
 ## Work in progress
 
 | Record | Boundary |
 | --- | --- |
-| Local live model effort validation | Separate unpublished campaign workstream: `docs/plans/live-model-effort-validation.md` and `docs/validation/runs/live-20261007/report.md`; partially executed Codex observations and blocked dollar-provider cases |
-| [Catalog submission draft](catalog-submission/pr-description.md) | Historical pin/layout; needs a newly reviewed release pin and screenshots before submission |
-
-Some validation files were untracked at the start of this documentation refresh. Their presence in a local checkout does not establish publication on GitHub. Keep them separate from completed release evidence.
+| [Catalog submission draft](catalog-submission/pr-description.md) | Historical pin/layout; not part of v0.3.0; needs a newly reviewed release pin and screenshots before submission |
 
 ## Historical evidence
 
@@ -47,7 +53,7 @@ Preserve original findings, names, paths and test counts in these records. They 
 
 | Record | Context |
 | --- | --- |
-| [Announcement draft, 2026-10-05](announcements/linkedin-post-2026-10-05.md) | Dated French promotional draft; not current setup guidance |
+| [Announcement draft, 2026-10-05](announcements/linkedin-post-2026-10-05.md) | **Obsolete** French promotional draft; describes a retired separate scorer-consent step; do not reuse |
 | [Preserved operator handoff, 2026-10-07](handoff-snapshot-2026-10-07.md) | Full earlier rollout/recovery narrative, including statements superseded by the current handoff |
 | [Original delivery handoff](handoff-t_cb5d47d0.md) | Earlier plugin identity and initial acceptance evidence |
 | [DeepSeek review, 2026-09-29](review-deepseek-2026-09-29.md) | Review of the then-installed host/plugin |

@@ -4,7 +4,7 @@
 name: hermes-adaptive-effort
 id: hermes-adaptive-effort
 kind: standalone
-version: 0.2.0
+version: 0.3.0
 description: >
   Opt-in reasoning-effort control with four modes: auto, once, always, and off.
   The selected scorer (Jev, OpenAI Decisions, OpenRouter, Cloudflare Clef, or a custom
