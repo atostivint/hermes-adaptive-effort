@@ -1,63 +1,73 @@
-# Design choices
+# Design and architecture
 
-## One job, used every day
+[User guide](USAGE.md) · [Configuration](CONFIGURATION.md) · [Runtime contracts](CONTRACTS.md)
 
-Hermes Adaptive Effort chooses the reasoning effort of an outgoing request. The maintainer built it for daily personal use and intends to maintain it through that use. The aim is a small, unobtrusive plugin with a clear purpose and a quiet interface.
+## One job
 
-That purpose guides the scope: the plugin does not select the conversation model, orchestrate workflows, add tools or redesign Hermes. The Desktop chip, status command and applied-change feed make the existing routing decision visible.
+Hermes Adaptive Effort chooses the reasoning effort of an outgoing request. It keeps the conversation model selected by the user and adjusts only a supported effort control.
+
+The maintainer built it for daily personal use and intends to maintain it through that use. That purpose favors a small plugin with a compact interface: show the routing mode first and make details available when needed.
+
+## Components
+
+```mermaid
+flowchart TD
+    H["Hermes request<br/>and lifecycle hooks"] --> M["middleware.py<br/>gates, memory, rewrite"]
+    M --> S["scorers.py<br/>explicit provider registry"]
+    S --> A["Scorer adapters<br/>Jev, Decisions, OpenRouter,<br/>Cloudflare, custom"]
+    A --> R["rubric.py<br/>shared question and score validation"]
+    M --> E["effort.py + cache_safety.py<br/>route values and<br/>dynamic eligibility"]
+    M --> O["Status and change events<br/>terminal, dashboard, Desktop"]
+```
+
+Hermes enters through the registered middleware and lifecycle hooks. Middleware decides whether to classify, reuses bounded decisions and returns a copied request when an effort field changes. The provider registry builds only the selected adapter; every adapter uses the shared rubric. Effort mapping and cache-safety checks stay separate from scorer choice.
+
+`model_profiles.py` and its JSON catalog supply optional context to the scorer. They do not establish transport support. Status surfaces in `command.py`, `dashboard/plugin_api.py` and `desktop/plugin.js` consume allowlisted results, not task text.
 
 ## Separate scoring from answering
 
-The scorer judges task complexity; the conversation model answers the task. Those are independent roles. Jev remains the compatibility default. OpenRouter is an explicit alternative with a configured model, so users control the scorer and its cost.
+The scorer judges task complexity; the conversation model answers the task. The registry supports Jev, OpenAI Decisions, OpenRouter, Cloudflare and custom hosted/local endpoints. Jev is the default.
 
-The rename from `jev-auto-effort` to `hermes-adaptive-effort` expresses this separation. Scorer-specific behavior lives in adapters behind an explicit registry. More providers can be added there without changing the request-rewrite contract, but only Jev and OpenRouter are part of the committed release described here.
+There is no fallback between scorers. A failure should not send a task to a different provider or bill a model the user did not select. The [configuration guide](CONFIGURATION.md#configure-your-scorer) owns provider setup and credentials.
 
-There is no cross-provider fallback. Sending task text to another provider, or billing a model the user did not select, should require a deliberate choice.
+The scorer receives bounded latest-user text rather than the whole conversation. This reduces the material shared but can miss context when a message depends on earlier discussion. Classification is a heuristic, not a guarantee of task difficulty or answer correctness.
 
-## Choose the decision scope
+## Choose a decision scope
 
-Earlier session-wide routing could classify an opening greeting as low effort and carry that decision into a later complex task. `always` and the dynamic branch of `auto` therefore classify each new user message, identified by `(session_id, turn_id)`, and read that message rather than the opening prompt.
+The four public modes decide when a task needs a new classification. `auto` uses per-turn decisions only on exact registered dynamic routes whose transports are cache-neutral. Elsewhere it retains a route decision. `once` always retains a route decision; `always` evaluates each new user turn.
 
-`auto` uses per-message decisions only for exact model/API pairs with documented dynamic-effort support and a transport verified to keep effort changes out of the prompt prefix. Other routes use one decision per exact provider, model and API mode for the conversation. `once` always uses that route scope. A model change can create a new route decision, and returning to an earlier route reuses its stored choice. During a tool loop, a single per-turn decision remains authoritative across route changes; the label is re-clamped to each model's vocabulary. `always` reevaluates on the next user turn but still reuses the current turn's decision during tool calls.
+An opening greeting can therefore remain authoritative in `once` even when the next task is harder. Dynamic `auto` and `always` let that next turn receive a new score. The [usage examples](USAGE.md#example-a-greeting-followed-by-a-complex-task) explain the choice; [Contracts](CONTRACTS.md#decision-scope) defines the precise scope.
 
-Concurrent requests claim one scorer slot per turn. Failed and unsupported attempts are not repeatedly retried within the retained scope. Turn records and route decisions have separate `max_turns` bounds; eviction, reset or reload can require another evaluation.
-
-The scorer receives bounded task text rather than the whole conversation. This limits the data sent and scoring overhead, at the cost of missing context when the latest message relies heavily on earlier discussion. The classifier is a heuristic, not a guarantee of task difficulty or answer correctness.
+During a tool loop, the turn's label remains authoritative across route changes. The plugin maps it again for the current model's vocabulary. Concurrent claims prevent duplicate scoring. Turn and retained-route decisions have separate capacity limits, so reset, eviction or reload can require another classification.
 
 ## Preserve operator intent
 
-The plugin is opt-in, and its main mode defaults to `off`. Choosing a routing mode authorizes classifying eligible requests and sharing the bounded latest-user-text excerpt with the configured scorer; `off` keeps only bounded route metadata for the Desktop popup and does not score or change requests. `/hae probe <text>` lets an operator score typed text without routing a conversation request. Subagents have their own default-off gate because enabling the parent should not silently enable child rewrites.
+Parent and subagent modes default to `off`. Enabling the parent does not silently enable child routing. Selecting a scorer alone sends no task text.
 
-The middleware prefers a field already present in the request. It does not enable reasoning or modify explicit `none`/disabled thinking. A missing effort field is added only on an exact registered route or an exact operator-listed ID in `effort_models`, and only in a known request container. That list permits adding a field; it does not establish dynamic support.
+Existing effort fields take precedence. Missing-field insertion requires an exact registered route or an exact model ID asserted in `effort_models`, on a known Responses/Chat Completions carrier. That operator list does not establish dynamic support. Disabled, `none` and malformed reasoning controls remain untouched; the plugin never adds a thinking toggle.
 
-Slash-command mode changes are process-local. Persistent settings belong to the operator's config or the host's settings interface. This makes a chat command's lifetime explicit and keeps it from quietly editing files.
+Chat mode changes live in the serving process. Persistent defaults belong to the operator's configuration or the host settings API. An explicit dashboard request can opt into persistence; [Contracts](CONTRACTS.md#dashboard-api) describes that boundary.
 
-## Keep failures out of the conversation path
+## Keep scorer failures out of the conversation path
 
-Missing keys or scorer models, HTTP errors, timeouts and malformed scores leave the original request unchanged. A finite numeric score in `0..2` is required; booleans, non-numeric values and out-of-range scores are invalid.
+Missing configuration, transport errors, timeouts and invalid scores leave the original request unchanged. The shared numeric score must be finite and within `0..2`. Every adapter uses the same thresholds and route clamp.
 
-This protects the conversation from scorer failures, but cannot eliminate inaccurate vendor capability information. Effort labels are clamped through Hermes and narrow vendor mappings; the known Ox Alpha rejection remains documented. Fail-open scoring is not a promise that every vendor will accept every rewritten request.
+This protects against scorer and plugin failures. It cannot prevent a vendor from rejecting a rewritten value when route information is inaccurate. Check current route evidence in [Compatibility](MODEL_COMPATIBILITY.md); retain retired-route observations in dated reports.
 
-## Make cache behavior explicit
+## Treat cache claims as evidence questions
 
-Effort settings can affect a provider's prompt cache. Dynamic decisions use an explicit model/API capability registry, combined with transport evidence that the field does not alter the prompt prefix. API family alone, an existing field, and an operator's `effort_models` declaration are insufficient. Routes without an exact dynamic capability keep one decision per provider/model/API route; `once` chooses this route scope for every model, while `auto` uses it as the fallback.
+Transport cache safety and exact dynamic capability are separate requirements. API family, an existing field and an operator assertion cannot independently grant dynamic status.
 
-This is deliberately conservative. State is bounded and in memory, so eviction, reload or reset ends that retention. Cache-hit rates and net cost effects need live measurements; the repository does not present expected savings as proven results.
+Retaining a decision limits changes on routes without that evidence. Memory is bounded and process-local, so this retention ends on eviction/reset/reload. Net savings and cache-hit effects require live A/B measurements; local routing tests cannot establish them.
 
-## Observe the result, avoid storing prompts
+## Observe decisions without retaining prompts
 
-Status contains allowlisted effort and routing metadata. The applied-change feed records only values that actually reached a changed request, not failed or no-op decisions. It contains no prompts or conversation identifiers.
+Status reports allowlisted route and effort metadata. The anonymous change feed records only transitions that reached rewritten requests. Separate session-scoped decision events let Desktop display the focused chat and synchronize its native selector when supported.
 
-The Desktop chip uses separate conversation-scoped status so changing chats does not display another chat's effort. Completed-turn results remain available in the bounded ledger; actual finalize/reset events clear them.
+Normal task text is not persisted by the plugin. Registered child goals exist transiently in bounded memory. External scorers still receive the configured task input and have their own retention policies; see [data sharing](CONFIGURATION.md#data-sharing).
 
-Normal prompts are not persisted. Child goals exist transiently in memory because the parent-written goal is the child classifier's input. Selected external scorers receive task text, so their own retention policies still apply.
+## Maintenance
 
-## Evidence and maintenance
+Keep provider setup in Configuration, operator workflows in Usage, wire/API rules in Contracts and exact route evidence in Compatibility. Preserve dated reports as historical evidence.
 
-The test suite blocks network access and uses injected scorer transports. It checks real Hermes discovery and middleware dispatch, field preservation, turn reuse, route mapping, settings parity, public schemas and failure paths.
-
-Tests verify implementation contracts, not real-world savings. The dated reviews remain as historical evidence, with current behavior documented separately. The plugin uses some Hermes internals through lazy imports; host updates therefore deserve compatibility checks. A live OpenRouter evaluation and cost/cache A/B measurements remain open.
-
-## Proposed provider work
-
-Project memory records a Cloudflare Clef scorer proposal; concurrent adapter work began during this documentation refresh. It is work in progress, not shipped support in the release documented here. The committed provider registry at the start of the refresh (`20fe996`) contains only Jev and OpenRouter. Any additional adapter must preserve explicit selection, the shared score validation, fail-open behavior, credential isolation and bounded per-turn calls.
+Network-free tests exercise request rewrites, decision reuse, failure paths, settings parity and real Hermes discovery/dispatch. They do not measure provider availability or model-answer quality. The plugin uses some lazy Hermes internal imports, so host updates need compatibility checks. [Development](DEVELOPMENT.md) and [CI](CI.md) describe the checks and their limits.

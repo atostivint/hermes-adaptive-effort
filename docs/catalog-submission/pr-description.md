@@ -1,5 +1,7 @@
 # Draft: add Hermes Adaptive Effort to the plugin catalog
 
+> Historical submission draft for the older nested payload at the pin below. It is not ready for the current repository-root layout. Before submission, select and validate a new release pin, regenerate the entry and disclosures against that source, and add pinned screenshots. See [current Configuration](../CONFIGURATION.md) and [Contracts](../CONTRACTS.md) for the implemented providers, routing opt-in and missing-field support.
+
 ## What it does
 
 Hermes Adaptive Effort asks a separately selected classifier to score the current task and adjusts an existing reasoning-effort field when the selected mode permits it. Jev remains the default; users can instead choose OpenRouter, Cloudflare Clef, or a custom hosted/local System One or Chat Completions endpoint. The classifier does not replace the model that answers the conversation.

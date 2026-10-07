@@ -1,8 +1,11 @@
 # OpenAI Decisions API integration
 
-Updated 2026-10-06 (Europe/Paris). Implementation is complete in the local working tree;
-it is not pushed or deployed. This records the approved plan and the implementation against
-the published beta contract. A Luna agent checked the official documentation before work.
+Implemented design record. The adapter is part of source commit `e1d7e99`, confirmed on
+GitHub on 2026-10-07. Use [Configuration](../CONFIGURATION.md#openai-decisions) and
+[Contracts](../CONTRACTS.md#scorer-adapter-contracts) for current setup and behavior.
+
+The plan, implementation notes and test results below describe the 2026-10-06 work.
+They are historical evidence, not a fresh deployment or live scorer check.
 
 ## Goal and verified contract
 
@@ -163,6 +166,7 @@ from the plugin's local no-prompt-storage contract.
 [Decisions guide](https://developers.openai.com/api/docs/guides/decisions).
 
 Beta availability and the API contract are verified against the official guide.
-This operator's account access, live timing, scoring quality, and total cost/cache
-effects remain unmeasured. No OpenAI request was made, no operator configuration
-was changed, and this implementation has not been deployed.
+At the 2026-10-06 implementation checkpoint, this operator's account access, live
+scorer timing/quality and total cost/cache effects were unmeasured. No live Decisions
+request or operator configuration change was made, and deployment was not verified.
+See the [current handoff](../HANDOFF.md) for later source/publication evidence.

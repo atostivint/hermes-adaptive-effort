@@ -1,4 +1,5 @@
 # Draft for NousResearch/hermes-agent/plugin-catalog/hermes-adaptive-effort.yaml
+# Historical nested-payload pin. Regenerate and validate for the current root layout before submission.
 # Pinned to the implementation commit; update sha and version together for releases.
 name: hermes-adaptive-effort
 repo: https://github.com/atostivint/hermes-adaptive-effort

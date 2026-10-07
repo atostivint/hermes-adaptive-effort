@@ -1,35 +1,64 @@
 # Documentation
 
-Start with the [project README](../README.md) for installation, configuration and everyday use.
+Start with the [project README](../README.md) to install the plugin and try a routing mode.
 
-## Current references
+## Use the plugin
 
-| Document | Purpose |
+| Guide | What it covers |
 | --- | --- |
-| [Design choices](DESIGN.md) | Maintainer intent and the reasons behind the scope and safety rules |
-| [Runtime contracts](CONTRACTS.md) | Decision scope, wire mapping, failure behavior, privacy and APIs |
-| [Model compatibility](MODEL_COMPATIBILITY.md) | Exact route evidence, all current OpenCode Go catalog IDs, and injection/no-op outcomes |
-| [Automated checks](CI.md) | GitHub Actions test matrix, integration gate, security scans and their limits |
-| [Development](DEVELOPMENT.md) | Layout, test contracts and Windows/Linux verification |
-| [Contributor instructions](../AGENTS.md) | Rules to follow when changing the implementation |
-| [Operator handoff](HANDOFF.md) | Dated deployment facts for Iris and Windows, migration and unresolved operational items |
+| [Configuration](CONFIGURATION.md) | Five scorer providers, credentials, local models, settings and data sharing |
+| [Usage and troubleshooting](USAGE.md) | Commands, mode examples, Desktop/terminal behavior and missing-effort diagnostics |
+| [Model compatibility](MODEL_COMPATIBILITY.md) | Exact routes, registered controls and the limits of vendor/local/live evidence |
 
-Code is the reference for current behavior. The handoff records an operator environment at a point in time; it is not an installation prerequisite for other users.
+## Understand and maintain it
 
-## Future integrations
-
-| Document | Status |
+| Reference | What it covers |
 | --- | --- |
-| [OpenAI Decision API plan](plans/openai-decision-api.md) | Deferred until release; API contract and settings are provisional |
+| [Design and architecture](DESIGN.md) | Component diagram and reasons behind the routing/safety choices |
+| [Runtime contracts](CONTRACTS.md) | Decision scopes, tool-loop sequence, controls, errors, schemas and APIs |
+| [Development](DEVELOPMENT.md) | Source layout, profile maintenance and reproducible checks |
+| [Automated checks](CI.md) | GitHub Actions and security-check coverage/limits |
+| [Contributor instructions](../AGENTS.md) | Rules and invariants for implementation changes |
+| [Operator handoff](HANDOFF.md) | Current source reference, dated rollout evidence and open operational work |
 
-## Historical reviews
+Code defines current behavior. Operator host observations are dated snapshots, not installation prerequisites or fresh health checks.
 
-These reports preserve the findings and identifiers from their original dates. Old names, paths, test counts and deployment states are historical, not current instructions.
+## Implemented design records
 
-| Document | Context |
+These plans preserve their implementation rationale. They are not pending provider integrations.
+
+| Record | Status |
 | --- | --- |
-| [Original delivery handoff](handoff-t_cb5d47d0.md) | Card `t_cb5d47d0`, prior identity and initial acceptance evidence |
-| [DeepSeek review, 2026-09-29](review-deepseek-2026-09-29.md) | Read-only review of the then-installed host/plugin; several findings subsequently fixed |
+| [OpenAI Decisions](plans/openai-decision-api.md) | Adapter is implemented; live scorer evaluation remains separate |
+| [Target-model scoring context](plans/target-model-scoring-context.md) | Opt-in context and local catalog are implemented; quality/cost evaluation remains separate |
+
+## Work in progress
+
+| Record | Boundary |
+| --- | --- |
+| Local live model effort validation | Separate unpublished campaign workstream: `docs/plans/live-model-effort-validation.md` and `docs/validation/runs/live-20261007/report.md`; partially executed Codex observations and blocked dollar-provider cases |
+| [Catalog submission draft](catalog-submission/pr-description.md) | Historical pin/layout; needs a newly reviewed release pin and screenshots before submission |
+
+Some validation files were untracked at the start of this documentation refresh. Their presence in a local checkout does not establish publication on GitHub. Keep them separate from completed release evidence.
+
+## Historical evidence
+
+Preserve original findings, names, paths and test counts in these records. They describe their dates and revisions; they are not current setup instructions.
+
+| Record | Context |
+| --- | --- |
+| [Announcement draft, 2026-10-05](announcements/linkedin-post-2026-10-05.md) | Dated French promotional draft; not current setup guidance |
+| [Preserved operator handoff, 2026-10-07](handoff-snapshot-2026-10-07.md) | Full earlier rollout/recovery narrative, including statements superseded by the current handoff |
+| [Original delivery handoff](handoff-t_cb5d47d0.md) | Earlier plugin identity and initial acceptance evidence |
+| [DeepSeek review, 2026-09-29](review-deepseek-2026-09-29.md) | Review of the then-installed host/plugin |
 | [Review follow-up, 2026-09-29](review-followup-2026-09-29.md) | Fixes and installation state at that date |
+| [Iris use cases, 2026-10-03](reviews/live-iris-use-cases-20261003.md) | Completed route observations; linked raw captures are absent from this checkout |
+| [Auto-injection route research](reviews/auto-injection-route-research.md) | Evidence considered when adding exact injection routes |
+| [Auto-injection local validation](reviews/auto-injection-validation.txt) | Recorded local checks |
+| [Model compatibility validation](reviews/model-compatibility-validation.txt) | Recorded mapping/control checks |
+| [Muse injection validation](reviews/muse-effort-inject-validation.txt) | Recorded local checks |
+| [Muse route probe](reviews/muse-effort-inject-probe.txt) | Probe outcomes and unsuccessful completion boundary |
+| [Zenon local effort check, 2026-10-05](reviews/zenon-effort-compatibility-20261005.md) | Bounded local inventory and field acceptance without completed generations |
+| [Local scorer benchmark, 2026-10-05](reviews/local-scorer-benchmark-20261005T090911Z.md) | Exploratory synthetic-label trial |
 
-New documentation should distinguish tested contracts, dated live observations and unmeasured expectations. Do not rewrite old reports to make an earlier result look current.
+Documentation should distinguish implementation contracts, vendor documentation, dated live observations and unmeasured expectations. Recheck a historical claim before treating it as current.

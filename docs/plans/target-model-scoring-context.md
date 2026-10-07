@@ -1,6 +1,8 @@
 # Target model context for effort scoring
 
-Implementation status: the opt-in context path and initial catalog were added on 2026-10-06 (Europe/Paris). On 2026-10-07, the catalog was expanded with all 23 free variants on OpenRouter's current listing, GLM/Kimi profiles, and exact profile coverage for the 30 models on OpenCode Go's current docs page. The latest catalog expansion has not been re-run through the test or lint commands. No live scorer or answer-quality evaluation has been performed.
+Implemented design record. The opt-in context path and expanded catalog are part of source commit `e1d7e99`, confirmed on GitHub on 2026-10-07. Use [Configuration](../CONFIGURATION.md#guide-classification) for current settings and [Development](../DEVELOPMENT.md#adding-target-model-profiles) for catalog maintenance.
+
+The notes below preserve the 2026-10-06/07 implementation checkpoint: the initial context path and later catalog expansion, including the dated OpenRouter and OpenCode Go snapshots. Test statements describe that checkpoint; they are not a fresh verification of the current tree. No live scorer or answer-quality evaluation is established by this record.
 
 ## Goal and recommended approach
 
