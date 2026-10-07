@@ -6,6 +6,7 @@ without changing request behavior when storage is unavailable.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -13,7 +14,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -98,41 +99,56 @@ def _safe_details(details: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+@contextlib.contextmanager
+def _open(path: Path, *, create: bool) -> Iterator[sqlite3.Connection]:
+    """One committed transaction on a connection that is always closed (Windows file locks)."""
+    connection = _connect(path, create=create)
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
+
+
 def _connect(path: Path, *, create: bool) -> sqlite3.Connection:
     if create:
         path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(str(path), timeout=0.5)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA busy_timeout = 500")
-    connection.execute("PRAGMA foreign_keys = ON")
-    if create:
-        connection.executescript("""
-            CREATE TABLE IF NOT EXISTS conversations (
-                scope_id TEXT PRIMARY KEY,
-                updated_at REAL NOT NULL,
-                latest_json TEXT NOT NULL DEFAULT '{}'
-            );
-            CREATE TABLE IF NOT EXISTS aliases (
-                alias TEXT PRIMARY KEY,
-                scope_id TEXT NOT NULL REFERENCES conversations(scope_id) ON DELETE CASCADE
-            );
-            CREATE TABLE IF NOT EXISTS changes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                scope_id TEXT NOT NULL REFERENCES conversations(scope_id) ON DELETE CASCADE,
-                decision_hash TEXT NOT NULL,
-                old_effort TEXT NOT NULL,
-                new_effort TEXT NOT NULL,
-                happened_at REAL NOT NULL,
-                provider TEXT,
-                model TEXT,
-                api_mode TEXT,
-                cache_verdict TEXT NOT NULL,
-                details_json TEXT NOT NULL,
-                UNIQUE(scope_id, decision_hash, old_effort, new_effort)
-            );
-            CREATE INDEX IF NOT EXISTS changes_recent
-                ON changes(scope_id, happened_at DESC, id DESC);
-        """)
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA busy_timeout = 500")
+        connection.execute("PRAGMA foreign_keys = ON")
+        if create:
+            connection.executescript("""
+                CREATE TABLE IF NOT EXISTS conversations (
+                    scope_id TEXT PRIMARY KEY,
+                    updated_at REAL NOT NULL,
+                    latest_json TEXT NOT NULL DEFAULT '{}'
+                );
+                CREATE TABLE IF NOT EXISTS aliases (
+                    alias TEXT PRIMARY KEY,
+                    scope_id TEXT NOT NULL REFERENCES conversations(scope_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS changes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    scope_id TEXT NOT NULL REFERENCES conversations(scope_id) ON DELETE CASCADE,
+                    decision_hash TEXT NOT NULL,
+                    old_effort TEXT NOT NULL,
+                    new_effort TEXT NOT NULL,
+                    happened_at REAL NOT NULL,
+                    provider TEXT,
+                    model TEXT,
+                    api_mode TEXT,
+                    cache_verdict TEXT NOT NULL,
+                    details_json TEXT NOT NULL,
+                    UNIQUE(scope_id, decision_hash, old_effort, new_effort)
+                );
+                CREATE INDEX IF NOT EXISTS changes_recent
+                    ON changes(scope_id, happened_at DESC, id DESC);
+            """)
+    except BaseException:
+        connection.close()
+        raise
     return connection
 
 
@@ -189,7 +205,7 @@ def record_snapshot(scope_id: Any, aliases: Iterable[Any],
     if status.get("cache_verdict") in _CACHE_VERDICTS:
         safe["cache_verdict"] = status["cache_verdict"]
     try:
-        with _STORE_LOCK, _connect(path, create=True) as connection:
+        with _STORE_LOCK, _open(path, create=True) as connection:
             _ensure_conversation(connection, scope, when, safe)
             _bind_aliases(connection, scope, _aliases(scope, aliases))
             _trim(connection, scope)
@@ -215,7 +231,7 @@ def record_change(scope_id: Any, aliases: Iterable[Any], decision_key: Any,
     key_hash = hashlib.sha256(str(decision_key).encode("utf-8", errors="replace")).hexdigest()
     safe = _safe_details(details)
     try:
-        with _STORE_LOCK, _connect(path, create=True) as connection:
+        with _STORE_LOCK, _open(path, create=True) as connection:
             _ensure_conversation(connection, scope, when)
             _bind_aliases(connection, scope, _aliases(scope, aliases))
             connection.execute("""
@@ -257,7 +273,7 @@ def read_history(identities: Iterable[Any], limit: int = 10) -> Dict[str, Any]:
     if not path.is_file():
         return {"available": True, "scope_id": None, "events": [], "latest": None, "status": {}}
     try:
-        with _STORE_LOCK, _connect(path, create=False) as connection:
+        with _STORE_LOCK, _open(path, create=False) as connection:
             scope = _resolve_scope(connection, identities)
             if scope is None:
                 return {"available": True, "scope_id": None,
@@ -295,7 +311,7 @@ def clear_conversation(identities: Iterable[Any]) -> bool:
     if path is None or not path.is_file():
         return path is not None
     try:
-        with _STORE_LOCK, _connect(path, create=False) as connection:
+        with _STORE_LOCK, _open(path, create=False) as connection:
             scope = _resolve_scope(connection, identities)
             if scope is not None:
                 connection.execute("DELETE FROM conversations WHERE scope_id=?", (scope,))

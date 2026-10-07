@@ -237,6 +237,24 @@ def test_history_api_returns_only_compact_events_for_the_requested_conversation(
     assert "PRIVATE_PROMPT" not in json.dumps(payload)
 
 
+def test_disk_loaded_dashboard_uses_the_registered_history_location(tmp_path, monkeypatch):
+    class FakeState:
+        def __init__(self, plugin_id):
+            assert plugin_id == "hermes-adaptive-effort"
+            self.data_dir = tmp_path / "plugin-data" / plugin_id
+
+    fake = type(sys)("hermes_cli.plugins_state")
+    fake.PluginState = FakeState
+    monkeypatch.setitem(sys.modules, "hermes_cli.plugins_state", fake)
+    history_store = command._history_store
+    monkeypatch.setattr(history_store, "_PATH_PROVIDER", None)
+
+    api._bind_history_path(middleware)
+
+    assert history_store._path() == (
+        tmp_path / "plugin-data" / "hermes-adaptive-effort" / "effort-history.sqlite3")
+
+
 def test_desktop_focus_helpers_select_only_the_focused_conversation():
     node = shutil.which("node")
     if node is None:

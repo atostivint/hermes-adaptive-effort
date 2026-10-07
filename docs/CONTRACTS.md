@@ -145,7 +145,7 @@ A registered child is classified from its parent's goal only when both the main 
 
 `/hae` opens the current conversation's recent applied-change history. `/hae history [N|all] [full]` selects the number of retained changes and whether to show expanded metadata. `/hae status` is a concise current-conversation summary; `status full` adds details, and `status json` retains the machine-readable aggregate payload. `help`, `probe <text>` and the four mode verbs remain available. Mode verbs affect future requests in this process. Unknown modes, unsupported arguments and missing probe text return usage.
 
-History is stored in the active Hermes profile, scoped by conversation identity, and bounded to 64 changes per conversation and 64 conversations. It contains only applied rewrites and prompt-free metadata. Reset removes the reset conversation's history. Storage errors never affect requests.
+History is stored in the active Hermes profile, scoped by conversation identity, and bounded to 64 changes per conversation and 64 conversations. It contains only applied rewrites and prompt-free metadata. To resolve one conversation across ID rotations, the local database also keeps lookup aliases, including the stored session ID and the host's `HERMES_SESSION_KEY` when present; a platform session key may embed chat or user identifiers. Aliases are never returned by `/hae` or `GET /history`. Reset removes the reset conversation's history. Storage errors never affect requests.
 
 `status` does no classification. `probe` scores operator text plus configured guidance, stores no routing decision and never infers a target route/profile.
 

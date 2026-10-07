@@ -1295,6 +1295,25 @@ def _dynamic_effort_route(provider: Any, model: Any, api_mode: Any,
     return False
 
 
+def _claude_anchor_content(content: Any) -> Any:
+    """Drop request-local prompt-cache decoration so a turn hashes the same every request.
+
+    Hermes marks only the latest messages, turning a string into text parts (possibly split
+    at a registered scaffold) with ``cache_control``; the marker moves as the chat grows."""
+    if not isinstance(content, list):
+        return content
+    parts = [
+        {k: v for k, v in block.items() if k != "cache_control"}
+        if isinstance(block, dict) else block
+        for block in content
+    ]
+    if parts and all(isinstance(block, dict) and set(block) == {"type", "text"}
+                     and block["type"] == "text" and isinstance(block["text"], str)
+                     for block in parts):
+        return "".join(block["text"] for block in parts)
+    return parts
+
+
 def _claude_user_anchors(messages: Any) -> Tuple[Dict[Tuple[int, str], int],
                                                    Optional[Tuple[int, str]]]:
     """Hash user-message positions without retaining their content."""
@@ -1313,7 +1332,7 @@ def _claude_user_anchors(messages: Any) -> Tuple[Dict[Tuple[int, str], int],
             continue
         ordinal += 1
         try:
-            serialized = json.dumps(content, ensure_ascii=True,
+            serialized = json.dumps(_claude_anchor_content(content), ensure_ascii=True,
                                     sort_keys=True, separators=(",", ":"))
         except (TypeError, ValueError):
             return {}, None

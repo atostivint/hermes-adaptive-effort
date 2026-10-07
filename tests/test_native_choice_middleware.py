@@ -253,6 +253,29 @@ def test_claude_markers_replay_at_the_same_turn_boundaries_without_changing_init
     assert scorer.calls[1][1] == ("low", "medium", "high", "xhigh", "max")
 
 
+def test_claude_markers_survive_moving_prompt_cache_decoration(monkeypatch):
+    scorer = ChoiceScorer("high", "low")
+    configure(monkeypatch, scorer)
+    marker = {"type": "ephemeral"}
+    first = claude_request([{"role": "user", "content": [
+        {"type": "text", "text": "first ", "cache_control": marker},
+        {"type": "text", "text": "task"}]}])
+    assert claude_call(first) is not None
+
+    second = claude_request([
+        {"role": "user", "content": "first task"},
+        {"role": "assistant", "content": "previous answer"},
+        {"role": "user", "content": [
+            {"type": "text", "text": "second task", "cache_control": marker}]},
+    ])
+    second_out = claude_call(second, turn_id="turn-2")["request"]
+    assert [(m.get("output_config") or {}).get("effort") for m in second_out["messages"]
+            if m.get("role") == "system"] == ["high", "low"]
+    status = middleware.session_state()[f"{SESSION}/turn-2"]
+    assert status.get("failure") is None
+    assert status["cache_behavior"] == "per_message"
+
+
 def test_claude_auto_without_visible_beta_pins_per_route_and_always_reports_cache_risk(
         monkeypatch):
     scorer = ChoiceScorer("high", "low")

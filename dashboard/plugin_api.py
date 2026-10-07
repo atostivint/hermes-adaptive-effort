@@ -114,7 +114,25 @@ def _load_from_disk() -> Tuple[Any, Any]:
         spec.loader.exec_module(module)
         return module
 
-    return _load("middleware"), _load("command")
+    middleware = _load("middleware")
+    _bind_history_path(middleware)
+    return middleware, _load("command")
+
+
+def _bind_history_path(middleware: Any) -> None:
+    """Point a disk-loaded copy at the history file ``register()`` would configure.
+
+    The dashboard can run without the agent's ``register(ctx)``; ``PluginState`` derives the
+    same profile-scoped ``plugin-data`` directory. Unavailable hosts keep history at 503."""
+    try:
+        from hermes_cli.plugins_state import PluginState
+
+        state = PluginState(PLUGIN_ID)
+        middleware.set_history_path_provider(
+            lambda: state.data_dir / "effort-history.sqlite3")
+    except Exception:
+        logger.debug("hermes-adaptive-effort: history path unavailable to dashboard",
+                     exc_info=True)
 
 
 def _agent_modules() -> Tuple[Any, Any]:
