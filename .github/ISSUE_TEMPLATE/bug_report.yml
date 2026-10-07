@@ -1,0 +1,88 @@
+name: Bug report
+description: Report a problem with the plugin
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting a bug. Please include as much detail as you can.
+  - type: input
+    id: plugin_version
+    attributes:
+      label: Plugin version
+      description: "Run `/hae status` and share the version"
+      placeholder: "0.3.0"
+    validations:
+      required: true
+  - type: input
+    id: hermes_version
+    attributes:
+      label: Hermes version
+      description: "Run `hermes version`"
+      placeholder: "0.24.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: scorer_provider
+    attributes:
+      label: Scorer provider
+      options:
+        - Jev
+        - OpenAI Decisions
+        - OpenRouter
+        - Cloudflare Clef
+        - Custom endpoint
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options:
+        - "off"
+        - auto
+        - once
+        - always
+    validations:
+      required: true
+  - type: input
+    id: route
+    attributes:
+      label: Route (provider/model/API mode)
+      description: "Provider, model name and API mode where the problem occurred"
+      placeholder: "openai/gpt-6.1-sol/Responses"
+    validations:
+      required: true
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened?
+      description: Describe the issue
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: Describe the expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How to reproduce the problem
+      placeholder: |
+        1. Configure scorer to...
+        2. Set mode to...
+        3. Send a request to...
+    validations:
+      required: false
+  - type: checkboxes
+    id: cleanup
+    attributes:
+      label: Privacy
+      description: Before submitting, remove API keys, prompts and personal paths from your report
+      options:
+        - label: I removed API keys, prompts and personal paths
+          required: true

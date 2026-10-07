@@ -7,3 +7,5 @@ __pycache__/
 # CI host checkout and generated reports
 .ci/
 test-results.xml
+coverage.xml
+.coverage

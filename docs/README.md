@@ -16,11 +16,12 @@ Start with the [project README](../README.md) to install the plugin and try a ro
 | --- | --- |
 | [Design and architecture](DESIGN.md) · [Version française expliquée](DESIGN.fr.md) | Component diagram and reasons behind the routing/safety choices |
 | [Runtime contracts](CONTRACTS.md) | Decision scopes, tool-loop sequence, controls, errors, schemas and APIs |
-| [Development](DEVELOPMENT.md) | Source layout, profile maintenance and reproducible checks |
-| [Automated checks](CI.md) | GitHub Actions and security-check coverage/limits |
+| [Development](DEVELOPMENT.md) | Source layout, profile maintenance, reproducible checks and release process |
+| [Automated checks](CI.md) | GitHub Actions, security checks, coverage and release workflow |
 | [Contributor instructions](../AGENTS.md) | Rules and invariants for implementation changes |
 | [Operator handoff](HANDOFF.md) | Current source reference, dated rollout evidence and open operational work |
 | [Release notes v0.3.0](releases/v0.3.0.md) | First tagged pre-release: features, contract changes and validation limits |
+| [Changelog](../CHANGELOG.md) | All releases and unreleased changes in Keep a Changelog format |
 
 Code defines current behavior. Operator host observations are dated snapshots, not installation prerequisites or fresh health checks.
 
