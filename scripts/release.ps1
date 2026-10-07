@@ -97,26 +97,18 @@ function Prepare-Release {
 function Tag-Release {
     param([string]$Version)
 
-    # Check clean working tree
-    $status = & git status --porcelain
-    if ($status) {
-        Write-Error "Working tree is not clean" -ErrorAction Stop
-    }
+    # Tag origin/master directly, so this works from any worktree or branch.
+    & git fetch origin master --tags
+    if ($LASTEXITCODE -ne 0) { throw "git fetch failed" }
+    $target = (& git rev-parse origin/master).Trim()
+    if ($LASTEXITCODE -ne 0) { throw "git rev-parse failed" }
 
-    # Checkout master
-    & git checkout master
-    if ($LASTEXITCODE -ne 0) { throw "git checkout failed" }
-
-    # Pull latest
-    & git pull --ff-only
-    if ($LASTEXITCODE -ne 0) { throw "git pull failed" }
-
-    # Verify version matches
-    $pluginVersion = & $Python .github/scripts/release_notes.py version
-    if ($LASTEXITCODE -ne 0) { throw "Failed to get plugin version" }
-
+    # Verify the version on origin/master matches
+    $pluginYaml = & git show "${target}:plugin.yaml"
+    if ($LASTEXITCODE -ne 0) { throw "git show plugin.yaml failed" }
+    $pluginVersion = ($pluginYaml | Select-String -Pattern '^version:\s*(\S+)' | Select-Object -First 1).Matches[0].Groups[1].Value
     if ($pluginVersion -ne $Version) {
-        throw "plugin.yaml version '$pluginVersion' != '$Version'"
+        throw "plugin.yaml on origin/master is '$pluginVersion', not '$Version'"
     }
 
     # Check tag doesn't exist locally
@@ -133,7 +125,7 @@ function Tag-Release {
 
     # Create and push tag
     $tagMsg = "Hermes Adaptive Effort v$Version"
-    & git tag -a "v$Version" -m $tagMsg
+    & git tag -a "v$Version" -m $tagMsg $target
     if ($LASTEXITCODE -ne 0) { throw "git tag failed" }
 
     & git push origin "v$Version"

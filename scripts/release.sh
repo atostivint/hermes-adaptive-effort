@@ -86,24 +86,16 @@ prepare_release() {
 tag_release() {
   local version="$1"
 
-  # Check clean working tree
-  if [ -n "$(git status --porcelain)" ]; then
-    echo "Error: Working tree is not clean" >&2
-    git status --short >&2
-    exit 1
-  fi
+  # Tag origin/master directly, so this works from any worktree or branch.
+  git fetch origin master --tags
+  local target
+  target=$(git rev-parse origin/master)
 
-  # Checkout master
-  git checkout master
-
-  # Pull latest
-  git pull --ff-only
-
-  # Verify version matches
+  # Verify the version on origin/master matches
   local plugin_version
-  plugin_version=$("$PYTHON" .github/scripts/release_notes.py version)
+  plugin_version=$(git show "$target:plugin.yaml" | sed -n 's/^version:[[:space:]]*//p' | head -n 1 | tr -d '[:space:]')
   if [ "$plugin_version" != "$version" ]; then
-    echo "Error: plugin.yaml version '$plugin_version' != '$version'" >&2
+    echo "Error: plugin.yaml on origin/master is '$plugin_version', not '$version'" >&2
     exit 1
   fi
 
@@ -120,7 +112,7 @@ tag_release() {
 
   # Create and push tag
   local tag_msg="Hermes Adaptive Effort v$version"
-  git tag -a "v$version" -m "$tag_msg"
+  git tag -a "v$version" -m "$tag_msg" "$target"
   git push origin "v$version"
 
   echo ""
