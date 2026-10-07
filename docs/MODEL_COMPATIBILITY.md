@@ -26,7 +26,7 @@ The OpenCode Go documentation reviewed on 2026-10-07 lists 30 curated model name
 | `glm-5.2` | `chat_completions` | **Inject:** top-level `reasoning_effort`, high/max only. The Hermes Go profile emits this field for this exact family; [Z.ai's GLM-5.2 announcement](https://z.ai/blog/glm-5.2) documents High/Max. Low and medium clamp to high. |
 | `glm-5.1` | inferred `chat_completions` | **No-op if absent:** catalog-only ID; no exact effort evidence. |
 | `glm-5` | inferred `chat_completions` | **No-op if absent:** catalog-only ID; no exact effort evidence. |
-| `kimi-k3` | `chat_completions` | **Inject:** top-level `reasoning_effort`, low/high/max. [Kimi's model selection docs](https://www.kimi.ai/help/kimi-api/api-model-selection) state K3 always reasons and accepts these values. Medium maps to high; xhigh maps to max. |
+| `kimi-k3` | `chat_completions` | **Inject:** top-level `reasoning_effort`, low/high/max. [Kimi's model selection docs](https://www.kimi.ai/help/kimi-api/api-model-selection) state K3 always reasons and accepts these values. For legacy label clamping, medium maps to high and xhigh maps to max. Native named choices do not offer xhigh on this route; when a named xhigh decision moves here, it clamps to high. |
 | `kimi-k2.7-code` | `chat_completions` | **No-op if absent:** Go profile has a Kimi K2 thinking toggle, but no verified model-specific effort vocabulary was found. |
 | `kimi-k2.6` | `chat_completions` | **No-op if absent:** Kimi documents switching thinking on/off, not an effort-level control. |
 | `kimi-k2.5` | inferred `chat_completions` | **No-op if absent:** catalog-only ID; no exact effort evidence. |
@@ -60,6 +60,24 @@ The OpenCode Go documentation reviewed on 2026-10-07 lists 30 curated model name
 | `omen-alpha` | inferred `chat_completions` | **No-op if absent:** catalog-only ID; no exact route or effort evidence. |
 
 ## Other tested routes and coverage boundaries
+
+### Native named-choice routes
+
+On these exact routes, the scorer chooses one of the listed wire values directly. This table is a plugin allowlist, not a claim that neighboring IDs, proxies or other API modes behave the same way.
+
+| Provider | Exact model ID(s) | API route | Choice vocabulary | Turn/cache behavior |
+|---|---|---|---|---|
+| OpenCode Go | `kimi-k3` | `chat_completions` | `low/high/max` | Existing Go route; narrow vocabulary |
+| OpenAI Codex | `gpt-6.1-sol` | `codex_responses` | `low/medium/high/xhigh/max` | Dynamic only when transport cache-safety is positive |
+| Anthropic native | `claude-fable-5-1`, `claude-mythos-5-1`, `claude-opus-5-5`, `claude-opus-5`, `claude-sonnet-5-5` | `anthropic_messages` | `low/medium/high/xhigh/max` | Per-message updates only with an exposed `anthropic-beta` header; plugin appends the documented beta |
+| Anthropic native | `claude-fable-5`, `claude-mythos-5`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-sonnet-5` | `anthropic_messages` | `low/medium/high/xhigh/max` | Top-level effort only; `auto` retains a route decision |
+| Anthropic native | `claude-opus-4-6`, `claude-sonnet-4-6` | `anthropic_messages` | `low/medium/high/max` | `xhigh` is excluded; top-level effort only, so `auto` retains a route decision |
+| OpenCode Go | Exact IDs in `effort.OPEN_CODE_GO_INJECTION_ROUTES` | Registered route API mode | The route table's exact wire set | Uses the declared choice set; no generic OpenAI-compatible expansion |
+| OpenCode Zen | `muse-spark-1.3`, `muse-spark-1.2`, `muse-spark-1.3-contributor-free` | `codex_responses` | Exact Muse tier set in the route table | Uses the exact model tier; Contributor Free excludes `max` |
+
+Anthropic's native field is `output_config.effort`; the per-message path uses an empty system message containing `output_config.effort` immediately before the relevant user turn. The top-level effort remains unchanged. The plugin only activates this path for HTTPS `api.anthropic.com`, the five per-message IDs above, a mutable existing `anthropic-beta` header, and no `thinking.type="between_tools"`. It merges `mid-conversation-output-config-2026-07-01` into that header without removing existing beta values. A proxy, Bedrock route, missing header or incompatible control is not inferred to support it. See Anthropic's [effort documentation](https://platform.claude.com/docs/en/build-with-claude/effort#change-effort-mid-conversation).
+
+OpenAI's route vocabulary follows the registered GPT-6.1 Sol route and Hermes's exact route declaration; see the [OpenAI reasoning guide](https://developers.openai.com/api/docs/guides/reasoning). Jev/System One and OpenAI Decisions expose named-choice question formats, as described in the [TypeSafe Choice guide](https://docs.typesafe.ai/primitives/choice) and [OpenAI Decisions guide](https://developers.openai.com/api/docs/guides/decisions). The local suite verifies request shapes and strict parsing; it does not establish live scorer acceptance or answer quality.
 
 OpenCode Zen has three separate positive model routes. Exact model IDs and route vocabularies are explicit in the runtime registry; all use `codex_responses` and top-level `reasoning.effort`:
 

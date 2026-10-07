@@ -1,0 +1,26 @@
+{
+  "schema": "hermes-adaptive-effort.codex-zero-send-audit.v1",
+  "date": "2026-10-07",
+  "codex_app_meter": {
+    "authorization_percent": 31,
+    "latest_observed_percent": 34,
+    "window_minutes": 300,
+    "same_account_as_hermes": true,
+    "hard_max_percent": 61,
+    "operational_stop_percent": 60
+  },
+  "hermes_cli_catalog_access": "accessible_via_launcher",
+  "authenticated_catalog_model_ids": [
+    "gpt-6.1-sol",
+    "gpt-6-astra",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna"
+  ],
+  "inference_calls_sent_at_snapshot": 0,
+  "hard_pre_send_codex_quota_bound_including_retries": "not_demonstrated",
+  "codex_dollar_reservation": null,
+  "campaign_status_at_snapshot": "authorized_no_inference_calls_yet"
+}

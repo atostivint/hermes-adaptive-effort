@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import import_plugin
+from conftest import import_plugin, score_to_effort_choice
 
 middleware = import_plugin("middleware")
 
@@ -34,6 +34,11 @@ class FakeClassifier:
     def classify_detail(self, prompt):
         self.calls.append(prompt)
         return self.score, None
+
+    def classify_effort_detail(self, prompt, choices):
+        score, failure = self.classify_detail(prompt)
+        choice = score_to_effort_choice(score, choices)
+        return (choice, None) if choice is not None else (None, failure or "malformed_response")
 
 
 class ScoreSequence:
@@ -52,7 +57,13 @@ class ScoreSequence:
             parent.calls.append(prompt)
             return (parent.scores.pop(0) if parent.scores else 0.0), None
 
+        def classify_effort_detail(prompt, choices):
+            score, failure = classify_detail(prompt)
+            choice = score_to_effort_choice(score, choices)
+            return (choice, None) if choice is not None else (None, failure or "malformed_response")
+
         client.classify_detail = classify_detail
+        client.classify_effort_detail = classify_effort_detail
         self.instances.append(client)
         return client
 
@@ -132,6 +143,11 @@ def test_full_history_classifies_current_turn_and_reuses_it_in_tool_loop(monkeyp
         def classify_detail(self, prompt):
             calls.append(prompt)
             return (1.9 if prompt == prompts[1] else 0.1), None
+
+        def classify_effort_detail(self, prompt, choices):
+            score, failure = self.classify_detail(prompt)
+            choice = score_to_effort_choice(score, choices)
+            return (choice, None) if choice is not None else (None, failure or "malformed_response")
 
     monkeypatch.setattr(middleware, "_classifier_factory", lambda **kw: PromptClassifier())
     history = []

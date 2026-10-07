@@ -34,7 +34,7 @@ The Desktop behavior harness uses Node's built-in test runner:
 node --test tests/desktop_decision_event_behavior.test.mjs
 ```
 
-This is a separate check from CI's JavaScript syntax check; see [CI](CI.md#functional-checks-ci).
+CI runs this harness alongside the JavaScript syntax check; see [CI](CI.md#functional-checks-ci).
 
 ## Source map
 
@@ -42,9 +42,9 @@ This is a separate check from CI's JavaScript syntax check; see [CI](CI.md#funct
 | --- | --- |
 | `plugin.yaml`, `__init__.py` | Manifest/settings schema and registration of middleware, commands and lifecycle hooks |
 | `middleware.py` | Gates, turn/route decisions, request copies, child registry, applied changes and Desktop events |
-| `effort.py`, `cache_safety.py` | Score/label/route mapping, exact injection registry and transport cache evidence |
+| `effort.py`, `cache_safety.py` | Named choice/legacy score mapping, exact route registry and transport cache evidence |
 | `scorers.py`, `*_client.py` | Explicit provider selection, credentials, endpoint display and scorer adapters |
-| `rubric.py` | Shared score question, guidance and strict response validation |
+| `rubric.py` | Shared named-choice and legacy score questions, guidance and strict response validation |
 | `model_profiles.py`, `model_profiles.json` | Local exact-ID reference catalog and bounded optional context |
 | `command.py` | `/hae` commands and public status allowlist |
 | `dashboard/`, `desktop/` | REST backend, focused-chat status, notifications and selector synchronization |
@@ -62,9 +62,11 @@ A function autouse fixture resets plugin state and substitutes empty settings, s
 | --- | --- |
 | Request preservation, modes, turn/route reuse and concurrency | `test_middleware.py`, `test_command_modes.py`, `test_turn_scope.py`, `test_decision_cache.py`, `test_cache_safety.py` |
 | Mapping, rubric and exact model context | `test_effort.py`, `test_rubric.py`, `test_model_profiles.py` |
+| Named choices, scorer formats, exact route options and Claude turn markers | `test_named_effort_choices.py`, `test_native_choice_middleware.py` |
 | Scorer construction and transports | `test_scorers.py`, `test_jev_client.py`, `test_openai_decision_client.py`, `test_openrouter_client.py`, `test_cloudflare_client.py`, `test_custom_client.py` |
 | Child lifecycle and routing | `test_subagent.py` |
 | Commands, manifest/settings parity and real host integration | `test_command.py`, `test_plugin_registration.py`, `test_config_schema.py`, `test_dispatcher_integration.py` |
+| Bounded prompt-free conversation history and CLI rendering | `test_history_store.py` |
 | REST/Desktop state, events and session selector synchronization | `test_plugin_api.py`, `test_desktop_decision_events.py`, `test_desktop_decision_event_contract.py`, `desktop_decision_event_behavior.test.mjs` |
 | Historical review regressions | `test_review_fixes.py` |
 

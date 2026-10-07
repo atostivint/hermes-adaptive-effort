@@ -4,11 +4,13 @@
 name: hermes-adaptive-effort
 id: hermes-adaptive-effort
 kind: standalone
-version: 0.2.0
+version: 0.3.0
 description: >
   Opt-in reasoning-effort control with four modes: auto, once, always, and off.
-  The selected scorer (Jev, OpenRouter, Cloudflare Clef, or a custom hosted/local endpoint)
-  evaluates eligible requests, and the plugin changes only a supported effort field.
+  The selected scorer (Jev, OpenAI Decisions, OpenRouter, Cloudflare Clef, or a custom
+  hosted/local endpoint) evaluates eligible requests using the exact route's named effort
+  levels when known, or the legacy score rubric otherwise. The plugin changes only a
+  supported effort field.
   Default mode is off and Jev remains the default scorer.
 provides: []
 provides_middleware:
@@ -27,16 +29,16 @@ provides_hooks:
 config_schema:
   mode: {type: str, choices: [auto, once, always, off], default: off, label: Mode, description: "auto reevaluates every message on verified dynamic routes and otherwise keeps one decision per model and route for the conversation; once keeps one decision per model and route; always reevaluates every new user message; off never scores or changes effort", required: false}
   subagent_mode: {type: str, choices: [auto, once, always, off], default: off, label: Subagent mode, description: "Independent gate for child sessions classified from the parent-written goal; uses the same four effort modes", required: false}
-  scorer_provider: {type: str, choices: [jev, openrouter, cloudflare, custom, openai_decision], default: jev, label: Scorer provider, description: "Choose which service classifies each task. OpenAI Decisions requires OPENAI_API_KEY and defaults to gpt-6-luna; OpenRouter requires OPENROUTER_API_KEY and a model; Cloudflare requires CLOUDFLARE_AUTH_TOKEN, an account ID and model; custom requires an endpoint and model.", required: false}
+  scorer_provider: {type: str, choices: [jev, openrouter, cloudflare, custom, openai_decision], default: jev, label: Scorer provider, description: "Choose which service classifies each task. Exact registered routes use named effort choices; other routes use the legacy score rubric. OpenAI Decisions requires OPENAI_API_KEY and defaults to gpt-6-luna; OpenRouter requires OPENROUTER_API_KEY and a model; Cloudflare requires CLOUDFLARE_AUTH_TOKEN, an account ID and model; custom requires an endpoint and model.", required: false}
   jev_model: {type: str, default: jev-latest, label: Jev — model, description: "Model name sent to the Jev scoring endpoint; defaults to jev-latest", required: false}
   endpoint: {type: str, default: "https://api.typesafe.ai/v1/systemone", label: Jev — endpoint, description: "Scoring route or API base; a base gets /systemone appended. Ignored by other scorers.", required: false}
   scorer_model: {type: str, default: "", label: OpenAI Decisions / OpenRouter / custom — model, description: "Optional for OpenAI Decisions (defaults to gpt-6-luna); required when OpenRouter or custom is selected. Enter a model slug or the name served by your custom endpoint. Ignored by Jev and Cloudflare.", required: false}
   cloudflare_account_id: {type: str, default: "", label: Cloudflare — account ID, description: "32-character hexadecimal account ID (required when Cloudflare is selected)", required: false}
   cloudflare_model: {type: str, choices: [clef, clef-flash], default: clef, label: Cloudflare — model, description: "Workers AI model selector: clef or clef-flash", required: false}
   custom_endpoint: {type: str, default: "", label: Custom — endpoint, description: "Full HTTP(S) scoring URL; may point to a hosted or local server", required: false}
-  custom_api_format: {type: str, choices: [systemone, chat_completions], default: systemone, label: Custom — API format, description: "systemone for typed decision models; chat_completions for JSON score responses", required: false}
+  custom_api_format: {type: str, choices: [systemone, chat_completions], default: systemone, label: Custom — API format, description: "systemone for typed decision models; chat_completions returns named effort JSON on registered routes and numeric score JSON elsewhere", required: false}
   custom_auth: {type: str, choices: [none, bearer], default: none, label: Custom — authentication, description: "none for a local/public endpoint; bearer uses CUSTOM_SCORER_API_KEY", required: false}
-  classification_instructions: {type: str, default: "", label: Classification — extra guidance, description: "Optional operator guidance for judging effort (up to 2000 characters); sent to the selected scorer only when a classification runs and does not replace the built-in score definitions", required: false}
+  classification_instructions: {type: str, default: "", label: Classification — extra guidance, description: "Optional operator guidance for judging effort (up to 2000 characters); sent to the selected scorer only when a classification runs and does not replace the built-in score or named-choice contract", required: false}
   use_target_model_context: {type: bool, default: false, label: Classification — target model context, description: "When enabled, also send the exact target provider, model, API mode, observed effort and any matching reviewed model profile to the selected scorer during active request classification; probe stays text-only", required: false}
   effort_models: {type: str, default: "", label: Advanced — effort models, description: "Exact model IDs whose support for the normal effort control you assert. Allows adding a missing field only to known Responses or Chat Completions shapes; it does not establish dynamic support.", required: false}
   timeout_s: {type: float, default: 3.0, label: Advanced — timeout (s), description: "Per-classification HTTP timeout; a timeout fails open", required: false}

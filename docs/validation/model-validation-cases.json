@@ -1,0 +1,23 @@
+{
+  "$schema": "./model-validation-cases.schema.json",
+  "schema": "hermes-adaptive-effort.synthetic-cases.v1",
+  "case_version": "2026-10-07",
+  "purpose": "Fixed, non-sensitive response task used to compare effort decisions on the same route.",
+  "consumed_by_runner": false,
+  "prompt": "What is 2 + 2? Reply briefly with the answer.",
+  "response_oracle": {
+    "kind": "synthetic_answer",
+    "expected": "4"
+  },
+  "score_cases": [
+    { "score": 0, "target_effort": "low" },
+    { "score": 1, "target_effort": "medium" },
+    { "score": 2, "target_effort": "high" }
+  ],
+  "constraints": {
+    "same_prompt_for_all_scores": true,
+    "no_tools": true,
+    "no_sensitive_or_personal_data": true,
+    "prompt_must_not_be_copied_into_runtime_traces": true
+  }
+}

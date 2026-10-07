@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import import_plugin
+from conftest import import_plugin, score_to_effort_choice
 
 middleware = import_plugin("middleware")
 
@@ -42,6 +42,13 @@ class FakeClassifier:
         if self.error is not None:
             raise self.error
         return self.score
+
+    def classify_effort_detail(self, prompt, choices):
+        score, failure = self.classify_detail(prompt)
+        if failure or score is None:
+            return None, failure or "classifier_error"
+        choice = score_to_effort_choice(score, choices)
+        return (choice, None) if choice is not None else (None, "malformed_response")
 
 
 class Factory:

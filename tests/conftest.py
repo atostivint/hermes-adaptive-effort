@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import math
 import os
 import sys
 from pathlib import Path
@@ -91,6 +92,28 @@ def import_plugin(stem: str):
     sys.modules[full_name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def score_to_effort_choice(score, choices):
+    """Adapt legacy test fixtures to a route's named-choice vocabulary.
+
+    Production classification now asks for a named choice on registered routes.
+    Most older middleware tests still script the old 0..2 rubric, so their fake
+    clients use this helper to produce the nearest legal choice without adding a
+    legacy-score fallback to production code.
+    """
+    if isinstance(score, bool) or not isinstance(score, (int, float)) \
+            or not math.isfinite(score):
+        return None
+    if score < 0 or score > 2:
+        return None
+    label = "low" if score < 0.5 else "medium" if score < 1.5 else "high"
+    if label in choices:
+        return label
+    order = ("minimal", "low", "medium", "high", "xhigh", "max")
+    label_index = order.index(label)
+    return min(choices, key=lambda choice: (abs(order.index(choice) - label_index),
+                                            -order.index(choice)))
 
 
 class _NoNetwork:

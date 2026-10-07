@@ -91,3 +91,36 @@ def test_target_context_instructions_do_not_anchor_to_the_observed_effort():
         assert "baseline" in prompt
         assert "do not anchor" in prompt
         assert "does not verify" in prompt
+
+
+def test_named_choice_prompts_only_include_the_route_levels():
+    levels = ("low", "high", "max")
+    one = rubric.questions_for(choices=levels)["effort"]
+    decisions = rubric.decisions_question(choices=levels)
+    chat = rubric.chat_system_prompt(choices=levels)
+
+    assert one["type"] == "choice"
+    assert list(one["criteria"]) == list(levels)
+    assert decisions["type"] == "choice"
+    assert [choice["value"] for choice in decisions["choices"]] == list(levels)
+    assert '"effort":"<allowed level>"' in chat
+    assert "xhigh:" not in chat
+    assert "lowest listed effort" in chat
+
+
+def test_native_choice_parsers_reject_refusal_extra_fields_and_unlisted_levels():
+    choices = ("low", "high", "max")
+    assert rubric.systemone_choice({"answers": {"effort": {
+        "type": "choice", "choice": "max"}}}, choices) == ("max", None)
+    assert rubric.systemone_choice({"answers": {"effort": {
+        "type": "choice", "choice": "medium"}}}, choices) == (None, "malformed_response")
+    assert rubric.decisions_choice({"answers": [{"name": "effort", "type": "choice",
+        "choice": "high"}]}, choices) == ("high", None)
+    assert rubric.decisions_choice({"answers": [{"name": "effort", "type": "refusal"}]},
+                                   choices) == (None, "malformed_response")
+    assert rubric.chat_completion_choice({"choices": [{"message": {"content":
+        '{"effort":"high"}'}}]}, choices) == "high"
+    assert rubric.chat_completion_choice({"choices": [{"message": {"content":
+        '{"effort":"medium"}'}}]}, choices) is None
+    assert rubric.chat_completion_choice({"choices": [{"message": {"content":
+        '{"effort":"high","score":2}'}}]}, choices) is None

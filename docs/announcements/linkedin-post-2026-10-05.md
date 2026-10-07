@@ -1,5 +1,7 @@
 # Brouillon LinkedIn — lundi 5 octobre 2026
 
+> **Obsolète — ne pas publier ni réutiliser.** Ce brouillon décrit un consentement séparé au scoreur qui a été retiré : l’activation du routage autorise désormais le partage borné du texte avec le scoreur choisi. Il ne mentionne ni OpenAI Decisions ni les changements de la v0.3.0. Conservé comme trace historique.
+
 J’ai développé **Hermes Adaptive Effort**, un plugin open source pour Hermes Agent qui ajuste l’effort de raisonnement d’une requête à partir d’un classifieur externe.
 
 Le point important : le classifieur est indépendant du modèle qui rédige la réponse. Jev reste le choix par défaut, mais on peut aussi sélectionner OpenRouter, Cloudflare Clef ou connecter son propre classifieur hébergé ou local avec une API System One ou Chat Completions.

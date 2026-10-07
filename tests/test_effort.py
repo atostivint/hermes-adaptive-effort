@@ -36,7 +36,8 @@ def test_muse_contributor_free_wire_vocabulary_and_policy():
         assert effort.supported_efforts("opencode", slug) == expected
         for label in effort.EFFORT_LABELS:
             assert effort.map_effort(label, "opencode", slug) == label
-        for invalid in ("none", "max"):
+        assert effort.map_effort("max", "opencode", slug) == "xhigh"
+        for invalid in ("none", "ultra"):
             assert effort.map_effort(invalid, "opencode", slug) is None
     assert effort.wire_efforts("opencode", "muse-spark-unknown") == ()
 
@@ -101,3 +102,40 @@ def test_supported_efforts_reads_route_data():
     assert effort.supported_efforts("openai-codex", "gpt-5.6") == (
         "none", "low", "medium", "high", "xhigh", "max",
     ) or "low" in effort.supported_efforts("openai-codex", "gpt-5.6")
+
+
+def test_named_choice_levels_require_an_exact_registered_route():
+    assert effort.route_choice_levels("opencode-go", "kimi-k3", "chat_completions") == (
+        "low", "high", "max")
+    assert effort.route_choice_levels("openai-codex", "gpt-6.1-sol", "codex_responses") == (
+        "low", "medium", "high", "xhigh", "max")
+    assert effort.route_choice_levels("openrouter", "vendor/model", "chat_completions") == ()
+    assert effort.route_choice_levels("openai-codex", "unlisted-model", "codex_responses") == ()
+
+
+def test_claude_choice_levels_are_native_exact_host_model_and_api():
+    fable = effort.route_choice_levels(
+        "anthropic", "claude-fable-5-1", "anthropic_messages", "https://api.anthropic.com")
+    assert fable == ("low", "medium", "high", "xhigh", "max")
+    opus_46 = effort.route_choice_levels(
+        "anthropic", "claude-opus-4-6", "anthropic_messages", "https://api.anthropic.com")
+    assert opus_46 == ("low", "medium", "high", "max")
+    assert "xhigh" not in opus_46
+    assert effort.route_choice_levels(
+        "anthropic", "claude-fable-5-1", "anthropic_messages", "https://proxy.example") == ()
+    assert effort.route_choice_levels(
+        "anthropic", "claude-fable-5-1", "anthropic_messages", "http://api.anthropic.com") == ()
+    assert effort.route_choice_levels(
+        "anthropic", "claude-fable-5-1", "anthropic_messages",
+        "https://api.anthropic.com:8443") == ()
+
+
+def test_named_effort_mapping_preserves_wire_vocabulary():
+    assert effort.map_effort("max", "opencode-go", "kimi-k3") == "max"
+    assert effort.map_effort("xhigh", "opencode-go", "kimi-k3") == "max"
+    assert effort.map_effort("xhigh", "openai-codex", "gpt-6.1-sol") == "xhigh"
+
+
+def test_native_named_choice_route_change_does_not_promote_xhigh_to_max():
+    assert effort.map_named_choice("medium", ("low", "high", "max")) == "high"
+    assert effort.map_named_choice("xhigh", ("low", "high", "max")) == "high"

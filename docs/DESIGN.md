@@ -1,5 +1,7 @@
 # Design and architecture
 
+[Version française expliquée](DESIGN.fr.md)
+
 [User guide](USAGE.md) · [Configuration](CONFIGURATION.md) · [Runtime contracts](CONTRACTS.md)
 
 ## One job
@@ -15,12 +17,12 @@ flowchart TD
     H["Hermes request<br/>and lifecycle hooks"] --> M["middleware.py<br/>gates, memory, rewrite"]
     M --> S["scorers.py<br/>explicit provider registry"]
     S --> A["Scorer adapters<br/>Jev, Decisions, OpenRouter,<br/>Cloudflare, custom"]
-    A --> R["rubric.py<br/>shared question and score validation"]
+    A --> R["rubric.py<br/>route-limited choice and score validation"]
     M --> E["effort.py + cache_safety.py<br/>route values and<br/>dynamic eligibility"]
     M --> O["Status and change events<br/>terminal, dashboard, Desktop"]
 ```
 
-Hermes enters through the registered middleware and lifecycle hooks. Middleware decides whether to classify, reuses bounded decisions and returns a copied request when an effort field changes. The provider registry builds only the selected adapter; every adapter uses the shared rubric. Effort mapping and cache-safety checks stay separate from scorer choice.
+Hermes enters through the registered middleware and lifecycle hooks. Middleware decides whether to classify, reuses bounded decisions and returns a copied request when an effort field changes. The provider registry builds only the selected adapter; adapters use the shared route-choice or legacy-score contract. Effort mapping and cache-safety checks stay separate from scorer choice.
 
 `model_profiles.py` and its JSON catalog supply optional context to the scorer. They do not establish transport support. Status surfaces in `command.py`, `dashboard/plugin_api.py` and `desktop/plugin.js` consume allowlisted results, not task text.
 
@@ -32,13 +34,15 @@ There is no fallback between scorers. A failure should not send a task to a diff
 
 The scorer receives bounded latest-user text rather than the whole conversation. This reduces the material shared but can miss context when a message depends on earlier discussion. Classification is a heuristic, not a guarantee of task difficulty or answer correctness.
 
+When an exact model/API route has a registered vocabulary, the scorer chooses directly from those allowed names. Kimi K3 uses `low/high/max`; GPT-6.1 Sol uses `low/medium/high/xhigh/max`; Claude Opus 4.6 uses `low/medium/high/max`. A one-level route is fixed without a scorer call. Unknown vocabularies retain the legacy finite `0..2` score mapped to three labels, and `/hae probe` always uses that score contract. Model identity and observed effort are still omitted unless `use_target_model_context` is enabled; the allowed names themselves are part of the choice question.
+
 ## Choose a decision scope
 
-The four public modes decide when a task needs a new classification. `auto` uses per-turn decisions only on exact registered dynamic routes whose transports are cache-neutral. Elsewhere it retains a route decision. `once` always retains a route decision; `always` evaluates each new user turn.
+The four public modes decide when a task needs a new classification. `auto` uses per-turn decisions only on exact registered dynamic routes whose transports are cache-neutral, including the separately guarded Claude per-message path. Elsewhere it retains a route decision. `once` always retains a route decision; `always` evaluates each new user turn.
 
 An opening greeting can therefore remain authoritative in `once` even when the next task is harder. Dynamic `auto` and `always` let that next turn receive a new score. The [usage examples](USAGE.md#example-a-greeting-followed-by-a-complex-task) explain the choice; [Contracts](CONTRACTS.md#decision-scope) defines the precise scope.
 
-During a tool loop, the turn's label remains authoritative across route changes. The plugin maps it again for the current model's vocabulary. Concurrent claims prevent duplicate scoring. Turn and retained-route decisions have separate capacity limits, so reset, eviction or reload can require another classification.
+During a tool loop, the turn's decision remains authoritative across route changes. The plugin clamps it for the current model's vocabulary; `xhigh` is not automatically promoted to the new route's `max`. Concurrent claims prevent duplicate scoring. Turn and retained-route decisions have separate capacity limits, so reset, eviction or reload can require another classification.
 
 ## Preserve operator intent
 
@@ -50,7 +54,7 @@ Chat mode changes live in the serving process. Persistent defaults belong to the
 
 ## Keep scorer failures out of the conversation path
 
-Missing configuration, transport errors, timeouts and invalid scores leave the original request unchanged. The shared numeric score must be finite and within `0..2`. Every adapter uses the same thresholds and route clamp.
+Missing configuration, transport errors, timeouts, malformed choices and invalid scores leave the original request unchanged. Native-choice routes accept only a returned value from their exact allowlist, with no score fallback. Other routes use the shared finite `0..2` score and thresholds. Every adapter uses the same route-aware question and strict response validation.
 
 This protects against scorer and plugin failures. It cannot prevent a vendor from rejecting a rewritten value when route information is inaccurate. Check current route evidence in [Compatibility](MODEL_COMPATIBILITY.md); retain retired-route observations in dated reports.
 
@@ -65,6 +69,12 @@ Retaining a decision limits changes on routes without that evidence. Memory is b
 Status reports allowlisted route and effort metadata. The anonymous change feed records only transitions that reached rewritten requests. Separate session-scoped decision events let Desktop display the focused chat and synchronize its native selector when supported.
 
 Normal task text is not persisted by the plugin. Registered child goals exist transiently in bounded memory. External scorers still receive the configured task input and have their own retention policies; see [data sharing](CONFIGURATION.md#data-sharing).
+
+## Anthropic's cache-preserving path
+
+For five exact Claude IDs on HTTPS `api.anthropic.com`, the plugin can use Anthropic's per-message `output_config.effort` mechanism when the outgoing request exposes an `anthropic-beta` header. It appends `mid-conversation-output-config-2026-07-01` while preserving the header's other values, then inserts an empty system message with the selected effort before that user turn. The top-level `output_config.effort` stays unchanged; Desktop therefore does not synchronize the session selector for these updates.
+
+The plugin keeps only effort names and hashed message positions so it can replay each marker at the same boundary on later requests. It does not retain message text. Compression that removes an anchor, a changed top-level initial effort, a reset, eviction or an internal error invalidates the continuity record and fails open. `auto` uses this dynamic path only when the exact model, host, beta-header shape and controls are all eligible. Without that header, `auto` pins a decision per route; `always` may update top-level effort and marks the possibility of a cache reset in status. Local tests validate generated request shapes, not live beta acceptance or cache hits.
 
 ## Maintenance
 

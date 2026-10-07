@@ -19,6 +19,7 @@ function makeHarness(options = {}) {
   const calls = []
   const state = {
     focusedSessionId: makeAtom(options.sessionId || 'session-1'),
+    focusedStoredSessionId: makeAtom(options.conversationId || options.sessionId || 'session-1'),
     focusedSessionOwner: makeAtom(options.owner || { connectionId: 'conn-1', profile: 'work' }),
     connectionId: makeAtom(options.connectionId || 'conn-1'),
     profile: makeAtom(options.profile || 'work'),
@@ -137,7 +138,7 @@ function sessionInfo(target = 'high', overrides = {}) {
   return {
     type: 'session.info', connectionId: 'conn-1', profile: 'work',
     session_id: 'session-1',
-    payload: { model: 'model-a', reasoning_effort_wire: target, ...overrides }
+    payload: { stored_session_id: 'session-1', model: 'model-a', reasoning_effort_wire: target, ...overrides }
   }
 }
 
@@ -152,6 +153,144 @@ test('fresh focused live status overrides an empty REST response in the rendered
   h.api.handleDecisionEvent(h.ctx, decision())
   const rendered = h.api.AdaptiveEffortChip()
   assert.equal(findEffortChip(rendered), 'Effort: high')
+})
+
+test('v2 named-choice status is accepted alongside the older v1 event schema', () => {
+  const h = makeHarness()
+  h.api.handleDecisionEvent(h.ctx, decision({
+    schema: 'hermes-adaptive-effort.desktop-status.v2',
+    status: {
+      ...decision().payload.status,
+      score: null,
+      decision_type: 'native_choice',
+      choices: ['low', 'medium', 'high', 'xhigh', 'max'],
+      label: 'xhigh',
+      target: 'xhigh',
+      cache_behavior: 'per_message'
+    },
+    selector_sync_supported: false
+  }))
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: xhigh')
+  assert.equal(h.calls.length, 0)
+})
+
+test('stored decision ids match a focused chat whose gateway runtime id is different', () => {
+  const storedId = '20261007_123650_2301be'
+  const route = { provider: 'openai-codex', model: 'gpt-6-luna', api_mode: 'codex_responses' }
+  const h = makeHarness({ sessionId: 'a1b2c3d4', conversationId: storedId, model: route.model })
+  const event = decision({ conversation_id: storedId, runtime_session_id: storedId, route,
+    status: { ...decision().payload.status, conversation_id: storedId, ...route,
+      score: 0.67, target: 'medium' },
+    applied: { id: 1, from: 'max', to: 'medium', at: 123 }, selector_sync_supported: false })
+  h.api.handleDecisionEvent(h.ctx, event)
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: medium')
+  assert.equal(h.notices[0].message, 'max → medium')
+
+  h.state.focusedStoredSessionId.set('another-chat')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: N/A')
+})
+
+test('REST status matches the stored conversation id instead of the gateway runtime id', () => {
+  const h = makeHarness({ sessionId: 'runtime-8hex', conversationId: 'session-1', status: {
+    mode: 'auto', settings: { show_desktop_popup: true }, sessions: [decision().payload.status,
+      { conversation_id: 'another-chat', state: 'decided', target: 'low', updated_at: 999 }]
+  } })
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: high')
+})
+
+test('legacy events still carry a stored id even though their field says runtime_session_id', () => {
+  const h = makeHarness({ sessionId: 'runtime-8hex', conversationId: 'session-1' })
+  h.api.handleDecisionEvent(h.ctx, decision())
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: high')
+})
+
+test('session.info follows a rotated stored id and isolates mappings by owner', () => {
+  const h = makeHarness({ sessionId: 'runtime-8hex', conversationId: 'lineage-root' })
+  const info = sessionInfo('high', { stored_session_id: 'session-1' })
+  info.session_id = 'runtime-8hex'
+  h.api.publishSessionInfo({ ...info, connectionId: 'another-owner', payload: {
+    ...info.payload, stored_session_id: 'unrelated-chat'
+  } })
+  h.api.handleDecisionEvent(h.ctx, decision())
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: N/A')
+  h.api.publishSessionInfo(info)
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: high')
+
+  h.api.publishSessionInfo({ ...info, replayed: true, payload: {
+    ...info.payload, stored_session_id: 'stale-chat'
+  } })
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: high')
+  h.api.publishSessionInfo({ ...info, payload: { ...info.payload, stored_session_id: 'new-tip' } })
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: N/A')
+})
+
+test('selector sync uses the gateway runtime id and requires acknowledgment of the stored id', async () => {
+  const h = makeHarness({ sessionId: 'runtime-8hex', conversationId: 'session-1' })
+  h.host.requestProfile = async (...args) => {
+    h.calls.push(args)
+    const info = sessionInfo()
+    info.session_id = 'runtime-8hex'
+    h.api.publishSessionInfo({ ...info, payload: { ...info.payload, stored_session_id: 'wrong-chat' } })
+  }
+  h.api.handleDecisionEvent(h.ctx, appliedDecision())
+  await flush()
+  assert.equal(h.calls.length, 1)
+  assert.equal(h.calls[0][2].session_id, 'runtime-8hex')
+  assert.equal(h.calls[0][2].scope, 'session')
+  assert.notEqual(h.api.liveFor('conn-1', 'work', 'session-1').syncReason, 'Selector synced for this chat.')
+  const ack = sessionInfo()
+  ack.session_id = 'runtime-8hex'
+  h.api.publishSessionInfo(ack)
+  await flush()
+  assert.equal(h.api.liveFor('conn-1', 'work', 'session-1').syncReason, 'Selector synced for this chat.')
+  assert.equal(h.notices[0].message, 'medium → high')
+})
+
+test('a runtime rebind during route resolution prevents a write to the old runtime', async () => {
+  let resolveRoutes
+  const h = makeHarness({ sessionId: 'runtime-old', conversationId: 'session-1',
+    profileRoutes: () => new Promise(resolve => { resolveRoutes = resolve }) })
+  h.api.handleDecisionEvent(h.ctx, appliedDecision())
+  await flush()
+  h.state.focusedSessionId.set('runtime-new')
+  resolveRoutes([{ connectionId: 'conn-1', profile: 'work', targetProfile: 'work-target' }])
+  await flush()
+  assert.equal(h.calls.length, 0)
+})
+
+test('local primary events without connectionId resolve stored and runtime ids separately', async () => {
+  const h = makeHarness({ sessionId: 'runtime-local', conversationId: 'session-1',
+    connectionId: 'local', owner: { connectionId: 'local', profile: 'work' },
+    profileRoutes: async () => [{ connectionId: 'local-registry', mode: 'local',
+      primary: true, profile: 'work', targetProfile: 'work-target' }] })
+  h.host.requestProfile = async (...args) => {
+    h.calls.push(args)
+    const info = sessionInfo()
+    delete info.connectionId
+    info.session_id = 'runtime-local'
+    h.api.publishSessionInfo(info)
+  }
+  const event = appliedDecision()
+  delete event.connectionId
+  h.api.handleDecisionEvent(h.ctx, event)
+  await flush()
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: high')
+  assert.equal(h.calls.length, 1)
+  assert.equal(h.calls[0][2].session_id, 'runtime-local')
+  assert.equal(h.api.liveFor('local', 'work', 'session-1').syncReason, 'Selector synced for this chat.')
+})
+
+test('a stored conversation clear cancels an acknowledgment for a distinct runtime id', async () => {
+  const h = makeHarness({ sessionId: 'runtime-8hex', conversationId: 'session-1' })
+  h.api.handleDecisionEvent(h.ctx, appliedDecision())
+  await flush()
+  assert.equal(h.calls.length, 1)
+  h.api.handleDecisionEvent(h.ctx, decision({ conversation_id: 'session-1',
+    clear: true, status: null, applied: null, revision: 2 }))
+  await flush()
+  assert.ok(h.timers.every(timer => timer.canceled))
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: N/A')
+  assert.equal(h.notices.filter(notice => notice.kind === 'warning').length, 0)
 })
 
 test('duplicate, replayed, stale, and retired-stream events are rejected; profiles stay separate', () => {
@@ -187,6 +326,7 @@ test('a background decision never syncs later when that chat receives focus', as
   h.api.handleDecisionEvent(h.ctx, background)
   await flush()
   h.state.focusedSessionId.set('background-session')
+  h.state.focusedStoredSessionId.set('background-session')
   await flush()
   assert.equal(h.calls.length, 0)
 })

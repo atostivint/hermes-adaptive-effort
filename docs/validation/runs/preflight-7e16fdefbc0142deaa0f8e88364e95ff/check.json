@@ -1,0 +1,12 @@
+{
+  "errors": [],
+  "go_distinct_wire_pairs": 33,
+  "go_score_mappings": 39,
+  "hermes_source_fingerprint_verified": true,
+  "manifest_hash": "410cc1b09075e0063ff814bfa6eeb09bf8cabbaf419c06e74b733a3e934b8eca",
+  "network_requests": 0,
+  "run_block_reason": "hard_cost_guard_and_real_transport_observer_unavailable",
+  "run_ready": false,
+  "schema": "hermes-adaptive-effort.validation-check.v1",
+  "valid": true
+}

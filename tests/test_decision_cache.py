@@ -174,7 +174,9 @@ def test_route_without_a_supported_effort_control_has_a_specific_reason(monkeypa
     assert jev.calls == []
     payload = json.loads(command.handle("status json"))
     assert payload["sessions"][0]["failure"] == "effort_control_unsupported"
-    assert "failure=effort_control_unsupported" in command.handle("status")
+    monkeypatch.setattr(command._history_store, "current_identity",
+                        lambda: (SESSION, [SESSION]))
+    assert "effort_control_unsupported" in command.handle("status full")
 
 
 def test_once_pins_one_decision_per_session_route(monkeypatch):
@@ -202,6 +204,8 @@ def test_status_names_the_provider_and_model_of_each_decision(monkeypatch):
     jev = CountingJev(1.9)
 
     route(monkeypatch, jev, request=make_request(text=marker))
+    monkeypatch.setattr(command._history_store, "current_identity",
+                        lambda: (SESSION, [SESSION]))
 
     payload = json.loads(command.handle("status json"))
     assert payload["last"]["provider"] == "openrouter"
@@ -215,9 +219,9 @@ def test_status_names_the_provider_and_model_of_each_decision(monkeypatch):
     assert payload["counts"]["requests"] == 1
 
     # The text rendering carries the same two fields, and says where the mode came from.
-    text = command.handle("status")
-    assert "provider=openrouter" in text
-    assert "model=openrouter/x/y" in text
+    text = command.handle("status full")
+    assert "Provider: openrouter" in text
+    assert "Model: openrouter/x/y" in text
     assert "(from config)" in text
 
     # The documented promise holds in both renderings: the prompt never leaves the plugin.
@@ -241,4 +245,6 @@ def test_status_reports_the_route_even_when_nothing_was_rewritten(monkeypatch):
     assert session["failure"] == "reasoning_disabled"
     assert payload["counts"]["unsupported"] == 1
     assert payload["counts"]["probes"] == 0     # no scorer call without a writable field
-    assert "failure=reasoning_disabled" in command.handle("status")
+    monkeypatch.setattr(command._history_store, "current_identity",
+                        lambda: (SESSION, [SESSION]))
+    assert "reasoning_disabled" in command.handle("status full")

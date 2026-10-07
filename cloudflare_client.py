@@ -10,7 +10,7 @@ import re
 import time
 import urllib.error
 import urllib.request
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 from . import rubric
 from .jev_client import DEFAULT_MAX_PROMPT_CHARS, DEFAULT_TIMEOUT_S, truncate_prompt
@@ -98,7 +98,8 @@ class CloudflareClient:
     def classify(self, prompt: Optional[str]) -> Optional[float]:
         return self.classify_detail(prompt)[0]
 
-    def classify_detail(self, prompt: Optional[str]) -> "tuple[Optional[float], Optional[str]]":
+    def classify_detail(self, prompt: Optional[str],
+                        choices: Optional[Sequence[str]] = None) -> "tuple[Any, Optional[str]]":
         if not isinstance(prompt, str) or not prompt.strip():
             return None, "invalid_prompt"
         if not valid_account_id(self.account_id):
@@ -112,7 +113,7 @@ class CloudflareClient:
         body = {
             "model": self.model_selector,
             "state": {"prompt": truncate_prompt(prompt, self.max_prompt_chars)},
-            "questions": rubric.questions_for(self.classification_instructions),
+            "questions": rubric.questions_for(self.classification_instructions, choices),
         }
         request = urllib.request.Request(
             self.endpoint,
@@ -149,10 +150,28 @@ class CloudflareClient:
                 data = payload
         except Exception:
             return None, "malformed_response"
+        levels = rubric.normalize_effort_choices(choices)
+        if levels:
+            try:
+                result = data.get("result", {}) if isinstance(data, dict) else {}
+                answer = result.get("answers", {}).get("effort", {})
+                choice = answer.get("choice")
+                selected = (choice if isinstance(data, dict) and data.get("success") is True
+                            and not data.get("errors") and isinstance(answer, dict)
+                            and answer.get("type") == "choice" and choice in levels else None)
+            except (AttributeError, TypeError):
+                selected = None
+            logger.debug("hermes-adaptive-effort: Cloudflare classified in %.0fms (valid=%s)",
+                         (time.monotonic() - started) * 1000, selected is not None)
+            return (selected, None) if selected is not None else (None, "malformed_response")
         score = _extract_score(data)
         logger.debug("hermes-adaptive-effort: Cloudflare classified in %.0fms (valid=%s)",
                      (time.monotonic() - started) * 1000, score is not None)
         return (score, None) if score is not None else (None, "malformed_response")
+
+    def classify_effort_detail(self, prompt: Optional[str], choices: Sequence[str]):
+        """Return one route-authorized named choice from Cloudflare Clef."""
+        return self.classify_detail(prompt, choices=choices)
 
 
 def _extract_score(payload: Any) -> Optional[float]:

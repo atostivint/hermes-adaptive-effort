@@ -15,7 +15,7 @@ import os
 import time
 import urllib.error
 import urllib.request
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 from .jev_client import DEFAULT_MAX_PROMPT_CHARS, DEFAULT_TIMEOUT_S, truncate_prompt
 from . import rubric
@@ -75,7 +75,8 @@ class OpenRouterClient:
     def classify(self, prompt: Optional[str]) -> Optional[float]:
         return self.classify_detail(prompt)[0]
 
-    def classify_detail(self, prompt: Optional[str]) -> "tuple[Optional[float], Optional[str]]":
+    def classify_detail(self, prompt: Optional[str],
+                        choices: Optional[Sequence[str]] = None) -> "tuple[Any, Optional[str]]":
         if not isinstance(prompt, str) or not prompt.strip():
             return None, "invalid_prompt"
         if not self.model:
@@ -90,7 +91,7 @@ class OpenRouterClient:
             "model": self.model,
             "messages": [
                 {"role": "system", "content": rubric.chat_system_prompt(
-                    self.classification_instructions)},
+                    self.classification_instructions, choices)},
                 {"role": "user", "content": truncate_prompt(prompt, self.max_prompt_chars)},
             ],
             "response_format": {"type": "json_object"},
@@ -150,11 +151,17 @@ class OpenRouterClient:
                 data = payload
         except Exception:
             return None, "malformed_response"
-        score = _extract_score(data)
+        levels = rubric.normalize_effort_choices(choices)
+        score = (rubric.chat_completion_choice(data, levels) if levels
+                 else _extract_score(data))
         failure = None if score is not None else "malformed_response"
         logger.debug("hermes-adaptive-effort: OpenRouter classified in %.0fms (valid=%s)",
                      (time.monotonic() - started) * 1000, score is not None)
         return score, failure
+
+    def classify_effort_detail(self, prompt: Optional[str], choices: Sequence[str]):
+        """Return one route-authorized named choice from the configured model."""
+        return self.classify_detail(prompt, choices=choices)
 
 
 def _extract_score(payload: Any) -> Optional[float]:

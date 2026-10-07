@@ -12,12 +12,12 @@ Every push, pull request and manual dispatch runs:
 - Real Hermes discovery and middleware-dispatch integration using a separately checked-out host, not a stub host.
 - A JUnit report guard that rejects failures, skips, an empty suite or fewer than six dispatcher integration tests. A missing Hermes install cannot make CI green by skipping integration.
 - Ruff through the project's standard lint script, plus the hidden CI helper directory.
-- Node syntax validation of the optional Desktop extension.
+- Node syntax validation and the behavior harness for the optional Desktop extension.
 - Actionlint validation of workflow expressions, action inputs and shell commands.
 
 Hermes is pinned to the verified public source revision `0a374d167424cdc730ce9761368b62255b551e58`. CI installs only this project's declared development dependencies, imports the host modules directly and does not install the plugin as a Python package. Test processes use an isolated `HERMES_HOME` and no operator configuration.
 
-JUnit reports are retained as artifacts for seven days. Runtime behavior tests cover turn reuse, field preservation, provider mapping, opt-in modes, subagent gating, privacy, settings/manifest parity and failure handling. The pytest suite includes Desktop static contracts. CI checks JavaScript syntax; it does not run the separate Node behavior harness documented in Development. Neither syntax nor mocked behavior tests replace an interactive UI check.
+JUnit reports are retained as artifacts for seven days. Runtime behavior tests cover turn reuse, field preservation, provider mapping, opt-in modes, subagent gating, privacy, settings/manifest parity and failure handling. The pytest suite includes Desktop static contracts. CI also runs the Node behavior harness documented in Development, including distinct stored/runtime session IDs, focused-chat rendering and selector acknowledgment. Neither syntax nor mocked behavior tests replace an interactive UI check.
 
 ## Security checks (`Security`)
 
