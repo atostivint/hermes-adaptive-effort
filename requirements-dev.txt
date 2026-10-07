@@ -5,7 +5,7 @@
 # what the *test run and the linter* themselves use.
 pytest==9.1.1
 # Coverage reporting (informational; CI uploads artifact)
-pytest-cov==6.0.0
+pytest-cov==7.1.0
 # `hermes_cli.config.load_config_readonly()` — imported by the real-dispatcher test —
 # reads YAML through ruamel.
 ruamel.yaml==0.19.1

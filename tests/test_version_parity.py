@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 from conftest import PLUGIN_DIR
-from pathlib import Path
 
 
 def _load_plugin_yaml_version() -> str:

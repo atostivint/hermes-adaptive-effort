@@ -103,7 +103,7 @@ def cmd_notes(version):
     return 0
 
 
-def cmd_bump(version):
+def cmd_bump(version, today=None):
     """Validate semver, update plugin.yaml, manifest.json and CHANGELOG.md."""
     # Validate semver
     if not re.match(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$", version):
@@ -159,42 +159,35 @@ def cmd_bump(version):
         new_manifest_text += "\n"
     manifest_path.write_text(new_manifest_text, encoding="utf-8")
 
-    # Update CHANGELOG.md
-    today = date.today().isoformat()
-    new_heading = f"## [{version}] - {today}"
-    new_unreleased = "## [Unreleased]\n\n"
-
-    # Build the new CHANGELOG content
+    # Update CHANGELOG.md: move the Unreleased body under a new dated heading
+    # and leave an empty Unreleased section above it.
+    today = today or date.today().isoformat()
+    nl = "\n"
     changelog_new_text = (
         changelog_text[:unreleased_start]
-        + new_unreleased
-        + unreleased_content
-        + "\n\n"
-        + new_heading
-        + "\n"
-        + changelog_text[unreleased_content_start:next_section]
+        + "## [Unreleased]" + nl + nl
+        + f"## [{version}] - {today}" + nl + nl
+        + unreleased_content.strip(nl)
+        + nl
+        + changelog_text[next_section:]
     )
 
-    # Update link references
-    # Find the link-reference section
-    link_ref_start = changelog_new_text.find("\n[Unreleased]:")
-    if link_ref_start != -1:
-        link_ref_start += 1
-        link_ref_end = changelog_new_text.find("\n[", link_ref_start + 1)
-        if link_ref_end == -1:
-            link_ref_end = len(changelog_new_text)
-
-        # Build new links
-        new_links = (
-            f"[Unreleased]: https://github.com/atostivint/hermes-adaptive-effort/compare/v{version}...HEAD\n"
-            f"[{version}]: https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v{version}"
-        )
-
-        changelog_new_text = (
-            changelog_new_text[:link_ref_start]
-            + new_links
-            + changelog_new_text[link_ref_end:]
-        )
+    # Update link references: Unreleased compares from the new tag, and the
+    # new version gets its own tag link.
+    repo_url = "https://github.com/atostivint/hermes-adaptive-effort"
+    new_links = (
+        f"[Unreleased]: {repo_url}/compare/v{version}...HEAD" + nl
+        + f"[{version}]: {repo_url}/releases/tag/v{version}"
+    )
+    changelog_new_text, replaced = re.subn(
+        r"^\[Unreleased\]:.*$",
+        lambda _match: new_links,
+        changelog_new_text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if not replaced:
+        changelog_new_text = changelog_new_text.rstrip(nl) + nl + nl + new_links + nl
 
     changelog_path.write_text(changelog_new_text, encoding="utf-8")
 

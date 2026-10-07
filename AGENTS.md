@@ -30,7 +30,7 @@ scripts/                  run_tests.sh, run_lint.sh, bootstrap_test_env.sh, rele
 .github/ISSUE_TEMPLATE/   bug_report.yml, feature_request.yml, config.yml
 pytest.ini                pytest config; no Python package metadata
 ruff.toml                 Ruff config; no Python package metadata
-requirements-dev.txt      pytest==9.1.1, pytest-cov==6.0.0, ruamel.yaml==0.19.1, httpx==0.28.1, ruff==0.16.9
+requirements-dev.txt      pytest==9.1.1, pytest-cov==7.1.0, ruamel.yaml==0.19.1, httpx==0.28.1, ruff==0.16.9
 docs/                     design, contracts, development, dated reviews + operator handoff
 ```
 

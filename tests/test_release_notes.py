@@ -165,21 +165,7 @@ def test_cmd_bump(tmp_path, monkeypatch):
     monkeypatch.setattr(release_notes, "get_changelog_path", lambda: changelog_path)
     monkeypatch.setattr(release_notes, "get_repo_root", lambda: tmp_path)
 
-    # Mock date.today()
-    import datetime
-    monkeypatch.setattr(datetime, "date")
-
-    class MockDate:
-        @staticmethod
-        def today():
-            class D:
-                def isoformat(self):
-                    return "2026-10-08"
-            return D()
-
-    monkeypatch.setattr(datetime, "date", MockDate)
-
-    ret = release_notes.cmd_bump("2.0.0")
+    ret = release_notes.cmd_bump("2.0.0", today="2026-10-08")
     assert ret == 0
 
     # Verify updates
@@ -191,9 +177,27 @@ def test_cmd_bump(tmp_path, monkeypatch):
     assert manifest_data["version"] == "2.0.0"
 
     changelog_text = changelog_path.read_text(encoding="utf-8")
-    assert "## [2.0.0] - 2026-10-08" in changelog_text
-    assert "## [Unreleased]" in changelog_text
-    assert "v2.0.0...HEAD" in changelog_text
+    assert changelog_text == """# Changelog
+
+## [Unreleased]
+
+## [2.0.0] - 2026-10-08
+
+### Added
+- New stuff
+
+## [1.0.0] - 2026-01-01
+
+### Added
+- Initial release
+
+[Unreleased]: https://github.com/atostivint/hermes-adaptive-effort/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v2.0.0
+[1.0.0]: https://github.com/test/releases/tag/v1.0.0
+"""
+
+    # The moved section is what the release workflow publishes.
+    assert release_notes.cmd_bump("2.0.1", today="2026-10-09") == 1  # Unreleased now empty
 
 
 def test_cmd_bump_invalid_version(tmp_path, monkeypatch):
