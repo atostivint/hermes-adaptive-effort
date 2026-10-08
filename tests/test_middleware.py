@@ -309,7 +309,8 @@ GO_MODEL_API_MODES = {
 GO_INJECTION_MODELS = {
     "gpt-5.6-luna", "gpt-6-luna", "grok-4.5", "grok-4.6", "grok-4.7",
     "muse-spark-1.3-contributor", "muse-spark-1.2-contributor", "glm-5.2",
-    "glm-5.3", "kimi-k3", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4.1-flash",
+    "glm-5.3", "kimi-k3", "mimo-v2.6-flash", "deepseek-v4-pro", "deepseek-v4-flash",
+    "deepseek-v4.1-flash",
 }
 
 

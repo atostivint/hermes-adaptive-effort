@@ -24,6 +24,7 @@ if (-not $env:HERMES_SOURCE_ROOT) {
     $Candidates += (Join-Path (Split-Path -Parent $RepoRoot) "hermes-agent")
     if ($env:LOCALAPPDATA) {
         $Candidates += (Join-Path $env:LOCALAPPDATA "hermes")
+        $Candidates += (Join-Path $env:LOCALAPPDATA "hermes\hermes-agent")
     }
     foreach ($Candidate in $Candidates) {
         if (Test-Path (Join-Path $Candidate "agent\reasoning_effort.py")) {

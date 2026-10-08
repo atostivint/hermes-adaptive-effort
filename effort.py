@@ -54,6 +54,9 @@ OPEN_CODE_GO_INJECTION_ROUTES = {
         "glm-5.2": ("reasoning_effort", ("high", "max")),
         "glm-5.3": ("paired_effort", ("low", "high", "max")),
         "kimi-k3": ("reasoning_effort", ("low", "high", "max")),
+        # Exact Go Chat route: live calls accepted all three values. Xiaomi does
+        # not currently promise distinct reasoning intensity among them.
+        "mimo-v2.6-flash": ("reasoning_effort", ("low", "medium", "high")),
         "deepseek-v4-pro": ("paired_effort", ("low", "high", "max")),
         "deepseek-v4-flash": ("paired_effort", ("low", "high", "max")),
         "deepseek-v4.1-flash": ("paired_effort", ("low", "medium", "high", "max")),
