@@ -18,8 +18,6 @@ printing prompt text.
 from __future__ import annotations
 
 import json
-
-
 from conftest import import_plugin
 
 command = import_plugin("command")
@@ -127,6 +125,114 @@ def test_route_change_within_a_turn_reclamps_instead_of_replaying_a_stale_level(
     assert entry["target"] == "high"
     assert entry["model"] == "moonshot/kimi-k3"
     assert entry["probes"] == 1          # re-clamped, never re-classified
+    assert len(jev.calls) == 1
+
+
+def test_mimo_go_fallback_injects_effort_without_a_second_scorer_call(monkeypatch):
+    use_settings(monkeypatch, mode="auto")
+    jev = CountingJev(1.9)
+
+    primary = route(monkeypatch, jev)
+    assert primary["request"]["extra_body"]["reasoning"]["effort"] == "high"
+
+    fallback_request = {
+        "model": "mimo-v2.6-flash",
+        "messages": [{"role": "user", "content": "Design a multi-region failover plan"}],
+    }
+    result = route(
+        monkeypatch, jev, provider="opencode-go", model="mimo-v2.6-flash",
+        api_mode="chat_completions", request=fallback_request, api_call_count=2,
+    )
+    assert result["request"]["reasoning_effort"] == "high"
+    assert "reasoning_effort" not in fallback_request
+
+    entry = middleware.session_state()[f"{SESSION}/turn-1"]
+    assert (entry["state"], entry["failure"], entry["target"]) == (
+        "decided", None, "high")
+    assert (entry["provider"], entry["model"], entry["api_mode"]) == (
+        "opencode-go", "mimo-v2.6-flash", "chat_completions")
+    assert (entry["label"], entry["probes"]) == ("high", 1)
+    assert len(jev.calls) == 1
+
+
+def test_mimo_go_fallback_respects_explicitly_disabled_reasoning(monkeypatch):
+    use_settings(monkeypatch, mode="auto")
+    jev = CountingJev(1.9)
+    route(monkeypatch, jev)
+
+    fallback_request = {
+        "model": "mimo-v2.6-flash",
+        "messages": [{"role": "user", "content": "Plan"}],
+        "extra_body": {"reasoning": {"enabled": False, "effort": "medium"}},
+    }
+    assert route(
+        monkeypatch, jev, provider="opencode-go", model="mimo-v2.6-flash",
+        api_mode="chat_completions", request=fallback_request, api_call_count=2,
+    ) is None
+    entry = middleware.session_state()[f"{SESSION}/turn-1"]
+    assert (entry["state"], entry["failure"], entry["target"]) == (
+        "unsupported", "reasoning_disabled", None)
+    assert len(jev.calls) == 1
+
+
+def test_mimo_responses_fallback_reuses_turn_decision_when_effort_field_exists(monkeypatch):
+    use_settings(monkeypatch, mode="auto")
+    jev = CountingJev(1.9)
+    route(monkeypatch, jev)
+
+    fallback_request = {
+        "model": "mimo-v2.6-flash",
+        "input": "Design a multi-region failover plan",
+        "reasoning": {"effort": "medium"},
+    }
+    result = route(
+        monkeypatch, jev, provider="xiaomi", model="mimo-v2.6-flash",
+        api_mode="codex_responses", request=fallback_request, api_call_count=2,
+    )
+
+    assert result["request"]["reasoning"]["effort"] == "high"
+    entry = middleware.session_state()[f"{SESSION}/turn-1"]
+    assert (entry["state"], entry["provider"], entry["model"], entry["target"]) == (
+        "decided", "xiaomi", "mimo-v2.6-flash", "high")
+    assert len(jev.calls) == 1
+
+
+def test_same_route_can_reclamp_after_an_effort_control_appears(monkeypatch):
+    use_settings(monkeypatch, mode="auto")
+    jev = CountingJev(1.9)
+    route(monkeypatch, jev)
+
+    empty = {"model": "vendor/model", "messages": [{"role": "user", "content": "Plan"}]}
+    assert route(monkeypatch, jev, provider="example", model="vendor/model",
+                 request=empty, api_call_count=2) is None
+    unsupported = middleware.session_state()[f"{SESSION}/turn-1"]
+    assert (unsupported["state"], unsupported["model"], unsupported["target"]) == (
+        "unsupported", "vendor/model", None)
+
+    writable = make_request()
+    writable["model"] = "vendor/model"
+    result = route(monkeypatch, jev, provider="example", model="vendor/model",
+                   request=writable, api_call_count=3)
+    assert result["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    assert len(jev.calls) == 1
+
+
+def test_eligible_fallback_does_not_retry_a_failed_scorer_claim(monkeypatch):
+    use_settings(monkeypatch, mode="auto")
+    jev = CountingJev(score=None, failure="classifier_timeout")
+
+    assert route(monkeypatch, jev) is None
+    assert route(
+        monkeypatch, jev, provider="opencode-go", model="mimo-v2.6-flash",
+        api_mode="chat_completions",
+        request={"model": "mimo-v2.6-flash",
+                 "messages": [{"role": "user", "content": "Plan"}]},
+        api_call_count=2,
+    ) is None
+    assert route(monkeypatch, jev, api_call_count=3) is None
+    entry = middleware.session_state()[f"{SESSION}/turn-1"]
+    assert (entry["state"], entry["failure"], entry["probes"]) == (
+        "failed", "classifier_timeout", 1)
     assert len(jev.calls) == 1
 
 

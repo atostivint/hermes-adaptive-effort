@@ -140,6 +140,10 @@ def test_auto_is_dynamic_only_for_explicitly_verified_routes():
     assert middleware._dynamic_effort_route(
         "opencode-go", "deepseek-v4-pro", "chat_completions") is True
     assert middleware._dynamic_effort_route(
+        "opencode-go", "mimo-v2.6-flash", "chat_completions") is True
+    assert middleware._dynamic_effort_route(
+        "opencode-go", "mimo-v2.6-flash", "codex_responses") is False
+    assert middleware._dynamic_effort_route(
         "opencode-go", "unknown-go-model", "chat_completions") is False
     # An operator's field-support assertion permits insertion, not dynamic mode.
     assert middleware._dynamic_effort_route(

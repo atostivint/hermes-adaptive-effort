@@ -48,6 +48,8 @@ Release verification for v0.3.0 reran the Python suite, the Node Desktop scenari
 
 The Decisions and target-context plans describe implemented source paths. Their live scorer/quality/cost evaluations remain separate work, as recorded in their [design records](README.md#implemented-design-records).
 
+The 2026-10-07 fallback fix has two parts. An ineligible request after a scored primary now reports its own route as `unsupported`, clears the unapplied target, and retains the label for a later eligible request. OpenCode Go `mimo-v2.6-flash` on Chat Completions is now an exact registered route: it injects top-level `reasoning_effort` with low/medium/high when no field exists and reuses the primary's turn decision on fallback. The [dsh-opencode-go maintainer's direct Go probes](https://github.com/Duskriver/dsh-opencode-go/blob/6a834cfda0f4db4e08243b40883eec71abddf655/docs/verification.md#issue-28-mimo-reasoning-controls-2026-10-02) returned HTTP 200 for these three values; OpenCode Go's catalog still declares `reasoning_options = []`. Xiaomi's Responses documentation says all non-`none` values enable the same reasoning behavior. No Hermes live Go request or graded-intensity/cost difference was measured for this plugin.
+
 ## Operational follow-up
 
 - Ox Alpha / `x-preview-f-free` is a retired route. Keep its earlier rejection observations in historical reports rather than current user-facing warnings. The operator reported on 2026-10-07 that it had been unavailable for at least a month; it is absent from the [current Zen model table](https://opencode.ai/docs/zen/#endpoints). The exact removal date was not independently established.

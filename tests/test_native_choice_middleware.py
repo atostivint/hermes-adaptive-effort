@@ -94,6 +94,8 @@ def test_every_named_level_is_selectable_for_two_through_five_level_routes(monke
     cases = [
         ("opencode-go", "glm-5.2", "chat_completions", "high", ("high", "max"),
          {"reasoning_effort": "high"}),
+        ("opencode-go", "mimo-v2.6-flash", "chat_completions", "low",
+         ("low", "medium", "high"), {"reasoning_effort": "low"}),
         ("opencode-go", "kimi-k3", "chat_completions", "low", ("low", "high", "max"),
          {"reasoning_effort": "low"}),
         ("anthropic", "claude-opus-4-6", "anthropic_messages", "https://api.anthropic.com",
@@ -136,6 +138,28 @@ def test_every_named_level_is_selectable_for_two_through_five_level_routes(monke
             assert scorer.calls[0][1] == choices
             if model == "claude-opus-4-6":
                 assert "xhigh" not in scorer.calls[0][1]
+
+
+def test_mimo_go_missing_field_uses_exact_chat_choice_route(monkeypatch):
+    scorer = ChoiceScorer("medium")
+    configure(monkeypatch, scorer)
+    original = {
+        "model": "mimo-v2.6-flash",
+        "messages": [{"role": "user", "content": "Plan this migration"}],
+    }
+
+    result = request_for("opencode-go", "mimo-v2.6-flash", "chat_completions", original)
+
+    assert result["request"]["reasoning_effort"] == "medium"
+    assert "reasoning_effort" not in original
+    assert scorer.calls[0][1] == ("low", "medium", "high")
+    entry = middleware.session_state()[f"{SESSION}/turn-1"]
+    assert (entry["decision_type"], entry["score"], entry["target"]) == (
+        "native_choice", None, "medium")
+    assert middleware._effort.route_choice_levels(
+        "opencode-go", "mimo-v2.6-pro", "chat_completions") == ()
+    assert middleware._effort.route_choice_levels(
+        "opencode-go", "mimo-v2.6-flash", "codex_responses") == ()
 
 
 def test_native_choice_route_change_does_not_promote_xhigh_to_new_route_max(monkeypatch):

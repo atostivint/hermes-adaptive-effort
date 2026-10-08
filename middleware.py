@@ -1216,7 +1216,8 @@ def _target_for_route(entry: Dict[str, Any], provider: Any, model: Any,
     if (entry.get("provider"), entry.get("model"), entry.get("api_mode")) == (
             provider, model, api_mode):
         target = entry.get("target")
-        return target if isinstance(target, str) and target else None
+        if isinstance(target, str) and target:
+            return target
     choices = _effort.route_choice_levels(provider, model, api_mode, base_url)
     if entry.get("decision_type") == "native_choice" and choices:
         target = _effort.map_named_choice(label, choices)
@@ -1228,6 +1229,20 @@ def _target_for_route(entry: Dict[str, Any], provider: Any, model: Any,
     entry["model"] = model
     entry["api_mode"] = api_mode
     return target
+
+
+def _unsupported_route(entry: Dict[str, Any], failure: str, provider: Any,
+                       model: Any, api_mode: Any) -> None:
+    """Report the current route while retaining a same-turn label for later reuse."""
+    # A failed scorer claim must remain failed for this turn. Clearing that state
+    # on an ineligible fallback would permit a second scorer call later on.
+    if entry.get("state") in ("failed", "probing"):
+        return
+    entry.update(
+        state="unsupported", failure=failure, target=None,
+        provider=provider, model=model, api_mode=api_mode,
+        choices=[], cache_behavior=None,
+    )
 
 
 def _anthropic_beta_header(request: Any) -> Optional[Tuple[str, str]]:
@@ -1576,8 +1591,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         key = _decision_key(session_id, kwargs.get("turn_id"))
         entry = _touch(key, settings, mode, provider, model, api_mode,
                        conversation_id=session_id)
-        if entry.get("state") == "new":
-            entry.update(state="unsupported", failure="reasoning_disabled")
+        _unsupported_route(entry, "reasoning_disabled", provider, model, api_mode)
         _publish_desktop_decision(session_id, provider, model, api_mode, entry)
         return None
     if slot is None and injection_path is None:
@@ -1586,8 +1600,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         key = _decision_key(session_id, kwargs.get("turn_id"))
         entry = _touch(key, settings, mode, provider, model, api_mode,
                        conversation_id=session_id)
-        if entry.get("state") == "new":
-            entry.update(state="unsupported", failure="effort_control_unsupported")
+        _unsupported_route(entry, "effort_control_unsupported", provider, model, api_mode)
         _publish_desktop_decision(session_id, provider, model, api_mode, entry)
         logger.debug("hermes-adaptive-effort: no writable effort field; no change")
         return None
