@@ -46,7 +46,7 @@ These plans preserve their implementation rationale. They are not pending provid
 
 | Record | Boundary |
 | --- | --- |
-| [Catalog submission draft](catalog-submission/pr-description.md) | Entry and PR text pinned to `master` commit `c058b8a` (declares 0.3.0, after the v0.3.0 tag); validated locally, not yet submitted to `NousResearch/hermes-agent` |
+| [Catalog submission draft](catalog-submission/pr-description.md) | Entry and PR text pinned to the v0.3.1 pre-release commit; validated locally, not yet submitted to `NousResearch/hermes-agent` |
 
 ## Historical evidence
 
