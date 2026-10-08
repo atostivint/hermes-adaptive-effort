@@ -107,7 +107,19 @@ The optional Desktop extension adds an Effort chip with a compact **Routing mode
 
 ![Compact Routing mode popup in Hermes Desktop](docs/images/routing-mode-popover.png)
 
-The popup keeps the four routing modes together. See the [interface guide](docs/USAGE.md#desktop-and-terminal) for notifications, focused-chat status and the native effort selector.
+The popup keeps the four routing modes together. **More** adds this chat's effort, whether the native selector is synced, and the route:
+
+![Routing mode popup expanded, showing this chat's effort, selector state and route](docs/images/desktop-routing-mode.png)
+
+Further down, the popup lists the latest applied change and the selected scorer, with its key and guidance state but never the key itself:
+
+![Recent applied changes, scorer and gateway status in the Desktop popup](docs/images/desktop-route-and-scorer.png)
+
+The plugin's settings page lists every scorer provider and its options. The screenshots are from a French-language Desktop.
+
+![Plugin settings in Hermes Desktop with the scorer provider list open](docs/images/desktop-settings.png)
+
+See the [interface guide](docs/USAGE.md#desktop-and-terminal) for notifications, focused-chat status and the native effort selector.
 
 The chip matches decisions to the chat's stored conversation ID; Desktop's temporary runtime ID is used only for session actions. Both live events and status polling follow this distinction.
 
