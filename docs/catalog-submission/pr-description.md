@@ -8,7 +8,7 @@ Hermes Adaptive Effort asks a separately selected scorer to judge the current ta
 
 On exact registered routes the scorer picks from that route's own effort levels; other routes use a numeric `0..2` score mapped to `low/medium/high`. The plugin starts in `off` mode for both parent and child sessions and fails open: configuration, transport, timeout or validation failures leave the request unchanged.
 
-This entry pins version `0.3.1` (a GitHub pre-release) at `f2d56a47fdf264f6eedd1afd277f4062d6902877`, the commit tagged `v0.3.1`. It follows `0.3.0` with the OpenCode Go MiMo routing fix (#11). , so the entry has no `subdir`.
+This entry pins version `0.3.1` (a GitHub pre-release) at `f2d56a47fdf264f6eedd1afd277f4062d6902877`, the commit tagged `v0.3.1`. It follows `0.3.0` with the OpenCode Go MiMo routing fix (#11). The payload is the repository root, so the entry has no `subdir`.
 
 The maintainer is the repository owner. The idea follows Alexei Ledenev's Jev-based model router for the Pi agent; this plugin is a separate implementation for Hermes, not a fork of a catalog entry.
 
