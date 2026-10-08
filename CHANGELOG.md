@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-08
+
 ### Added
 
 - CHANGELOG.md in Keep a Changelog format with SemVer note
@@ -18,6 +20,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - dashboard/manifest.json version aligned with plugin.yaml (0.3.0)
+- OpenCode Go `mimo-v2.6-flash` Chat Completions route is registered, so a fallback to it without an effort field receives `reasoning_effort` (`low`, `medium` or `high`) (#11)
+- A fallback route without a usable effort control now reports `unsupported` for its own route and keeps the turn's decision for later reuse, without another scorer call (#11)
 
 ## [0.3.0] - 2026-10-07
 
@@ -35,5 +39,6 @@ First tagged pre-release with four routing modes, five scorer providers, and rou
 
 See [full release notes](docs/releases/v0.3.0.md) for validation limits and contract changes.
 
-[Unreleased]: https://github.com/atostivint/hermes-adaptive-effort/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/atostivint/hermes-adaptive-effort/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v0.3.1
 [0.3.0]: https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v0.3.0
