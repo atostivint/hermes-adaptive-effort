@@ -1,18 +1,19 @@
 # Draft for NousResearch/hermes-agent/plugin-catalog/hermes-adaptive-effort.yaml
-# Pinned to the v0.3.0 pre-release merge commit (repository-root payload, so no subdir).
+# Pinned to master after the v0.3.0 pre-release (repository-root payload, so no subdir).
+# plugin.yaml at this commit still declares 0.3.0; it adds the OpenCode Go MiMo routing fix (#11).
 # Update sha and version together for later releases; a bump is a new catalog PR.
 name: hermes-adaptive-effort
 repo: https://github.com/atostivint/hermes-adaptive-effort
-sha: 8b5381727bbe381becf051991aaf07768f832cef
+sha: c058b8a49f06291bbb527420716497d981fba501
 description: Choose a separate scorer to set the reasoning effort of each Hermes request.
 maintainer: atostivint
 tier: community
 category: models
-docs_url: https://github.com/atostivint/hermes-adaptive-effort/blob/8b5381727bbe381becf051991aaf07768f832cef/docs/README.md
+docs_url: https://github.com/atostivint/hermes-adaptive-effort/blob/c058b8a49f06291bbb527420716497d981fba501/docs/README.md
 version: "0.3.0"
 readme: true
 screenshots:
-  - https://raw.githubusercontent.com/atostivint/hermes-adaptive-effort/8b5381727bbe381becf051991aaf07768f832cef/docs/images/routing-mode-popover.png
+  - https://raw.githubusercontent.com/atostivint/hermes-adaptive-effort/c058b8a49f06291bbb527420716497d981fba501/docs/images/routing-mode-popover.png
 platforms: []
 title: Hermes Adaptive Effort
 known_issues:

@@ -1,6 +1,6 @@
 # Draft: add Hermes Adaptive Effort to the plugin catalog
 
-> Submission draft for `NousResearch/hermes-agent`, pinned to the v0.3.0 pre-release. The entry file is [entry.yaml](entry.yaml); copy it to `plugin-catalog/hermes-adaptive-effort.yaml`. Recheck the pin and the validation lines below if a newer release is chosen before opening the PR.
+> Submission draft for `NousResearch/hermes-agent`, pinned to a post-v0.3.0 commit on `master`. The entry file is [entry.yaml](entry.yaml); copy it to `plugin-catalog/hermes-adaptive-effort.yaml`. Recheck the pin and the validation lines below if a newer release is chosen before opening the PR.
 
 ## What it does
 
@@ -8,7 +8,7 @@ Hermes Adaptive Effort asks a separately selected scorer to judge the current ta
 
 On exact registered routes the scorer picks from that route's own effort levels; other routes use a numeric `0..2` score mapped to `low/medium/high`. The plugin starts in `off` mode for both parent and child sessions and fails open: configuration, transport, timeout or validation failures leave the request unchanged.
 
-This entry pins version `0.3.0` (a GitHub pre-release) at `8b5381727bbe381becf051991aaf07768f832cef`. The payload is the repository root, so the entry has no `subdir`.
+This entry pins `c058b8a49f06291bbb527420716497d981fba501`, whose `plugin.yaml` declares version `0.3.0` (a GitHub pre-release). The commit is on `master` after the v0.3.0 tag and adds the OpenCode Go MiMo routing fix (#11), a CHANGELOG, release tooling and contributor docs; the tag itself points at `8b5381727bbe381becf051991aaf07768f832cef`. The payload is the repository root, so the entry has no `subdir`.
 
 The maintainer is the repository owner. The idea follows Alexei Ledenev's Jev-based model router for the Pi agent; this plugin is a separate implementation for Hermes, not a fork of a catalog entry.
 
