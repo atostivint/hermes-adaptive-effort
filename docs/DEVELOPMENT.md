@@ -24,7 +24,7 @@ Windows PowerShell:
 
 Bootstrap creates the environment, installs the pinned development requirements and runs the suite. Use it on a fresh machine; use the test/lint scripts for subsequent checks.
 
-The Linux test script uses `.venv/bin/python`. The Windows script uses `.venv/Scripts/python.exe` and discovers Hermes from `HERMES_SOURCE_ROOT`, `$env:HERMES_HOME\hermes-agent`, a sibling checkout, or `$env:LOCALAPPDATA\hermes`. It falls back to a scratch pytest directory if the normal temporary/cache directories have incompatible permissions.
+The Linux test script uses `.venv/bin/python`. The Windows script uses `.venv/Scripts/python.exe` and discovers Hermes from `HERMES_SOURCE_ROOT`, `$env:HERMES_HOME\hermes-agent`, a sibling checkout, `$env:LOCALAPPDATA\hermes`, or `$env:LOCALAPPDATA\hermes\hermes-agent`. It falls back to a scratch pytest directory if the normal temporary/cache directories have incompatible permissions.
 
 Set `HERMES_SOURCE_ROOT` to a checkout containing `agent/reasoning_effort.py` if discovery fails. `tests/conftest.py` adds that source to the import path. Do not install the payload itself.
 

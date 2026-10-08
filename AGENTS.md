@@ -67,6 +67,27 @@ PowerShell equivalents:
 - Always use `.venv/bin/python` — it has the Hermes source tree (`agent/`, `hermes_cli/` from `/usr/local/lib/hermes-agent`, `HERMES_SOURCE_ROOT` override) on `sys.path` via `tests/conftest.py`.
 - Never `pip install` the payload itself; there is nothing distributable.
 
+## Git and GitHub workflow
+
+`master` is protected by a ruleset: no direct push, force push or deletion. Every change lands through a pull request with green required checks and is squash-merged. A push to `master` is rejected; do not try to work around it.
+
+1. **Start from fresh `origin/master`.** `git fetch origin`, then create a short-lived branch named `<type>/<short-topic>` (`feat/`, `fix/`, `docs/`, `chore/`, `ci/`, `test/`, `refactor/`; `release/` is reserved for the release script). Separate worktrees are fine and preferred for parallel work; never check out `master` in a worktree just to tag or merge.
+2. **Keep one logical change per branch.** Do not mix runtime behavior, docs refreshes and tooling in one PR unless they ship together.
+3. **Verify before committing.** Run the test and lint scripts above. They must pass with no skips. On Windows, if `run_tests.ps1` warns that no Hermes source tree was found, set `HERMES_SOURCE_ROOT` to a Hermes checkout containing `agent/reasoning_effort.py`; never accept the resulting mapping failures as pre-existing. When `.github/workflows/` changes, also run `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12`; CI additionally runs shellcheck through actionlint, so quote every shell variable.
+4. **Commit with Conventional Commit prefixes:** `feat:`, `fix:`, `docs:`, `chore:`, `ci:`, `test:`, `refactor:`, `release:`. The subject says what changed; the body says why. Add the attribution trailer your tool requires.
+5. **Update `CHANGELOG.md`.** Add one line under `## [Unreleased]` (`Added`, `Changed`, `Fixed`, `Removed`, `Security`) for every user-visible change. Never edit a released section or bump a version by hand; only the release script moves `Unreleased` and changes `plugin.yaml` / `dashboard/manifest.json` versions (a parity test enforces this).
+6. **Open the PR with `.github/pull_request_template.md`.** Fill every checklist line honestly; write "not user-visible" for the CHANGELOG line when it applies. Report what was actually run, with counts, and say what was not verified.
+7. **Wait for the required checks:** the four `Tests (...)` legs, `Lint and workflow validation`, `Dependency and secret checks`, and both `CodeQL (...)` jobs. Read failing logs with `gh run view <id> --log-failed`, fix the cause, push again. Never weaken a check, skip a test or rename a required job to get green.
+8. **Merging is the operator's decision** unless they explicitly ask you to merge. Use squash only (`gh pr merge <n> --squash`). Merged branches are deleted automatically.
+9. **Update an open PR branch by merging `origin/master` into it**, not by rebasing a pushed branch. Never force-push a branch someone else may have checked out.
+
+Releases and deployment:
+
+- Releases are operator-triggered. Run `release prepare X.Y.Z` / `release tag X.Y.Z` only when asked; the tag push publishes the GitHub Release through `.github/workflows/release.yml`. Never create, move or delete tags by hand.
+- Deployment to hosts (Iris, Windows Desktop, gateway) is a manual operator step. Workflows never deploy. Do not install, restart or reconfigure a host unless explicitly asked; record any host change you make as a dated entry in `docs/HANDOFF.md`.
+- Never delete remote branches or tags, change repository settings or rulesets, or edit `~/.hermes/config.yaml` without an explicit request.
+- Never commit secrets, scorer keys, prompts, personal paths or host addresses. Gitleaks scans the full history and cannot un-publish a leak.
+
 ## Tool configuration
 
 - `target-version = "py310"`, `line-length = 100`.
@@ -97,7 +118,7 @@ PowerShell equivalents:
 - `tests/conftest.py` loads payload as `hermes_plugin_adaptive_effort.<stem>` via `import_plugin()`; Hermes core added to `sys.path` once (`ensure_hermes_source_on_path`).
 - `no_network` (session autouse): any `socket.socket` / `create_connection` fails the run. Inject fakes via `_classifier_factory` or `transport=` / `key_reader=`, never real HTTP.
 - `hermetic_plugin_settings` (function autouse): `_config_reader = lambda: {}`, `_settings_provider = None`, `_classifier_factory = None`, `reset_state()` before/after. Never read `~/.hermes/config.yaml` in unit tests.
-- `test_dispatcher_integration.py` boots a throwaway `HERMES_HOME` + real `PluginManager.discover_and_load()` + `apply_llm_request_middleware`; it runs in `run_tests.sh` and `run_tests.ps1`, never skipped there. `run_tests.ps1` locates the Hermes source tree (`HERMES_SOURCE_ROOT`, then `$env:HERMES_HOME\hermes-agent`, a sibling `hermes-agent/` checkout, `$env:LOCALAPPDATA\hermes`) and falls back to a scratch `--basetemp` when `%TEMP%\pytest-of-<user>` or `.pytest_cache` has a foreign ACL — without either, ~40 mapping tests and every `tmp_path` test error out for unrelated-looking reasons.
+- `test_dispatcher_integration.py` boots a throwaway `HERMES_HOME` + real `PluginManager.discover_and_load()` + `apply_llm_request_middleware`; it runs in `run_tests.sh` and `run_tests.ps1`, never skipped there. `run_tests.ps1` locates the Hermes source tree (`HERMES_SOURCE_ROOT`, then `$env:HERMES_HOME\hermes-agent`, a sibling `hermes-agent/` checkout, `$env:LOCALAPPDATA\hermes`, `$env:LOCALAPPDATA\hermes\hermes-agent`) and falls back to a scratch `--basetemp` when `%TEMP%\pytest-of-<user>` or `.pytest_cache` has a foreign ACL — without either, ~40 mapping tests and every `tmp_path` test error out for unrelated-looking reasons.
 - Settings under test live in `middleware.DEFAULTS` (`mode=off`, `subagent_mode=off`, `effort_models=""`, `endpoint=https://api.typesafe.ai/v1/systemone`, `scorer_provider=jev`, `jev_model=jev-latest`, `scorer_model=""`, `custom_endpoint=""`, `custom_api_format=systemone`, `custom_auth=none`, `cloudflare_account_id=""`, `cloudflare_model=clef`, `timeout_s=3.0`, `max_turns=64`, `prompt_chars=4000`, `classification_instructions=""`, `use_target_model_context=false`, `show_tui_status=true`, `show_desktop_popup=true`); OpenAI Decisions uses `gpt-6-luna` when the shared `scorer_model` is blank.
 
 ## Hermes plugin development (canonical)
