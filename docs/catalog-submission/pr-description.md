@@ -44,4 +44,4 @@ Live validation is limited and the release is marked as a pre-release. Live chec
 
 ## Screenshots
 
-The entry links one pinned screenshot of the Desktop routing-mode popup: `docs/images/routing-mode-popover.png` at the pinned SHA. Add a settings-panel capture if reviewers want one; it must be committed to the repository first so it can be pinned.
+The entry links four screenshots: the expanded Routing mode popup, the route and scorer details, the plugin settings page with its scorer provider list, and a compact view of the mode selector. The first three are pinned to `master` commit `cf9f510ea2404e7d4d020e8748a2f6f1b9bc1ea1`, which added them after the `v0.3.1` tag. The last is pinned to the entry's own commit. The captures are from a French-language Desktop and show no keys, prompts or personal paths.
