@@ -82,6 +82,12 @@ The optional Desktop extension adds an **Effort** chip. Its compact **Routing mo
 
 **More** reveals the focused chat's effort and route, scorer/model readiness, guidance presence and gateway status. **Activity** expands aggregate counters and the latest global result. Closing the popup returns both disclosures to their compact state.
 
+![Expanded Routing mode popup with this chat's effort, selector state and route](images/desktop-routing-mode.png)
+
+Scrolling the popup shows the latest applied change, the selected scorer with its key and guidance state, and the gateway status:
+
+![Recent applied changes, scorer and gateway status](images/desktop-route-and-scorer.png)
+
 The chip follows the focused chat and backend/profile. A completed turn can retain its last decision; actual session finalize/reset clears it. `N/A` means the focused chat has no usable decision, is unsupported/in flight, or cannot be matched to the backend state. Read the details for the reason.
 
 For the focused chat:

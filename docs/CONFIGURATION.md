@@ -8,6 +8,8 @@ The scorer classifies the task; your conversation model answers it. Selecting a 
 
 In Desktop, open **Capabilities → Plugins → Hermes Adaptive Effort**. The settings form groups fields by their labels: mode, scorer, classification, advanced limits and display.
 
+![Plugin settings in Hermes Desktop with the scorer provider list open](images/desktop-settings.png)
+
 You can also merge settings into your Hermes home's `config.yaml`:
 
 ```yaml
