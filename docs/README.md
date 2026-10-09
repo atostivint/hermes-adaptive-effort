@@ -46,7 +46,7 @@ These plans preserve their implementation rationale. They are not pending provid
 
 | Record | Boundary |
 | --- | --- |
-| [Catalog submission draft](catalog-submission/pr-description.md) | Entry and PR text pinned to `master` commit `0998a08` (plugin identical to v0.3.1); validated locally, not yet submitted to `NousResearch/hermes-agent` |
+| [Catalog submission](catalog-submission/pr-description.md) | Entry and PR text pinned to `master` commit `0998a08` (plugin identical to v0.3.1); submitted on 2026-10-09 as [NousResearch/hermes-agent#135532](https://github.com/NousResearch/hermes-agent/pull/135532); awaiting maintainer review |
 
 ## Historical evidence
 
