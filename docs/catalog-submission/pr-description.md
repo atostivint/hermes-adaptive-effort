@@ -12,6 +12,20 @@ This entry pins version `0.3.1` (a GitHub pre-release) at `0998a083d85ea52fbef38
 
 The maintainer is the repository owner. The idea follows Alexei Ledenev's Jev-based model router for the Pi agent; this plugin is a separate implementation for Hermes, not a fork of a catalog entry.
 
+## Compatibility
+
+The entry declares `requires_hermes: ">=0.21.6"`. That is the release it was developed and tested against (`v0.21.6+122`, upstream `cbe5e53e`), and CI runs against upstream `0a374d1`. Older releases were not tested, so the floor is deliberately conservative. The plugin imports `agent.reasoning_effort` and `agent.secret_scope` lazily and fails open when they are missing.
+
+## Related plugins
+
+Similar plugins exist and share this plugin's goal:
+
+- `jev-effort-router` (catalog) routes the model and the effort with Jev through OpenRouter Decisions.
+- `jev-adaptive-effort` (#119031) chooses among cache-safe effort levels with Jev through OpenRouter Decisions and depends on core middleware changes.
+- Core PRs on adaptive reasoning effort (#109044, #82578, #88522) approach the same goal inside Hermes.
+
+This plugin never changes the model. It differs by letting the operator pick the scorer (Jev, OpenAI Decisions, OpenRouter, Cloudflare Clef, or a custom or local endpoint), by asking the scorer to choose from each exact route's own effort levels, by gating changes on route-level cache-safety evidence, and by shipping status, history and Desktop controls. It does not depend on any unmerged Hermes change. If a core feature supersedes it, delisting is straightforward.
+
 ## Hermes surfaces
 
 - `llm_request` middleware
@@ -26,7 +40,7 @@ The maintainer is the repository owner. The idea follows Alexei Ledenev's Jev-ba
 - **Request changes:** the plugin rewrites a supported effort field and, on exact registered routes, can add a missing one. On exact native Anthropic routes with an already exposed `anthropic-beta` header, it appends Anthropic's dated per-message effort beta value to that header and inserts effort marker messages before matching user turns. Explicitly disabled or malformed reasoning controls are left untouched.
 - **Local storage:** a bounded SQLite history in the plugin's Hermes data directory (`plugin-data/hermes-adaptive-effort/effort-history.sqlite3`) records applied effort changes: from/to levels, model names, cache verdict and allowlisted decision metadata, at most 64 changes per conversation and 64 conversations. To follow one conversation across ID rotations it also keeps lookup aliases, including `HERMES_SESSION_KEY` when present. It never stores prompt or task text; a conversation reset clears that conversation. Persisting a mode from the Dashboard or Desktop writes `plugins.entries.hermes-adaptive-effort.settings.mode` through Hermes' settings API.
 - **Credentials:** the selected scorer reads only its own credential, through Hermes secret scope first and then the process environment: `TYPESAFE_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `CLOUDFLARE_AUTH_TOKEN` or `CUSTOM_SCORER_API_KEY`. A local custom endpoint can use `custom_auth: none`. No other application's credential store is read.
-- **Shell/background activity:** normal operation launches no shell commands or background processes. The repository's `scripts/` directory holds operator tools (local scorer setup and benchmark, model-validation runner, Codex probe); installation and request handling never invoke them.
+- **Shell/background activity:** normal operation launches no shell commands or background processes. The repository's `scripts/` directory holds operator tools (local scorer setup and benchmark, model-validation runner, Codex probe); installation and request handling never invoke them. One of them, `scripts/hermes_codex_probe.py`, replaces a few Hermes module attributes inside its own process so an operator can drive a request offline; `hermes plugins validate` reports it as an informational isolation note, not a failure. The plugin never imports it, and nothing under `scripts/` is loaded by Hermes.
 - **Self-update:** none. Updates arrive only through `hermes plugins update` at a new pin.
 - **Telemetry:** none. Desktop decision events are broadcast locally to the Desktop extension and contain no prompt text.
 
@@ -35,6 +49,7 @@ The maintainer is the repository owner. The idea follows Alexei Ledenev's Jev-ba
 At the pinned commit:
 
 - `hermes_cli.plugin_validate.validate_plugin_dir()` on a clean `git archive` export passed all checks: manifest, config schema, `requires_env`, loadable entries, capability probe, declared tools/hooks/middleware, security scan (`safe`), no core override and desktop surface.
+- `hermes plugins validate <export> --install-deps` with Hermes `v0.21.6+122` passed every check: `requires_hermes`, config schema, `requires_env`, loadable entries, capability probe, declared tools/hooks/middleware, security scan (`safe`), no core override and desktop surface. The only extra output is the isolation note about `scripts/hermes_codex_probe.py` described above.
 - `scripts/validate_plugin_catalog.py` reported the entry file valid.
 - The project's GitHub CI passed (Python 3.11, 3.12 and 3.14 on Ubuntu, 3.12 on Windows, Node Desktop scenarios, Ruff) along with CodeQL and dependency/secret checks.
 

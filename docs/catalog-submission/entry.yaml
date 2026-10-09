@@ -9,6 +9,7 @@ description: Choose a separate scorer to set the reasoning effort of each Hermes
 maintainer: atostivint
 tier: community
 category: models
+requires_hermes: ">=0.21.6"
 docs_url: https://github.com/atostivint/hermes-adaptive-effort/blob/0998a083d85ea52fbef38427b44a54d27332358a/docs/README.md
 version: "0.3.1"
 readme: true
