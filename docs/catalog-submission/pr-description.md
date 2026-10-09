@@ -1,6 +1,6 @@
 # Draft: add Hermes Adaptive Effort to the plugin catalog
 
-> Submission draft for `NousResearch/hermes-agent`, pinned to the v0.3.1 pre-release. The entry file is [entry.yaml](entry.yaml); copy it to `plugin-catalog/hermes-adaptive-effort.yaml`. Recheck the pin and the validation lines below if a newer release is chosen before opening the PR.
+> Submission draft for `NousResearch/hermes-agent`, pinned to `master` right after the v0.3.1 pre-release. The entry file is [entry.yaml](entry.yaml); copy it to `plugin-catalog/hermes-adaptive-effort.yaml`. Recheck the pin and the validation lines below if a newer release is chosen before opening the PR.
 
 ## What it does
 
@@ -8,7 +8,7 @@ Hermes Adaptive Effort asks a separately selected scorer to judge the current ta
 
 On exact registered routes the scorer picks from that route's own effort levels; other routes use a numeric `0..2` score mapped to `low/medium/high`. The plugin starts in `off` mode for both parent and child sessions and fails open: configuration, transport, timeout or validation failures leave the request unchanged.
 
-This entry pins version `0.3.1` (a GitHub pre-release) at `f2d56a47fdf264f6eedd1afd277f4062d6902877`, the commit tagged `v0.3.1`. It follows `0.3.0` with the OpenCode Go MiMo routing fix (#11). The payload is the repository root, so the entry has no `subdir`.
+This entry pins version `0.3.1` (a GitHub pre-release) at `0998a083d85ea52fbef38427b44a54d27332358a`. That commit is on `master` after the `v0.3.1` tag (`f2d56a47fdf264f6eedd1afd277f4062d6902877`) and differs from it only in documentation, screenshots and the release workflow: the plugin payload is byte-identical. It is pinned there so the catalog page renders a README that includes the Desktop screenshots. v0.3.1 adds the OpenCode Go MiMo routing fix (#11) to 0.3.0. The payload is the repository root, so the entry has no `subdir`.
 
 The maintainer is the repository owner. The idea follows Alexei Ledenev's Jev-based model router for the Pi agent; this plugin is a separate implementation for Hermes, not a fork of a catalog entry.
 
@@ -44,4 +44,4 @@ Live validation is limited and the release is marked as a pre-release. Live chec
 
 ## Screenshots
 
-The entry links four screenshots: the expanded Routing mode popup, the route and scorer details, the plugin settings page with its scorer provider list, and a compact view of the mode selector. The first three are pinned to `master` commit `cf9f510ea2404e7d4d020e8748a2f6f1b9bc1ea1`, which added them after the `v0.3.1` tag. The last is pinned to the entry's own commit. The captures are from a French-language Desktop and show no keys, prompts or personal paths.
+The entry links four screenshots, all pinned to the same commit as the entry: the expanded Routing mode popup, the route and scorer details, the plugin settings page with its scorer provider list, and a compact view of the mode selector. The captures are from a French-language Desktop and show no keys, prompts or personal paths.
