@@ -43,7 +43,34 @@ jobs:
           fi
       - name: Generate release notes
         run: |
-          python .github/scripts/release_notes.py notes "${GITHUB_REF_NAME#v}" > release_notes.md
+          VERSION="${GITHUB_REF_NAME#v}"
+          REPO_URL="https://github.com/${GITHUB_REPOSITORY}"
+          PREVIOUS_TAG="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          {
+            echo "# Hermes Adaptive Effort ${GITHUB_REF_NAME}"
+            echo
+            if [[ "$VERSION" =~ ^0\. ]] || [[ "$VERSION" == *-* ]]; then
+              echo "**Pre-release.** Interfaces and defaults may still change. Routing stays **off** until you enable it, and the plugin stays fail-open."
+              echo
+            fi
+            echo "## Update"
+            echo
+            echo '```bash'
+            echo "hermes plugins update hermes-adaptive-effort"
+            echo '```'
+            echo
+            echo "Restart the serving Hermes process afterwards, then run \`/hae status\`. New installs: \`hermes plugins install 'atostivint/hermes-adaptive-effort' --enable\`."
+            echo
+            echo "## Changes"
+            echo
+            python .github/scripts/release_notes.py notes "$VERSION"
+            echo
+            LINKS="**Full changelog:** [CHANGELOG.md](${REPO_URL}/blob/${GITHUB_REF_NAME}/CHANGELOG.md)"
+            if [ -n "$PREVIOUS_TAG" ]; then
+              LINKS="${LINKS} · [${PREVIOUS_TAG}...${GITHUB_REF_NAME}](${REPO_URL}/compare/${PREVIOUS_TAG}...${GITHUB_REF_NAME})"
+            fi
+            echo "$LINKS"
+          } > release_notes.md
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
