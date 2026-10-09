@@ -1,6 +1,6 @@
 # Draft: add Hermes Adaptive Effort to the plugin catalog
 
-> Submission draft for `NousResearch/hermes-agent`, pinned to `master` right after the v0.3.1 pre-release. The entry file is [entry.yaml](entry.yaml); copy it to `plugin-catalog/hermes-adaptive-effort.yaml`. Recheck the pin and the validation lines below if a newer release is chosen before opening the PR.
+> Submitted as [NousResearch/hermes-agent#135532](https://github.com/NousResearch/hermes-agent/pull/135532) on 2026-10-09 and kept here as the record of what was proposed. Original draft note: submission text for `NousResearch/hermes-agent`, pinned to `master` right after the v0.3.1 pre-release. The entry file is [entry.yaml](entry.yaml); copy it to `plugin-catalog/hermes-adaptive-effort.yaml`. Recheck the pin and the validation lines below if a newer release is chosen before opening the PR.
 
 ## What it does
 
