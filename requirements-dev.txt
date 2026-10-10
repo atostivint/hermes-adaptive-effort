@@ -11,4 +11,4 @@ pytest-cov==7.1.0
 ruamel.yaml==0.19.1
 # The offline Codex probe tests build real `httpx.Request` objects at the transport boundary.
 httpx==0.28.1
-ruff==0.16.9
+ruff==0.16.10
