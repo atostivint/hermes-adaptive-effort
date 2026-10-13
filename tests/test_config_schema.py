@@ -47,7 +47,7 @@ def test_effort_model_setting_replaces_the_injection_setting():
 def test_scorer_schema_keeps_jev_default_and_requires_model_for_openrouter():
     schema = _load_manifest()["config_schema"]
     assert set(schema["scorer_provider"].get("choices") or []) == {
-        "jev", "openrouter", "cloudflare", "custom", "openai_decision"}
+        "jev", "openrouter", "cloudflare", "custom", "openai_decision", "nace"}
     assert schema["scorer_provider"].get("default") == middleware.DEFAULTS["scorer_provider"]
     assert schema["jev_model"].get("default") == middleware.DEFAULTS["jev_model"]
     assert schema["jev_model"].get("type") == "str"
@@ -58,6 +58,9 @@ def test_scorer_schema_keeps_jev_default_and_requires_model_for_openrouter():
     assert "gpt-6-luna" in schema["scorer_provider"].get("description", "")
     assert "required when" in schema["scorer_model"].get("description", "")
     assert "Optional for OpenAI Decisions" in schema["scorer_model"].get("description", "")
+    assert "NACE_API_KEY" in schema["scorer_provider"].get("description", "")
+    assert schema["nace_model"].get("type") == "str"
+    assert schema["nace_model"].get("default") == middleware.DEFAULTS["nace_model"] == "drex-v2.0"
 
 
 def test_custom_scorer_schema_defaults_and_choices_match_settings():

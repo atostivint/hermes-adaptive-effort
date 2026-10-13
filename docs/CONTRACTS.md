@@ -100,7 +100,7 @@ Vendor acceptance is separate from local mapping. Fail-open handling of a scorer
 
 ## Scorer adapter contracts
 
-Selection is explicit: Jev, OpenAI Decisions, OpenRouter, Cloudflare or custom. An error never selects another scorer. Required credentials resolve through Hermes secret scope, then environment. Presence checks return booleans and do not expose secrets.
+Selection is explicit: Jev, OpenAI Decisions, OpenRouter, Cloudflare, Nace or custom. An error never selects another scorer. Required credentials resolve through Hermes secret scope, then environment. Presence checks return booleans and do not expose secrets.
 
 | Adapter | Request/response boundary |
 | --- | --- |
@@ -108,6 +108,7 @@ Selection is explicit: Jev, OpenAI Decisions, OpenRouter, Cloudflare or custom. 
 | OpenAI Decisions | Fixed `/v1/decisions`; one bounded string input; exact-choice routes use one `effort` choice question and accept its named answer, otherwise accept one valid `effort` score answer |
 | OpenRouter | Fixed Chat Completions endpoint, explicit model, JSON response request and 32-token completion cap; require ZDR and deny data collection |
 | Cloudflare | Account-scoped Clef/Clef Flash route; require `success: true`, no reported errors and a valid named choice or legacy `result.answers.effort.score` |
+| Nace | System One `POST /v1/systemone` on `https://console.nace.ai` (or `NACE_BASE_URL`, a base gets `/v1/systemone`) with `nace_model` (default pinned `drex-v2.0`); `choice` question and `answers.effort.choice` on registered routes, otherwise the shared score question and `answers.effort.score`. `confidence`/`probabilities` are ignored. The response `model` may name an older Drex model for over-long requests and is never checked. Every non-2xx status (401, 402, 422, 429, 5xx) fails open as `http_error` with no retry |
 | Custom System One | Exact configured URL/model; choice question on exact-choice routes, otherwise score question; read the matching `answers.effort.choice` or `.score` |
 | Custom Chat Completions | Exact configured URL/model, JSON response request, temperature zero, no streaming and 32-token cap; exact-choice routes require only `{"effort":"<allowed level>"}`, other routes require the legacy finite `0..2` score JSON |
 

@@ -357,7 +357,8 @@ def _endpoint_line(settings: Dict[str, Any]) -> str:
     """
     configured = str(settings.get("endpoint") or "")
     effective = str(settings.get("scorer_endpoint_effective") or configured)
-    if settings.get("scorer_provider") in (_scorers.OPENROUTER, _scorers.OPENAI_DECISION):
+    if settings.get("scorer_provider") in (_scorers.OPENROUTER, _scorers.OPENAI_DECISION,
+                                         _scorers.NACE):
         configured = str(settings.get("scorer_endpoint") or "")
     elif settings.get("scorer_provider") == _scorers.CLOUDFLARE:
         configured = effective

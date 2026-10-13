@@ -1072,6 +1072,64 @@ def test_cloudflare_adapter_success_rewrites_the_existing_field(monkeypatch):
     assert entry["probes"] == 1
 
 
+def test_nace_failure_is_memoized_for_turn_without_jev_fallback(monkeypatch):
+    use_settings(monkeypatch, {"mode": "auto", "scorer_provider": "nace"})
+    monkeypatch.setattr(middleware, "_classifier_factory", None)
+    monkeypatch.setattr(middleware._scorers.nace_client, "_default_key_reader", lambda: "")
+    monkeypatch.setattr(middleware._jev_client, "_default_key_reader",
+                        lambda: (_ for _ in ()).throw(AssertionError("Jev fallback")))
+    request = supported_request()
+    assert call(ctx(request=request, session="nace-fail")) is None
+    assert call(ctx(request=request, session="nace-fail")) is None
+    entry = middleware.session_state()["nace-fail/turn"]
+    assert entry["state"] == "failed"
+    assert entry["failure"] == "credential_missing"
+    assert entry["probes"] == 1
+
+
+def test_nace_http_error_fails_open_without_jev_fallback(monkeypatch):
+    import urllib.error
+
+    use_settings(monkeypatch, {"mode": "auto", "scorer_provider": "nace"})
+    monkeypatch.setattr(middleware, "_classifier_factory", None)
+    monkeypatch.setattr(middleware._scorers.nace_client, "_default_key_reader",
+                        lambda: "test-key")
+    monkeypatch.setattr(middleware._jev_client, "_default_transport",
+                        lambda *_: (_ for _ in ()).throw(AssertionError("Jev fallback")))
+
+    def transport(request, _timeout):
+        raise urllib.error.HTTPError(request.full_url, 402, "no credit", {}, None)
+
+    monkeypatch.setattr(middleware._scorers.nace_client, "_default_transport", transport)
+    assert call(ctx(request=supported_request(), session="nace-402")) is None
+    entry = middleware.session_state()["nace-402/turn"]
+    assert entry["state"] == "failed"
+    assert entry["failure"] == "http_error"
+
+
+def test_nace_adapter_success_rewrites_the_existing_field(monkeypatch):
+    monkeypatch.delenv("NACE_BASE_URL", raising=False)
+    use_settings(monkeypatch, {"mode": "auto", "scorer_provider": "nace"})
+    monkeypatch.setattr(middleware, "_classifier_factory", None)
+    monkeypatch.setattr(middleware._scorers.nace_client, "_default_key_reader",
+                        lambda: "test-key")
+    calls = []
+
+    def transport(request, _timeout):
+        calls.append((request.full_url, json.loads(request.data)["model"]))
+        return {"model": "drex-v2.0", "answers": {"effort": {
+            "type": "score", "score": 1.9, "confidence": 0.1}}, "request_id": "req_1"}
+
+    monkeypatch.setattr(middleware._scorers.nace_client, "_default_transport", transport)
+    result = call(ctx(request=supported_request(), session="nace-success"))
+    assert result["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    assert calls == [("https://console.nace.ai/v1/systemone", "drex-v2.0")]
+    entry = middleware.session_state()["nace-success/turn"]
+    assert entry["scorer_provider"] == "nace"
+    assert entry["scorer_model"] == "drex-v2.0"
+    assert entry["probes"] == 1
+
+
 def test_custom_chat_completions_scorer_rewrites(monkeypatch):
     use_settings(monkeypatch, {
         "mode": "auto",

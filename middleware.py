@@ -63,6 +63,7 @@ DEFAULTS: Dict[str, Any] = {
     "custom_auth": "none",
     "cloudflare_account_id": "",
     "cloudflare_model": _scorers.cloudflare_client.DEFAULT_MODEL_SELECTOR,
+    "nace_model": _scorers.nace_client.MODEL,
     "classification_instructions": "",
     "use_target_model_context": False,
     "show_tui_status": True,
@@ -786,6 +787,9 @@ def _settings() -> Dict[str, Any]:
             "cloudflare_account_id", DEFAULTS["cloudflare_account_id"]) or "").strip(),
         "cloudflare_model": _scorers.cloudflare_client.normalize_model_selector(
             _read_setting("cloudflare_model", DEFAULTS["cloudflare_model"])),
+        "nace_model": str(_read_setting(
+            "nace_model", DEFAULTS["nace_model"]) or DEFAULTS["nace_model"]).strip()
+        or DEFAULTS["nace_model"],
         "classification_instructions": _rubric.normalize_classification_instructions(
             _read_setting("classification_instructions", DEFAULTS["classification_instructions"])),
         "use_target_model_context": _bool(
@@ -796,7 +800,7 @@ def _settings() -> Dict[str, Any]:
     }
     settings["scorer_model_effective"] = _scorers.model_for(
         settings["scorer_provider"], settings["scorer_model"], settings["cloudflare_model"],
-        settings["jev_model"])
+        settings["jev_model"], settings["nace_model"])
     (settings["scorer_endpoint"], settings["scorer_endpoint_effective"]) = \
         _scorers.endpoint_for(settings["scorer_provider"], settings["endpoint"],
                               settings["cloudflare_account_id"], settings["cloudflare_model"],

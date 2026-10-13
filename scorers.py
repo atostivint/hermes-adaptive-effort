@@ -8,15 +8,16 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
 
-from . import (cloudflare_client, custom_client, jev_client, openai_decision_client,
-               openrouter_client)
+from . import (cloudflare_client, custom_client, jev_client, nace_client,
+               openai_decision_client, openrouter_client)
 
 JEV = "jev"
 OPENROUTER = "openrouter"
 CLOUDFLARE = "cloudflare"
 CUSTOM = "custom"
 OPENAI_DECISION = "openai_decision"
-PROVIDERS = (JEV, OPENROUTER, CLOUDFLARE, CUSTOM, OPENAI_DECISION)
+NACE = "nace"
+PROVIDERS = (JEV, OPENROUTER, CLOUDFLARE, CUSTOM, OPENAI_DECISION, NACE)
 
 
 def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]]:
@@ -50,6 +51,17 @@ def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]
         try:
             return openai_decision_client.OpenAIDecisionClient(
                 model=settings.get("scorer_model") or openai_decision_client.DEFAULT_MODEL,
+                timeout=settings["timeout_s"],
+                max_prompt_chars=settings["prompt_chars"],
+                classification_instructions=settings.get("classification_instructions", ""),
+            ), None
+        except Exception:
+            return None, "classifier_error"
+    if provider == NACE:
+        try:
+            return nace_client.NaceClient(
+                endpoint=nace_client.configured_base_url(),
+                model=settings.get("nace_model") or nace_client.MODEL,
                 timeout=settings["timeout_s"],
                 max_prompt_chars=settings["prompt_chars"],
                 classification_instructions=settings.get("classification_instructions", ""),
@@ -101,6 +113,8 @@ def credential_present(provider: Any = JEV, custom_auth: Any = "none") -> bool:
         return openai_decision_client.credential_present()
     if selected == CLOUDFLARE:
         return cloudflare_client.credential_present()
+    if selected == NACE:
+        return nace_client.credential_present()
     if selected == CUSTOM and str(custom_auth or "none").strip().lower() == "bearer":
         return custom_client.credential_present()
     return False
@@ -111,7 +125,7 @@ def credential_required(provider: Any = JEV, custom_auth: Any = "none") -> bool:
     selected = str(provider or JEV).strip().lower()
     if selected == CUSTOM:
         return str(custom_auth or "none").strip().lower() == "bearer"
-    return selected in (JEV, OPENROUTER, CLOUDFLARE, OPENAI_DECISION)
+    return selected in (JEV, OPENROUTER, CLOUDFLARE, OPENAI_DECISION, NACE)
 
 
 def endpoint_for(provider: Any, jev_endpoint: Any, cloudflare_account_id: Any = "",
@@ -125,6 +139,9 @@ def endpoint_for(provider: Any, jev_endpoint: Any, cloudflare_account_id: Any = 
     if selected == OPENAI_DECISION:
         endpoint = openai_decision_client.DEFAULT_ENDPOINT
         return endpoint, endpoint
+    if selected == NACE:
+        raw = nace_client.configured_base_url()
+        return raw, nace_client.normalize_endpoint(raw)
     if selected == CLOUDFLARE:
         endpoint = cloudflare_client.endpoint_for(cloudflare_account_id, cloudflare_model)
         return endpoint, endpoint
@@ -137,13 +154,16 @@ def endpoint_for(provider: Any, jev_endpoint: Any, cloudflare_account_id: Any = 
 
 def model_for(provider: Any, configured_model: Any,
               cloudflare_model: Any = cloudflare_client.DEFAULT_MODEL_SELECTOR,
-              jev_model: Any = jev_client.JEV_MODEL) -> str:
+              jev_model: Any = jev_client.JEV_MODEL,
+              nace_model: Any = nace_client.MODEL) -> str:
     """Return the model reported in status for the selected scorer."""
     selected = str(provider or JEV).strip().lower()
     if selected == JEV:
         return str(jev_model or jev_client.JEV_MODEL).strip() or jev_client.JEV_MODEL
     if selected == CLOUDFLARE:
         return cloudflare_client.model_path_for(cloudflare_model)
+    if selected == NACE:
+        return str(nace_model or nace_client.MODEL).strip() or nace_client.MODEL
     if selected == OPENAI_DECISION:
         return str(configured_model or openai_decision_client.DEFAULT_MODEL).strip() \
             or openai_decision_client.DEFAULT_MODEL
