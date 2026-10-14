@@ -633,11 +633,23 @@ function DecisionNotifications({ query, conversationId, ownerMatchesBackend, con
   return null
 }
 
-async function switchMode(mode, query) {
+async function switchMode(mode, query, conversationId) {
+  const scoped = typeof conversationId === 'string' && conversationId !== ''
   try {
-    await rest('/mode', { method: 'POST', body: { mode, persist: true }, timeoutMs: 15000 })
+    await rest('/mode', {
+      method: 'POST',
+      body: scoped
+        ? { mode, scope: 'conversation', conversation_id: conversationId }
+        : { mode, persist: true },
+      timeoutMs: 15000
+    })
     haptic('tap')
-    effortNotice({ kind: 'info', message: `Hermes Adaptive Effort mode: ${mode} (persisted)` })
+    effortNotice({
+      kind: 'info',
+      message: scoped
+        ? `Hermes Adaptive Effort mode: ${mode} (this conversation)`
+        : `Hermes Adaptive Effort mode: ${mode} (persisted)`
+    })
   } catch (err) {
     if (showDesktopPopup) host.notifyError(err, `Could not set effort mode to ${mode}`)
   } finally {
@@ -647,25 +659,32 @@ async function switchMode(mode, query) {
   }
 }
 
-function ModeButtons({ mode, query }) {
+function ModeButtons({ mode, query, conversationId, withDefault, disabled }) {
+  const scoped = Boolean(withDefault)
+  const names = scoped ? [...MODES, 'default'] : MODES
   return jsx('div', {
     className: 'flex flex-wrap gap-1',
-    children: MODES.map(name =>
-      jsx(Tip, {
-        label: MODE_HELP[name],
+    children: names.map(name => {
+      const active = name === mode
+      const help = name === 'default'
+        ? 'Remove this conversation override and follow the default mode.'
+        : MODE_HELP[name]
+      const label = name === 'default' ? 'Use default' : name
+      return jsx(Tip, {
+        label: help,
         side: 'top',
         children: jsx('button', {
           type: 'button',
-          'aria-label': `${name}: ${MODE_HELP[name]}`,
-          disabled: name === mode,
-          onClick: () => switchMode(name, query),
-          className: name === mode
+          'aria-label': `${label}: ${help}`,
+          disabled: active || Boolean(disabled),
+          onClick: () => switchMode(name, query, scoped ? conversationId : undefined),
+          className: active
             ? 'rounded-md bg-(--ui-accent) px-2 py-1 text-[0.6875rem] font-medium text-white'
-            : 'rounded-md bg-(--ui-fill-secondary) px-2 py-1 text-[0.6875rem] text-(--ui-text-secondary) hover:text-(--ui-text-primary)',
-          children: name === mode ? `● ${name}` : name
+            : 'rounded-md bg-(--ui-fill-secondary) px-2 py-1 text-[0.6875rem] text-(--ui-text-secondary) hover:text-(--ui-text-primary) disabled:opacity-50',
+          children: active ? `● ${label}` : label
         })
       }, name)
-    )
+    })
   })
 }
 
@@ -816,12 +835,18 @@ function AdaptiveEffortChip() {
   const activeProfile = useValue(host.state.profile)
   const gateway = useValue(host.state.gateway)
   const focusedConversationId = currentFocusedIdentity().conversationId
+  const ownerMatchesBackend = ownerMatchesActiveBackend(
+    focusedOwner, activeConnectionId, activeProfile
+  )
+  // Same stored conversation id that /history uses.
+  const scopeId = ownerMatchesBackend && focusedConversationId ? focusedConversationId : null
   const changesQuery = useEffortChanges(activeConnectionId, activeProfile)
   const query = useQuery({
     queryKey: [ID, 'status', focusedSessionId, focusedStoredSessionId, focusedConversationId,
       focusedOwner?.connectionId, focusedOwner?.profile,
-      activeConnectionId, activeProfile],
-    queryFn: () => rest('/status', { timeoutMs: 15000 }),
+      activeConnectionId, activeProfile, scopeId],
+    queryFn: () => rest(scopeId ? `/status?conversation_id=${encodeURIComponent(scopeId)}` : '/status',
+      { timeoutMs: 15000 }),
     refetchInterval: 2000,
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
@@ -839,9 +864,6 @@ function AdaptiveEffortChip() {
   const credential = data?.credential_required === false
     ? 'not required'
     : data?.credential ? 'present' : 'missing'
-  const ownerMatchesBackend = ownerMatchesActiveBackend(
-    focusedOwner, activeConnectionId, activeProfile
-  )
   const historyQuery = useConversationHistory(
     activeConnectionId, activeProfile, focusedConversationId, ownerMatchesBackend
   )
@@ -859,7 +881,13 @@ function AdaptiveEffortChip() {
   const route = live
     ? live.clear ? 'N/A' : [live.route.provider, live.route.model, live.route.api_mode].filter(Boolean).join(' · ') || 'N/A'
     : ownerMatchesBackend ? routeForConversation(data, focusedConversationId) : 'N/A'
-  const label = `Effort: ${effort}`
+  const conversation = data?.conversation && typeof data.conversation === 'object' ? data.conversation : null
+  const defaultMode = typeof data?.default_mode === 'string' ? data.default_mode : mode
+  const conversationMode = conversation && typeof conversation.mode === 'string' ? conversation.mode : null
+  const conversationApplies = Boolean(conversation && scopeId &&
+    (conversation.conversation_id == null || conversation.conversation_id === scopeId))
+  const overridden = Boolean(conversationApplies && conversation.source === 'conversation' && conversationMode)
+  const label = overridden ? `Effort: ${effort} · ${conversationMode} (this chat)` : `Effort: ${effort}`
   const tone = toneFor(mode, query.isError)
 
   useEffect(() => subscribeLive(setLiveVersion), [])
@@ -890,7 +918,9 @@ function AdaptiveEffortChip() {
             className: `inline-flex h-full items-center gap-1 px-1.5 text-[0.6875rem] ${tone} hover:text-(--ui-text-primary)`,
             title: query.isError
               ? 'Scoring backend unavailable — enable the plugin in config (plugins.enabled) and Desktop'
-              : `Hermes Adaptive Effort: ${mode || 'loading'} · focused conversation effort: ${effort} · route: ${route} — click to switch`,
+              : conversation
+                ? `Hermes Adaptive Effort: this conversation: ${overridden ? conversationMode : 'default'} · default: ${defaultMode || 'loading'} · focused conversation effort: ${effort} · route: ${route} — click to switch`
+                : `Hermes Adaptive Effort: ${mode || 'loading'} · focused conversation effort: ${effort} · route: ${route} — click to switch`,
             children: [jsx(Codicon, { name: 'zap', className: 'text-[0.75rem]' }), label]
           })
         }),
@@ -912,19 +942,46 @@ function AdaptiveEffortChip() {
                     })
                   ]
                 })
-                : jsxs('section', {
-                  className: 'space-y-1.5',
+                : jsxs('div', {
+                  className: 'space-y-3',
                   children: [
-                    jsxs('div', {
-                      className: 'flex items-center justify-between text-xs font-medium',
-                      children: [jsx('span', { children: 'Routing mode' }),
-                        jsx(Tip, {
-                          label: MODE_HELP[mode] || 'Choose how effort is classified and applied.',
-                          side: 'top',
-                          children: jsx('span', { className: 'text-(--ui-accent)', children: mode || '…' })
-                        })]
-                    }),
-                    jsx(ModeButtons, { mode, query })
+                    conversation
+                      ? jsxs('section', {
+                        className: 'space-y-1.5',
+                        children: [
+                          jsxs('div', {
+                            className: 'flex items-center justify-between text-xs font-medium',
+                            children: [jsx('span', { children: 'This conversation' }),
+                              jsx('span', { className: 'text-(--ui-accent)', children: overridden ? conversationMode : 'default' })]
+                          }),
+                          jsx(ModeButtons, {
+                            mode: overridden ? conversationMode : 'default',
+                            query,
+                            conversationId: scopeId,
+                            withDefault: true,
+                            disabled: !scopeId
+                          }),
+                          !scopeId
+                            ? jsx('div', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: 'Open a saved conversation to set its mode.' })
+                            : null
+                        ]
+                      })
+                      : null,
+                    jsxs('section', {
+                      className: 'space-y-1.5',
+                      children: [
+                        jsxs('div', {
+                          className: 'flex items-center justify-between text-xs font-medium',
+                          children: [jsx('span', { children: conversation ? 'All conversations' : 'Routing mode' }),
+                            jsx(Tip, {
+                              label: MODE_HELP[defaultMode] || 'Choose how effort is classified and applied.',
+                              side: 'top',
+                              children: jsx('span', { className: 'text-(--ui-accent)', children: defaultMode || '…' })
+                            })]
+                        }),
+                        jsx(ModeButtons, { mode: defaultMode, query })
+                      ]
+                    })
                   ]
                 }),
               jsx(Tip, {

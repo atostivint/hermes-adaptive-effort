@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Per-conversation mode override (`/hae <mode> here`, `/hae default here`, Desktop "This conversation"), stored in the profile history database and leaving the default mode and config untouched
+
 ## [0.3.1] - 2026-10-08
 
 ### Added

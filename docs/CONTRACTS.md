@@ -141,11 +141,13 @@ Unsupported-control codes: `reasoning_disabled`, `effort_control_unsupported`, `
 
 ## Subagents
 
-A registered child is classified from its parent's goal only when both the main mode and `subagent_mode` permit routing. Child decisions use their own session/turn identity. Goals live transiently in a separate bounded registry and are excluded from logs/status.
+A registered child is classified from its parent's goal only when both the main mode and `subagent_mode` permit routing. A parent's per-conversation override does not apply to children. Child decisions use their own session/turn identity. Goals live transiently in a separate bounded registry and are excluded from logs/status.
 
 ## Commands and status schemas
 
-`/hae` opens the current conversation's recent applied-change history. `/hae history [N|all] [full]` selects the number of retained changes and whether to show expanded metadata. `/hae status` is a concise current-conversation summary; `status full` adds details, and `status json` retains the machine-readable aggregate payload. `help`, `probe <text>` and the four mode verbs remain available. Mode verbs affect future requests in this process. Unknown modes, unsupported arguments and missing probe text return usage.
+`/hae` opens the current conversation's recent applied-change history. `/hae history [N|all] [full]` selects the number of retained changes and whether to show expanded metadata. `/hae status` is a concise current-conversation summary; `status full` adds details, and `status json` retains the machine-readable aggregate payload. `help`, `probe <text>` and the four mode verbs remain available. Mode verbs affect future requests in this process. `/hae <mode> here` sets a per-conversation override and `/hae default here` clears it; both need an active conversation identity. Unknown modes, unsupported arguments and missing probe text return usage.
+
+Per-conversation overrides are stored in the same profile SQLite file as history, in table `conversation_modes` (keyed by stored conversation ID, bounded to 256 rows, oldest removed first). They are never written to config. Lookup resolves aliases like history does. Precedence for parent sessions is conversation override, then the in-process `/hae` mode, then config `settings.mode`; subagents use `subagent_mode` and never inherit the parent's override. Changing the default never changes an override. Session reset removes the conversation's override with its history. A missing or unreadable store is treated as no override, so the default mode applies and requests are not affected.
 
 History is stored in the active Hermes profile, scoped by conversation identity, and bounded to 64 changes per conversation and 64 conversations. It contains only applied rewrites and prompt-free metadata. To resolve one conversation across ID rotations, the local database also keeps lookup aliases, including the stored session ID and the host's `HERMES_SESSION_KEY` when present; a platform session key may embed chat or user identifiers. Aliases are never returned by `/hae` or `GET /history`. Reset removes the reset conversation's history. Storage errors never affect requests.
 
@@ -161,7 +163,7 @@ Public schemas:
 | Conversation history | `hermes-adaptive-effort.history.v1` |
 | Desktop decision event | `hermes-adaptive-effort.desktop-status.v2` |
 
-Status v2 adds `decision_type` (`native_choice`, `legacy_score` or `fixed`), the route's `choices`, and `cache_behavior`; named/fixed decisions report `score: null`, put the chosen level in `label`, and expose the sent value in `target`. Probe remains v1 and still returns its numeric score. The Desktop reader accepts both event v1 and v2 during transition. `command._ENTRY_FIELDS` is the sole rendered decision-field allowlist. Status includes route/scorer metadata, counters, `credential_required`, credential presence and Cloudflare account readiness. It reports only guidance presence/character count, not contents. Aggregates avoid double-counting a retained route decision and its turn memo.
+Status v2 adds `decision_type` (`native_choice`, `legacy_score` or `fixed`), the route's `choices`, and `cache_behavior`; named/fixed decisions report `score: null`, put the chosen level in `label`, and expose the sent value in `target`. Status v2 also adds, additively, top-level `default_mode` (the global mode, equal to `mode`) and `conversation: {conversation_id, mode, effective_mode, source}`, where `source` is `conversation` or `default`. `mode` and `mode_source` keep their global meaning. Probe remains v1 and still returns its numeric score. The Desktop reader accepts both event v1 and v2 during transition. `command._ENTRY_FIELDS` is the sole rendered decision-field allowlist. Status includes route/scorer metadata, counters, `credential_required`, credential presence and Cloudflare account readiness. It reports only guidance presence/character count, not contents. Aggregates avoid double-counting a retained route decision and its turn memo.
 
 ### Anthropic per-message effort
 
@@ -175,13 +177,15 @@ Routes mount under `/api/plugins/hermes-adaptive-effort/`:
 
 | Method/path | Contract |
 | --- | --- |
-| `GET /status` | Status schema; 503 when the backend cannot provide status |
+| `GET /status?conversation_id=…` | Status schema; optional `conversation_id` selects the conversation block (defaults to the current conversation); 503 when the backend cannot provide status |
 | `GET /changes` | Changes schema; 503 when the backend cannot provide the feed |
 | `GET /history?conversation_id=…&limit=10` | Bounded applied changes for that conversation in this profile |
-| `POST /mode` | JSON `{"mode":"auto","persist":false}`; runtime change by default |
+| `POST /mode` | JSON `{"mode":"auto","persist":false}`; runtime change by default. `{"mode":"auto","scope":"conversation","conversation_id":"…"}` sets one conversation's override |
 | `POST /probe` | JSON `{"text":"operator-typed task"}`; probe schema without prompt echo |
 
-`POST /mode` accepts optional `persist`, default `false`. With `true`, it also saves `plugins.entries.hermes-adaptive-effort.settings.mode` through Hermes' settings writer. A successful result includes the applied mode/scope; an explicit persistence attempt includes `persisted`.
+`POST /mode` accepts `scope` (`default`, the default when omitted, or `conversation`); any other scope returns 400. For `scope: "conversation"`, `conversation_id` is required (400 `conversation_missing`), `mode` may also be `default` to clear the override, and an unknown mode returns 400. A storage failure returns 503. The success response is `{ok, scope:"conversation", conversation_id, before, mode, default_mode, effective_mode}`. `persist` is ignored for this scope. The default scope keeps its existing response.
+
+`POST /mode` with the default scope accepts optional `persist`, default `false`. With `true`, it also saves `plugins.entries.hermes-adaptive-effort.settings.mode` through Hermes' settings writer. A successful result includes the applied mode/scope; an explicit persistence attempt includes `persisted`.
 
 `GET /history` returns `hermes-adaptive-effort.history.v1` with `conversation_id`, `available`, and events containing only `id`, timestamp, model, `from`, `to`, and cache verdict. It clamps the requested limit to 1–64 and never returns a conversation-wide list. A storage failure returns 503 without affecting request routing.
 

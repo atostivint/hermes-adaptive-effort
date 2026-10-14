@@ -19,8 +19,12 @@ Type these in a Hermes chat served by the enabled plugin:
 | `/hae once` | Retain one decision per model and route |
 | `/hae always` | Classify each new user turn on eligible requests |
 | `/hae off` | Stop scoring and rewrites for future requests |
+| `/hae auto\|once\|always\|off here` | Set the mode for this conversation only |
+| `/hae default here` | Remove this conversation's override and follow the default mode |
 
-Mode commands apply only to future requests in the current process. For a persistent default, save the mode in [plugin settings](CONFIGURATION.md#save-settings). Unknown mode/command arguments return usage without changing state. A bare `probe` requires text.
+Mode commands apply only to future requests in the current process. For a persistent default, save the mode in [plugin settings](CONFIGURATION.md#save-settings).
+
+A conversation override (`here`) is stored in the profile's plugin data, not in config, and survives restarts. It applies only to that parent conversation and takes precedence over the default mode: conversation override, then the in-process `/hae` mode, then the configured `mode`. Subagents keep `subagent_mode` and do not inherit it. Changing the default never changes a conversation override, and resetting the conversation clears its override. `/hae default here` removes the override. If the store is unavailable, the default mode applies. `/hae status` shows a `conversation mode:` line. Unknown mode/command arguments return usage without changing state. A bare `probe` requires text.
 
 The default history view lists the local time, target model, applied effort transition and cache behavior. `Compatible` means the transport carries effort outside the cached prompt; `Sensitive` means changing effort can affect cache continuity; `Not verified` means the plugin has no evidence either way. Cache compatibility is separate from whether a model/API pair is registered for dynamic classification. `/hae history full` adds provider, API route, score/label, scorer and timing details. The history records applied request changes only, so failed, unsupported, no-op and off-mode requests do not appear.
 
@@ -78,7 +82,7 @@ A successful probe confirms that this scorer accepted that input. It does not es
 
 ## Desktop and terminal
 
-The optional Desktop extension adds an **Effort** chip. Its compact **Routing mode** popup contains the four modes; hover over a mode for its explanation. **More** includes recent applied changes for the focused chat, scoped to that backend and profile.
+The optional Desktop extension adds an **Effort** chip. Its compact **Routing mode** popup contains the four modes; hover over a mode for its explanation. When the backend supports conversations, the popup has two sections: **This conversation** (the four modes plus **Use default**, disabled with a hint when no saved conversation is focused) and **All conversations** (the persisted default). Older backends show the single **Routing mode** section. When the focused chat has an override, the chip reads `Effort: <level> · <mode> (this chat)`. Enabling an active mode for one conversation authorizes prompt sharing for that conversation only. The terminal status item still reflects the default mode. Palette commands stay global. **More** includes recent applied changes for the focused chat, scoped to that backend and profile.
 
 **More** reveals the focused chat's effort and route, scorer/model readiness, guidance presence and gateway status. **Activity** expands aggregate counters and the latest global result. Closing the popup returns both disclosures to their compact state.
 

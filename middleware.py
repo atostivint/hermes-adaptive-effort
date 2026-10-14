@@ -253,6 +253,33 @@ def _history_identity(session_id: Any) -> Tuple[Optional[str], Tuple[str, ...]]:
     return (sid or None), ((sid,) if sid else ())
 
 
+def conversation_mode_override(identities: Any) -> Optional[str]:
+    """Return one conversation's stored mode override, or None (fail-open)."""
+    try:
+        return _history_store.read_mode_override(identities)
+    except Exception:
+        logger.debug("hermes-adaptive-effort: mode override unavailable", exc_info=True)
+        return None
+
+
+def set_conversation_mode(conversation_id: Any, mode: Any) -> Optional[str]:
+    """Set (or with None/"default" clear) one conversation's mode; never touches the default."""
+    cid = str(conversation_id or "").strip()
+    if not cid:
+        raise ValueError("conversation_missing")
+    if mode is None:
+        value = None
+    else:
+        value = str(mode).strip().lower()
+        if value == "default":
+            value = None
+        elif value not in VALID_MODES:
+            raise ValueError("unknown mode")
+    if not _history_store.write_mode_override(cid, value):
+        raise RuntimeError("store_unavailable")
+    return value
+
+
 def set_history_path_provider(provider: Optional[Callable[[], Any]]) -> None:
     """Bind the journal to the host's profile-owned plugin data directory."""
     _history_store.configure_path_provider(provider)
@@ -1529,9 +1556,15 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     settings = _settings()
     _sync_cli_status(settings)
+    session_id = str(kwargs.get("session_id") or "")
+    # A conversation override replaces the default mode for a parent session only;
+    # children keep subagent_mode. The store is read outside _lock and fails open.
+    if session_id and _child_goal(session_id) is None:
+        override = conversation_mode_override(_history_identity(session_id)[1])
+        if override is not None:
+            settings = dict(settings, mode=override, mode_source="conversation")
     mode = settings["mode"]
     if mode == "off":
-        session_id = str(kwargs.get("session_id") or "")
         if session_id:
             key = _decision_key(session_id, kwargs.get("turn_id"))
             with _lock:
@@ -1556,7 +1589,6 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                 kwargs.get("api_mode"), off_entry)
         return None  # no classification or request change
 
-    session_id = str(kwargs.get("session_id") or "")
     if not session_id:
         logger.debug("hermes-adaptive-effort: no session id; failing open")
         return None

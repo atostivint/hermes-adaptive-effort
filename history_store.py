@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 MAX_HISTORY_CHANGES = 64
 MAX_HISTORY_CONVERSATIONS = 64
+MAX_MODE_OVERRIDES = 256
+_OVERRIDE_MODES = ("auto", "once", "always", "off")
 
 _PATH_PROVIDER: Optional[Callable[[], Any]] = None
 _STORE_LOCK = threading.RLock()
@@ -145,6 +147,11 @@ def _connect(path: Path, *, create: bool) -> sqlite3.Connection:
                 );
                 CREATE INDEX IF NOT EXISTS changes_recent
                     ON changes(scope_id, happened_at DESC, id DESC);
+                CREATE TABLE IF NOT EXISTS conversation_modes (
+                    scope_id TEXT PRIMARY KEY,
+                    mode TEXT NOT NULL,
+                    updated_at REAL NOT NULL
+                );
             """)
     except BaseException:
         connection.close()
@@ -305,6 +312,71 @@ def read_history(identities: Iterable[Any], limit: int = 10) -> Dict[str, Any]:
         return {"available": False, "scope_id": None, "events": [], "latest": None, "status": {}}
 
 
+def _delete_modes(connection: sqlite3.Connection, identities: Iterable[Any],
+                  scope: Optional[str]) -> None:
+    """Drop the override rows a reset conversation owned (older files may lack the table)."""
+    keys = [value for value in (scope, *(_safe_text(item) for item in identities)) if value]
+    try:
+        connection.executemany("DELETE FROM conversation_modes WHERE scope_id=?",
+                               [(key,) for key in dict.fromkeys(keys)])
+    except sqlite3.OperationalError:
+        pass
+
+
+def read_mode_override(identities: Iterable[Any]) -> Optional[str]:
+    """Return the per-conversation mode override for the first matching identity, else None."""
+    path = _path()
+    if path is None or not path.is_file():
+        return None
+    try:
+        with _STORE_LOCK, _open(path, create=False) as connection:
+            for value in identities:
+                key = _safe_text(value)
+                if not key:
+                    continue
+                row = connection.execute(
+                    "SELECT mode FROM conversation_modes WHERE scope_id=?", (key,)).fetchone()
+                if row is None:
+                    row = connection.execute(
+                        "SELECT m.mode FROM aliases a JOIN conversation_modes m "
+                        "ON m.scope_id=a.scope_id WHERE a.alias=?", (key,)).fetchone()
+                if row is not None:
+                    mode = str(row[0])
+                    return mode if mode in _OVERRIDE_MODES else None
+    except Exception:
+        logger.debug("hermes-adaptive-effort: could not read mode override", exc_info=True)
+    return None
+
+
+def write_mode_override(scope_id: Any, mode: Optional[str]) -> bool:
+    """Upsert (or, with mode None, delete) one conversation's override; the caller validates."""
+    path = _path()
+    scope = _safe_text(scope_id)
+    if path is None or not scope:
+        return False
+    if mode is not None and mode not in _OVERRIDE_MODES:
+        return False
+    try:
+        with _STORE_LOCK, _open(path, create=True) as connection:
+            if mode is None:
+                connection.execute("DELETE FROM conversation_modes WHERE scope_id=?", (scope,))
+            else:
+                connection.execute(
+                    "INSERT INTO conversation_modes(scope_id, mode, updated_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT(scope_id) DO UPDATE SET mode=excluded.mode, "
+                    "updated_at=excluded.updated_at", (scope, mode, time.time()))
+                connection.execute("""
+                    DELETE FROM conversation_modes WHERE scope_id IN (
+                        SELECT scope_id FROM conversation_modes
+                        ORDER BY updated_at DESC, rowid DESC LIMIT -1 OFFSET ?
+                    )
+                """, (MAX_MODE_OVERRIDES,))
+        return True
+    except Exception:
+        logger.debug("hermes-adaptive-effort: could not save mode override", exc_info=True)
+        return False
+
+
 def clear_conversation(identities: Iterable[Any]) -> bool:
     """Delete one reset conversation and all of its aliases/history."""
     path = _path()
@@ -312,7 +384,9 @@ def clear_conversation(identities: Iterable[Any]) -> bool:
         return path is not None
     try:
         with _STORE_LOCK, _open(path, create=False) as connection:
+            identities = list(identities)
             scope = _resolve_scope(connection, identities)
+            _delete_modes(connection, identities, scope)
             if scope is not None:
                 connection.execute("DELETE FROM conversations WHERE scope_id=?", (scope,))
         return True

@@ -76,6 +76,8 @@ Status checks readiness without classifying anything. Enabling a routing mode au
 
 Every active mode reuses its decision during a tool loop. A route includes the provider, exact model and API mode. Bounded decision memory can be evicted or cleared on reset/reload.
 
+`/hae <mode> here` sets a mode for the current conversation only, and `/hae default here` clears it. A conversation override takes precedence over the default mode for that parent conversation; subagents keep `subagent_mode`.
+
 Use `/hae help` for all commands. The [usage guide](docs/USAGE.md) explains mode selection, status, probing and troubleshooting.
 
 ## How a request passes through the plugin

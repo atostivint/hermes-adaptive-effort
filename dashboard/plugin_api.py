@@ -149,14 +149,15 @@ def _agent_modules() -> Tuple[Any, Any]:
         return None, None
 
 
-def get_status_payload() -> Dict[str, Any]:
+def get_status_payload(conversation_id: Optional[str] = None) -> Dict[str, Any]:
     """Live ``hermes-adaptive-effort.status.v2`` payload (same builder as the slash command)."""
     middleware, command = _agent_modules()
     if command is None or middleware is None:
         return {"schema": STATUS_SCHEMA, "plugin": PLUGIN_ID,
                 "error": "agent_plugin_not_loaded"}
     try:
-        payload = command._status_payload()
+        payload = (command._status_payload(conversation_id=conversation_id)
+                   if conversation_id else command._status_payload())
     except Exception:
         logger.debug("hermes-adaptive-effort: status build failed", exc_info=True)
         return {"schema": STATUS_SCHEMA, "plugin": PLUGIN_ID, "error": "status_failed"}
@@ -263,6 +264,32 @@ def set_mode(mode: Any, *, persist: bool = False) -> Dict[str, Any]:
     return out
 
 
+def set_conversation_mode(conversation_id: Any, mode: Any) -> Dict[str, Any]:
+    """Set or clear (mode ``default``) one conversation's mode; the default mode is untouched."""
+    middleware, _ = _agent_modules()
+    if middleware is None:
+        return {"ok": False, "error": "agent_plugin_not_loaded", "mode": None}
+    cid = str(conversation_id or "").strip()
+    if not cid:
+        return {"ok": False, "error": "conversation_missing", "mode": None}
+    value = str(mode or "").strip().lower()
+    if value != "default" and value not in VALID_MODES:
+        return {"ok": False, "error": f"unknown mode {value!r}; want one of {list(VALID_MODES)}",
+                "mode": None}
+    try:
+        before = middleware.conversation_mode_override([cid])
+        applied = middleware.set_conversation_mode(cid, value)
+        default_mode = middleware._settings()["mode"]
+    except RuntimeError:
+        return {"ok": False, "error": "store_unavailable", "mode": None}
+    except Exception:
+        logger.debug("hermes-adaptive-effort: set_conversation_mode failed", exc_info=True)
+        return {"ok": False, "error": "mode_failed", "mode": None}
+    return {"ok": True, "scope": "conversation", "conversation_id": cid, "before": before,
+            "mode": applied, "default_mode": default_mode,
+            "effective_mode": applied or default_mode}
+
+
 def run_probe(text: Any) -> Dict[str, Any]:
     """One bounded classification of operator-typed text; stores nothing, echoes nothing."""
     middleware, _ = _agent_modules()
@@ -291,13 +318,15 @@ if _HAS_HTTP and router is not None:  # pragma: no cover - needs serve env
     class ModeBody(BaseModel):
         mode: str = Field(description="auto|once|always|off")
         persist: bool = Field(default=False, description="also write settings.mode")
+        scope: str = Field(default="default", description="default|conversation")
+        conversation_id: Optional[str] = Field(default=None, description="stored conversation id")
 
     class ProbeBody(BaseModel):
         text: str = Field(description="operator-typed text to classify once")
 
     @router.get("/status")
-    def status() -> Dict[str, Any]:
-        payload = get_status_payload()
+    def status(conversation_id: Optional[str] = None) -> Dict[str, Any]:
+        payload = get_status_payload(conversation_id)
         if payload.get("error"):
             raise HTTPException(status_code=503, detail=payload["error"])
         return payload
@@ -318,6 +347,15 @@ if _HAS_HTTP and router is not None:  # pragma: no cover - needs serve env
 
     @router.post("/mode")
     def switch_mode(body: ModeBody) -> Dict[str, Any]:
+        if body.scope == "conversation":
+            outcome = set_conversation_mode(body.conversation_id, body.mode)
+            if not outcome.get("ok"):
+                error = str(outcome.get("error"))
+                code = 400 if error == "conversation_missing" or "unknown mode" in error else 503
+                raise HTTPException(status_code=code, detail=error)
+            return outcome
+        if body.scope != "default":
+            raise HTTPException(status_code=400, detail="unknown scope")
         result = set_mode(body.mode, persist=bool(body.persist))
         if not result.get("ok"):
             raise HTTPException(status_code=400 if "unknown mode" in str(result.get("error")) else 503,

@@ -426,3 +426,89 @@ test('clear boundary events with empty route fields clear focused live state', (
   assert.equal(live.status, null)
   assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: N/A')
 })
+
+function collect(tree, predicate, out = []) {
+  if (!tree || typeof tree !== 'object') return out
+  // Expand function components (ModeButtons) the way a renderer would.
+  if (typeof tree.type === 'function') return collect(tree.type(tree.props), predicate, out)
+  if (predicate(tree)) out.push(tree)
+  const children = tree.props?.children
+  for (const child of Array.isArray(children) ? children : [children]) collect(child, predicate, out)
+  return out
+}
+
+function textsOf(tree) {
+  return collect(tree, node => typeof node.props?.children === 'string')
+    .map(node => node.props.children)
+}
+
+function modeButtons(tree, ariaStart) {
+  return collect(tree, node => node.type === 'button' && String(node.props['aria-label'] || '').startsWith(ariaStart))
+}
+
+const scopedStatus = (conversation, extra = {}) => ({
+  mode: 'auto', default_mode: 'auto', settings: { show_desktop_popup: true }, sessions: [],
+  conversation: { conversation_id: 'session-1', mode: null, effective_mode: 'auto', source: 'default', ...conversation },
+  ...extra
+})
+
+test('popup shows This conversation and All conversations sections', () => {
+  const h = makeHarness({ status: scopedStatus({}) })
+  const texts = textsOf(h.api.AdaptiveEffortChip())
+  assert.ok(texts.includes('This conversation'))
+  assert.ok(texts.includes('All conversations'))
+  assert.ok(!texts.includes('Routing mode'))
+})
+
+test('conversation buttons POST scope=conversation with the stored conversation id', async () => {
+  const h = makeHarness({ status: scopedStatus({}) })
+  const posts = []
+  h.api.setRest(async (path, options) => { posts.push([path, options]) })
+  const tree = h.api.AdaptiveEffortChip()
+  const off = modeButtons(tree, 'off:')
+  assert.equal(off.length, 2, 'one conversation button and one global button')
+  off[0].props.onClick()
+  await flush()
+  assert.deepEqual(JSON.parse(JSON.stringify(posts[0][1].body)), { mode: 'off', scope: 'conversation', conversation_id: 'session-1' })
+  assert.equal(posts[0][0], '/mode')
+  off[1].props.onClick()
+  await flush()
+  assert.deepEqual(JSON.parse(JSON.stringify(posts[1][1].body)), { mode: 'off', persist: true })
+})
+
+test('Use default posts mode default for the conversation and is active without an override', async () => {
+  const h = makeHarness({ status: scopedStatus({}) })
+  const posts = []
+  h.api.setRest(async (path, options) => { posts.push(options.body) })
+  const [useDefault] = modeButtons(h.api.AdaptiveEffortChip(), 'Use default:')
+  assert.equal(useDefault.props.disabled, true)
+  assert.equal(useDefault.props.children, '● Use default')
+
+  const overridden = makeHarness({ status: scopedStatus({ mode: 'off', effective_mode: 'off', source: 'conversation' }) })
+  overridden.api.setRest(async (path, options) => { posts.push(options.body) })
+  const [button] = modeButtons(overridden.api.AdaptiveEffortChip(), 'Use default:')
+  assert.equal(button.props.disabled, false)
+  button.props.onClick()
+  await flush()
+  assert.deepEqual(JSON.parse(JSON.stringify(posts[0])), { mode: 'default', scope: 'conversation', conversation_id: 'session-1' })
+})
+
+test('chip label gets a this-chat suffix only for a conversation override', () => {
+  const h = makeHarness({ status: scopedStatus({ mode: 'off', effective_mode: 'off', source: 'conversation' }) })
+  h.api.handleDecisionEvent(h.ctx, decision())
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: high · off (this chat)')
+  const plain = makeHarness({ status: scopedStatus({}) })
+  plain.api.handleDecisionEvent(plain.ctx, decision())
+  assert.equal(findEffortChip(plain.api.AdaptiveEffortChip()), 'Effort: high')
+})
+
+test('older status payloads without conversation fields keep the global UI', () => {
+  const h = makeHarness()
+  h.api.handleDecisionEvent(h.ctx, decision())
+  const tree = h.api.AdaptiveEffortChip()
+  assert.equal(findEffortChip(tree), 'Effort: high')
+  const texts = textsOf(tree)
+  assert.ok(texts.includes('Routing mode'))
+  assert.ok(!texts.includes('This conversation'))
+  assert.equal(modeButtons(tree, 'off:').length, 1)
+})

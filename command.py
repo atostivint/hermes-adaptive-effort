@@ -31,6 +31,8 @@ USAGE = """Usage:
   /hae status full                          Show detailed status for this conversation
   /hae status json                          Machine-readable status payload
   /hae auto|once|always|off                  Set the mode used by future requests
+  /hae auto|once|always|off here            Set the mode for this conversation only
+  /hae default here                         Clear this conversation's mode (use the default)
   /hae probe <text>                         Classify <text> once (prints score/label, stores nothing)
   /hae help                                 Show this help
 
@@ -83,6 +85,8 @@ def _dispatch(raw_args: str) -> str:
     verb, *rest = parts
     if verb in {"help", "-h", "--help"}:
         return USAGE
+    if (verb in MODES or verb == "default") and rest == ["here"]:
+        return _set_conversation_mode(verb)
     if verb in MODES:
         if rest:
             return USAGE
@@ -126,6 +130,38 @@ def _set_mode(target: str) -> str:
     return (f"hermes-adaptive-effort mode: {before} -> {applied} (applies to future requests in "
             f"this process; not persisted, set "
             f"plugins.entries.{PLUGIN_ID}.settings.mode to make it stick)")
+
+
+def _set_conversation_mode(target: str) -> str:
+    """Set or clear this conversation's mode override; the default mode is untouched."""
+    scope, identities = _history_store.current_identity()
+    if not scope:
+        return "hermes-adaptive-effort: no active conversation identity here; mode unchanged"
+    before = _middleware.conversation_mode_override(identities)
+    try:
+        after = _middleware.set_conversation_mode(scope, target)
+    except RuntimeError:
+        return ("hermes-adaptive-effort: conversation mode storage is unavailable; "
+                "mode unchanged")
+    return (f"hermes-adaptive-effort conversation mode: {before or 'default'} -> "
+            f"{after or 'default'} (this conversation only; default mode stays "
+            f"{_middleware._settings()['mode']})")
+
+
+def _conversation_mode_view(conversation_id: Optional[str], default_mode: str) -> Dict[str, Any]:
+    """Describe the override for an explicit id, else for the command's own conversation."""
+    scope: Optional[str]
+    if conversation_id:
+        scope, identities = str(conversation_id), [str(conversation_id)]
+    else:
+        scope, identities = _history_store.current_identity()
+    override = _middleware.conversation_mode_override(identities) if scope else None
+    return {
+        "conversation_id": scope or None,
+        "mode": override,
+        "effective_mode": override or default_mode,
+        "source": "conversation" if override else "default",
+    }
 
 
 # ── status ──────────────────────────────────────────────────────────────────
@@ -270,7 +306,7 @@ def _history_text(limit: int = 10, full: bool = False) -> str:
     return "\n".join(lines)
 
 
-def _status_payload() -> Dict[str, Any]:
+def _status_payload(conversation_id: Optional[str] = None) -> Dict[str, Any]:
     settings = _middleware._settings()
     public_settings = dict(settings)
     # Operator guidance is sent only to the selected scorer for a classification;
@@ -323,6 +359,9 @@ def _status_payload() -> Dict[str, Any]:
         # "config" (the file decides) vs "override" (/hae in this process);
         # a runtime override applies to future requests only and is not persisted.
         "mode_source": settings["mode_source"],
+        # "mode" stays the default (global) mode; the conversation block carries the override.
+        "default_mode": settings["mode"],
+        "conversation": _conversation_mode_view(conversation_id, settings["mode"]),
         "settings": public_settings,
         "credential": _scorers.credential_present(
             settings["scorer_provider"], settings["custom_auth"]),
@@ -366,6 +405,14 @@ def _endpoint_line(settings: Dict[str, Any]) -> str:
     return effective
 
 
+def _conversation_mode_line(payload: Dict[str, Any]) -> str:
+    view = payload.get("conversation") or {}
+    default = payload.get("default_mode") or payload.get("mode")
+    if view.get("mode"):
+        return f"conversation mode: {view['mode']} (this conversation) · default: {default}"
+    return f"conversation mode: default ({default})"
+
+
 def _status_text() -> str:
     """Compact, conversation-scoped status for people checking the live result."""
     payload = _status_payload()
@@ -393,6 +440,7 @@ def _status_text() -> str:
     lines = [
         "Hermes Adaptive Effort — status",
         f"Mode: {entry.get('mode') or payload['mode']} ({settings.get('mode_source', 'config')})",
+        _conversation_mode_line(payload),
         f"Scorer: {scorer} · {scorer_model} · {credential}",
         f"Model: {model}",
         f"Decision: {entry.get('state', 'no request seen')}",
@@ -421,6 +469,7 @@ def _status_full_text() -> str:
         "Hermes Adaptive Effort — detailed status",
         f"Mode: {entry.get('mode') or payload['mode']} "
         f"(from {settings.get('mode_source', 'config')})",
+        _conversation_mode_line(payload),
         f"Scorer: {settings['scorer_provider']} · model={settings['scorer_model_effective'] or 'unset'}",
         f"Credential: {'present' if payload['credential'] else 'missing'}"
         if payload["credential_required"] else "Credential: not required",
