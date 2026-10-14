@@ -1,4 +1,4 @@
-"""Bounded Cloudflare Workers AI Clef / Clef Flash scoring adapter."""
+"""Bounded Cloudflare Workers AI Clef / Clef Flash / Clef Omni scoring adapter."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ API_ROOT = "https://api.cloudflare.com/client/v4/accounts"
 MODEL_PATHS = {
     "clef": "@cf/cloudflare/clef",
     "clef-flash": "@cf/cloudflare/clef-flash",
+    "clef-omni": "@cf/cloudflare/clef-omni",
 }
 DEFAULT_MODEL_SELECTOR = "clef"
 MODEL = MODEL_PATHS[DEFAULT_MODEL_SELECTOR]

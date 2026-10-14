@@ -57,6 +57,25 @@ def test_request_uses_fixed_account_route_and_shared_bounded_rubric():
     assert seen["timeout"] == 2.5
 
 
+def test_clef_omni_selector_maps_to_its_path_and_endpoint():
+    assert client_module.MODEL_PATHS["clef-omni"] == "@cf/cloudflare/clef-omni"
+    expected = f"{client_module.API_ROOT}/{ACCOUNT}/ai/run/@cf/cloudflare/clef-omni"
+    assert client_module.endpoint_for(ACCOUNT, "clef-omni") == expected
+    for selector in ("clef-omni", " Clef-Omni ", "CLEF-OMNI"):
+        assert client_module.normalize_model_selector(selector) == "clef-omni"
+        assert client_module.model_path_for(selector) == "@cf/cloudflare/clef-omni"
+    client = make_client(model_selector=" Clef-Omni ")
+    assert client.model_selector == "clef-omni"
+    assert client.endpoint == expected
+
+
+def test_unknown_model_selector_still_falls_back_to_clef():
+    for selector in ("clef-omni-2", "", None, "omni", 7):
+        assert client_module.normalize_model_selector(selector) == "clef"
+        assert client_module.model_path_for(selector) == "@cf/cloudflare/clef"
+    assert make_client(model_selector="nope").endpoint.endswith("/ai/run/@cf/cloudflare/clef")
+
+
 def test_context_managed_response_is_decoded():
     client = client_module.CloudflareClient(account_id=ACCOUNT, api_key="token",
         transport=lambda *_: Response(json.dumps(wrapper(0.5)).encode()))

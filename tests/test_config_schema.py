@@ -93,6 +93,9 @@ def test_config_schema_types_and_defaults_match_middleware():
     assert int(schema["prompt_chars"]["default"]) == int(middleware.DEFAULTS["prompt_chars"])
     assert schema["endpoint"]["type"] == "str"
     assert schema["cloudflare_account_id"]["type"] == "str"
+    cloudflare_client = import_plugin("cloudflare_client")
+    assert set(schema["cloudflare_model"]["choices"]) == set(cloudflare_client.MODEL_PATHS)
+    assert schema["cloudflare_model"]["default"] == cloudflare_client.DEFAULT_MODEL_SELECTOR
     assert str(schema["endpoint"]["default"]) == str(middleware.DEFAULTS["endpoint"])
     assert schema["classification_instructions"]["default"] == ""
     assert "2000" in schema["classification_instructions"]["description"]
