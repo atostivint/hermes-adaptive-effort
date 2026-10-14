@@ -175,6 +175,8 @@ Public schemas:
 | Probe | `hermes-adaptive-effort.probe.v1` |
 | Applied changes | `hermes-adaptive-effort.changes.v1` |
 | Conversation history | `hermes-adaptive-effort.history.v1` |
+| Scorer evaluation result (manual script, plugin data dir) | `hermes-adaptive-effort.scorer-eval.v1` |
+| Scorer evaluation summary (`GET /eval`) | `hermes-adaptive-effort.scorer-eval-summary.v1` |
 | Desktop decision event | `hermes-adaptive-effort.desktop-status.v2` |
 
 Status v2 adds `decision_type` (`native_choice`, `legacy_score` or `fixed`), the route's `choices`, and `cache_behavior`; named/fixed decisions report `score: null`, put the chosen level in `label`, and expose the sent value in `target`. Probe remains v1 and still returns its numeric score. The Desktop reader accepts both event v1 and v2 during transition. `command._ENTRY_FIELDS` is the sole rendered decision-field allowlist. Status includes route/scorer metadata, counters, `credential_required`, credential presence and Cloudflare account readiness. It reports only guidance presence/character count, not contents. Aggregates avoid double-counting a retained route decision and its turn memo.
@@ -193,6 +195,7 @@ Routes mount under `/api/plugins/hermes-adaptive-effort/`:
 | --- | --- |
 | `GET /status` | Status schema; 503 when the backend cannot provide status |
 | `GET /changes` | Changes schema; 503 when the backend cannot provide the feed |
+| `GET /eval` | Newest scorer-evaluation summary per scorer; empty list when none exist |
 | `GET /history?conversation_id=…&limit=10` | Bounded applied changes for that conversation in this profile |
 | `POST /mode` | JSON `{"mode":"auto","persist":false}`; runtime change by default |
 | `POST /probe` | JSON `{"text":"operator-typed task"}`; probe schema without prompt echo |
@@ -200,6 +203,8 @@ Routes mount under `/api/plugins/hermes-adaptive-effort/`:
 `POST /mode` accepts optional `persist`, default `false`. With `true`, it also saves `plugins.entries.hermes-adaptive-effort.settings.mode` through Hermes' settings writer. A successful result includes the applied mode/scope; an explicit persistence attempt includes `persisted`.
 
 `GET /history` returns `hermes-adaptive-effort.history.v1` with `conversation_id`, `available`, and events containing only `id`, timestamp, model, `from`, `to`, and cache verdict. It clamps the requested limit to 1–64 and never returns a conversation-wide list. A storage failure returns 503 without affecting request routing.
+
+`GET /eval` returns `hermes-adaptive-effort.scorer-eval-summary.v1` with `evaluations`: for each scorer (provider plus scorer model) the newest result written by `scripts/run_scorer_eval.py` into the profile's `plugin-data/<plugin>/scorer-eval/` directory, reduced to `provider`, `scorer_model`, `choices`, `items`, `accuracy`, `p50_ms`, `p95_ms`, `failures` (counts by reason code), `run_at` and `corpus_version`. Malformed or foreign files are skipped; a missing directory or no result yields an empty list, never an error. Per-item rows, confusion matrices and prompts are never served. The Desktop popup shows these rows only while `show_desktop_popup` is true. The numbers come from synthetic prompts and are not an answer-quality, cost or savings measure; see [Scorer evaluation](validation/SCORER_EVAL.md).
 
 Unknown modes return HTTP 400; unavailable middleware/mode application returns 503. A failed persistent write returns HTTP 500 with `persist_failed`, while the process-local mode change can already have succeeded. Public errors omit exception text. Blank probe text returns 400; host request validation can also reject malformed bodies.
 

@@ -1,0 +1,571 @@
+{
+  "schema": "hermes-adaptive-effort.scorer-eval-corpus.v1",
+  "version": "2026-10-14",
+  "note": "Synthetic prompts written for this file; no real user text. Expected levels are a labelling judgement, not ground truth.",
+  "items": [
+    {
+      "id": "c001",
+      "prompt": "thanks, that worked",
+      "expected": "minimal",
+      "tags": [
+        "short_followup"
+      ]
+    },
+    {
+      "id": "c002",
+      "prompt": "ok",
+      "expected": "minimal",
+      "tags": [
+        "short_followup",
+        "ambiguous"
+      ]
+    },
+    {
+      "id": "c003",
+      "prompt": "what does the acronym CSV stand for?",
+      "expected": "minimal",
+      "tags": [
+        "trivial_vs_architectural"
+      ]
+    },
+    {
+      "id": "c004",
+      "prompt": "rename the variable `cnt` to `count` in this one line: cnt = cnt + 1",
+      "expected": "minimal",
+      "tags": [
+        "fix_vs_explain",
+        "trivial_vs_architectural"
+      ]
+    },
+    {
+      "id": "c005",
+      "prompt": "is Python's len() zero-based or one-based?",
+      "expected": "minimal",
+      "tags": [
+        "trivial_vs_architectural"
+      ]
+    },
+    {
+      "id": "c006",
+      "prompt": "yes, go ahead",
+      "expected": "minimal",
+      "tags": [
+        "short_followup",
+        "ambiguous"
+      ]
+    },
+    {
+      "id": "c007",
+      "prompt": "add a trailing newline to this sentence: Hello world",
+      "expected": "minimal",
+      "tags": [
+        "trivial_vs_architectural"
+      ]
+    },
+    {
+      "id": "c008",
+      "prompt": "what is the shortcut to save a file in most editors?",
+      "expected": "minimal",
+      "tags": [
+        "trivial_vs_architectural"
+      ]
+    },
+    {
+      "id": "c009",
+      "prompt": "lowercase this word for me: DONE",
+      "expected": "minimal",
+      "tags": [
+        "trivial_vs_architectural"
+      ]
+    },
+    {
+      "id": "c010",
+      "prompt": "which HTTP status code means 'not found'?",
+      "expected": "minimal",
+      "tags": [
+        "trivial_vs_architectural"
+      ]
+    },
+    {
+      "id": "c011",
+      "prompt": "sounds good, thanks",
+      "expected": "minimal",
+      "tags": [
+        "short_followup"
+      ]
+    },
+    {
+      "id": "c012",
+      "prompt": "explain what a Python list comprehension is, in two sentences",
+      "expected": "low",
+      "tags": [
+        "fix_vs_explain"
+      ]
+    },
+    {
+      "id": "c013",
+      "prompt": "fix the typo in this function name: def calcualte_total(items):",
+      "expected": "low",
+      "tags": [
+        "fix_vs_explain",
+        "trivial_vs_architectural"
+      ]
+    },
+    {
+      "id": "c014",
+      "prompt": "write a regex that matches a 5-digit US zip code",
+      "expected": "low",
+      "tags": [
+        "trivial_vs_architectural"
+      ]
+    },
+    {
+      "id": "c015",
+      "prompt": "and the same for tuples?",
+      "expected": "low",
+      "tags": [
+        "short_followup",
+        "ambiguous"
+      ]
+    },
+    {
+      "id": "c016",
+      "prompt": "convert this list of three dates from DD/MM/YYYY to ISO format: 03/04/2025, 15/11/2024, 01/01/2026",
+      "expected": "low",
+      "tags": [
+        "trivial_vs_architectural"
+      ]
+    },
+    {
+      "id": "c017",
+      "prompt": "what's the difference between == and is in Python? short answer please",
+      "expected": "low",
+      "tags": [
+        "fix_vs_explain"
+      ]
+    },
+    {
+      "id": "c018",
+      "prompt": "add a docstring to this function: def add(a, b): return a + b",
+      "expected": "low",
+      "tags": [
+        "trivial_vs_architectural"
+      ]
+    },
+    {
+      "id": "c019",
+      "prompt": "why does my loop print 0 to 4 and not 1 to 5? for i in range(5): print(i)",
+      "expected": "low",
+      "tags": [
+        "fix_vs_explain"
+      ]
+    },
+    {
+      "id": "c020",
+      "prompt": "write a one-line shell command that counts the lines in every .txt file in the current directory",
+      "expected": "low",
+      "tags": [
+        "trivial_vs_architectural"
+      ]
+    },
+    {
+      "id": "c021",
+      "prompt": "can you make that shorter?",
+      "expected": "low",
+      "tags": [
+        "short_followup",
+        "ambiguous"
+      ]
+    },
+    {
+      "id": "c022",
+      "prompt": "summarize this sentence in five words: The quarterly meeting was moved to Thursday afternoon because the main conference room was double booked.",
+      "expected": "low",
+      "tags": [
+        "trivial_vs_architectural"
+      ]
+    },
+    {
+      "id": "c023",
+      "prompt": "write a function that merges two sorted lists into one sorted list and add unit tests for the empty and duplicate cases",
+      "expected": "medium",
+      "tags": [
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c024",
+      "prompt": "this test fails with KeyError: 'user_id' when the payload has no user. Fix the handler so it returns a 400 with a clear message instead of crashing.",
+      "expected": "medium",
+      "tags": [
+        "fix_vs_explain"
+      ]
+    },
+    {
+      "id": "c025",
+      "prompt": "explain how a debounce differs from a throttle and give a small JavaScript example of each",
+      "expected": "medium",
+      "tags": [
+        "fix_vs_explain"
+      ]
+    },
+    {
+      "id": "c026",
+      "prompt": "refactor this 40-line function into smaller helpers without changing its behaviour; keep the public signature",
+      "expected": "medium",
+      "tags": [
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c027",
+      "prompt": "what would break if I changed the primary key of the orders table from an integer to a UUID?",
+      "expected": "medium",
+      "tags": [
+        "ambiguous"
+      ]
+    },
+    {
+      "id": "c028",
+      "prompt": "write a CLI script that reads a CSV, groups rows by the 'region' column and prints the total of 'amount' per region",
+      "expected": "medium",
+      "tags": [
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c029",
+      "prompt": "why is my pagination returning duplicate rows when the sort column has ties? Show a fix.",
+      "expected": "medium",
+      "tags": [
+        "fix_vs_explain"
+      ]
+    },
+    {
+      "id": "c030",
+      "prompt": "add retry with exponential backoff to this HTTP client wrapper and make the maximum attempts configurable",
+      "expected": "medium",
+      "tags": [
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c031",
+      "prompt": "and can you also handle the case where the file is empty?",
+      "expected": "medium",
+      "tags": [
+        "short_followup"
+      ]
+    },
+    {
+      "id": "c032",
+      "prompt": "review this pull request description and tell me which risks are missing: it adds a cache in front of the pricing lookup",
+      "expected": "medium",
+      "tags": [
+        "ambiguous"
+      ]
+    },
+    {
+      "id": "c033",
+      "prompt": "write a SQL query returning the top three customers by revenue per month for the last six months",
+      "expected": "medium",
+      "tags": [
+        "trivial_vs_architectural",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c034",
+      "prompt": "our API returns intermittent 502s only under load. Here is the nginx config and the app's worker settings. Work out the likely causes and propose a way to confirm each one.",
+      "expected": "high",
+      "tags": [
+        "multi_step",
+        "ambiguous"
+      ]
+    },
+    {
+      "id": "c035",
+      "prompt": "design a retry and idempotency scheme for a payment webhook consumer that must never double-charge, even if the queue redelivers messages after a crash",
+      "expected": "high",
+      "tags": [
+        "trivial_vs_architectural",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c036",
+      "prompt": "this recursive descent parser mishandles operator precedence for unary minus combined with exponentiation. Find the bug, fix it, and add tests that pin the intended grammar.",
+      "expected": "high",
+      "tags": [
+        "fix_vs_explain",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c037",
+      "prompt": "migrate this module from callbacks to async/await across the five files below without changing observable behaviour, and call out every place where ordering semantics could change",
+      "expected": "high",
+      "tags": [
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c038",
+      "prompt": "we need to split a 300 GB Postgres table by tenant with no downtime. Propose a migration plan with rollback points.",
+      "expected": "high",
+      "tags": [
+        "trivial_vs_architectural",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c039",
+      "prompt": "the flaky integration test only fails on CI, never locally. Walk through a systematic way to isolate the cause and propose concrete instrumentation.",
+      "expected": "high",
+      "tags": [
+        "fix_vs_explain",
+        "ambiguous"
+      ]
+    },
+    {
+      "id": "c040",
+      "prompt": "explain why this lock-free queue implementation can lose items, then give a corrected version and argue why it is safe",
+      "expected": "high",
+      "tags": [
+        "fix_vs_explain",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c041",
+      "prompt": "compare three approaches to caching per-user permissions in a service with 50 instances, covering invalidation, staleness bounds and failure modes, then recommend one",
+      "expected": "high",
+      "tags": [
+        "trivial_vs_architectural",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c042",
+      "prompt": "rewrite this O(n^2) deduplication so it runs in near-linear time on 10 million records that do not fit in memory",
+      "expected": "high",
+      "tags": [
+        "trivial_vs_architectural",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c043",
+      "prompt": "given these two conflicting requirements from product and security, propose an authentication flow for a mobile app that satisfies both and list what each side gives up",
+      "expected": "high",
+      "tags": [
+        "ambiguous",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c044",
+      "prompt": "this memory leak appears after about six hours in production. Here are three heap snapshots in summary form. Identify the retained path and a fix.",
+      "expected": "high",
+      "tags": [
+        "fix_vs_explain",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c045",
+      "prompt": "design the data model, sync protocol and conflict resolution for an offline-first notes app that supports shared folders with per-user permissions",
+      "expected": "xhigh",
+      "tags": [
+        "trivial_vs_architectural",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c046",
+      "prompt": "we are replacing a monolith's billing module with a separate service. Plan the strangler migration, including dual writes, reconciliation, data backfill, cutover and rollback, and identify the three riskiest steps",
+      "expected": "xhigh",
+      "tags": [
+        "trivial_vs_architectural",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c047",
+      "prompt": "prove or find a counterexample: for every connected graph with n vertices there is a spanning tree whose maximum degree is at most ceil(n/2)",
+      "expected": "xhigh",
+      "tags": [
+        "ambiguous",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c048",
+      "prompt": "architect a multi-region event pipeline that must deliver exactly-once effects to downstream consumers, tolerate a full region loss, and stay under 200 ms p99 ingestion latency. Justify each trade-off.",
+      "expected": "xhigh",
+      "tags": [
+        "trivial_vs_architectural",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c049",
+      "prompt": "audit this authentication module for vulnerabilities. Consider session fixation, timing attacks, token replay and the password reset flow, and rank findings by exploitability with proposed patches.",
+      "expected": "xhigh",
+      "tags": [
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c050",
+      "prompt": "derive the amortized cost of this custom hash table with incremental rehashing, then identify any workload that breaks the bound",
+      "expected": "xhigh",
+      "tags": [
+        "fix_vs_explain",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c051",
+      "prompt": "design a rate limiter that is fair across tenants, works across 20 gateway nodes without a central bottleneck, and degrades gracefully when the shared store is slow",
+      "expected": "xhigh",
+      "tags": [
+        "trivial_vs_architectural",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c052",
+      "prompt": "this distributed job scheduler occasionally runs a job twice after a leader election. Reason through every interleaving that could cause it and propose a fencing design with a correctness argument.",
+      "expected": "xhigh",
+      "tags": [
+        "fix_vs_explain",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c053",
+      "prompt": "plan and write the full test strategy for a compiler front end that must remain compatible with three language versions, including differential testing, fuzzing and regression triage",
+      "expected": "xhigh",
+      "tags": [
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c054",
+      "prompt": "propose an incremental plan to move a 400k-line codebase from a dynamically typed to a statically typed language while the team keeps shipping weekly",
+      "expected": "xhigh",
+      "tags": [
+        "ambiguous",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c055",
+      "prompt": "we need a zero-downtime schema and data change that renames a column used by 12 services deployed independently. Specify the exact sequence of releases and the checks between them.",
+      "expected": "xhigh",
+      "tags": [
+        "trivial_vs_architectural",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c056",
+      "prompt": "derive from first principles a consensus protocol that tolerates Byzantine faults in a partially synchronous network, prove safety and liveness, and discuss where practical implementations deviate from the proof",
+      "expected": "max",
+      "tags": [
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c057",
+      "prompt": "design a verified-by-construction replacement for our payment ledger: specify the invariants, a formal model, a proof outline, a migration from the current system, and the failure drills that would convince an auditor",
+      "expected": "max",
+      "tags": [
+        "trivial_vs_architectural",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c058",
+      "prompt": "here are 18 services with their dependency graph and incident history over a year. Find the structural causes of the cascading failures, quantify which changes would remove the most risk per engineering week, and produce a staged roadmap with success criteria",
+      "expected": "max",
+      "tags": [
+        "multi_step",
+        "ambiguous"
+      ]
+    },
+    {
+      "id": "c059",
+      "prompt": "construct a rigorous argument for or against the claim that our sharding scheme preserves serializability across shard splits during live traffic, covering every anomaly class, and give a minimal reproduction for any hole you find",
+      "expected": "max",
+      "tags": [
+        "fix_vs_explain",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c060",
+      "prompt": "design, from requirements to rollout, a privacy-preserving analytics system that satisfies differential privacy guarantees across repeated queries, handles budget accounting across teams, and survives adversarial analysts",
+      "expected": "max",
+      "tags": [
+        "trivial_vs_architectural",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c061",
+      "prompt": "analyze this 2,000-line state machine for unreachable states, deadlocks and livelocks, and then rewrite it so the properties are checkable by a model checker; include the properties and counterexamples you would expect",
+      "expected": "max",
+      "tags": [
+        "fix_vs_explain",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c062",
+      "prompt": "create a complete migration and verification plan to move 3 PB of regulated data between clouds with provable integrity, key custody changes, parallel run, legal hold constraints and a rollback that never exposes plaintext",
+      "expected": "max",
+      "tags": [
+        "trivial_vs_architectural",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c063",
+      "prompt": "develop a research plan with experiments, baselines, ablations and statistical tests to decide whether a learned index outperforms a B-tree on our real workloads, and say what result would change the decision",
+      "expected": "max",
+      "tags": [
+        "multi_step",
+        "ambiguous"
+      ]
+    },
+    {
+      "id": "c064",
+      "prompt": "reconcile these three contradictory postmortems of the same outage, determine the most likely true sequence of events from the logs summarised below, and propose controls that address the root cause rather than the symptoms",
+      "expected": "max",
+      "tags": [
+        "ambiguous",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c065",
+      "prompt": "design a type system extension for safe, zero-cost borrowing across async boundaries, give the soundness argument sketch, and show how existing code would migrate",
+      "expected": "max",
+      "tags": [
+        "trivial_vs_architectural",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c066",
+      "prompt": "optimize this numerical simulation across CPU, memory layout and numerical stability simultaneously; justify each change with a model of the bottleneck, keep results bit-for-bit comparable where possible, and define how you would prove no regression",
+      "expected": "max",
+      "tags": [
+        "fix_vs_explain",
+        "multi_step"
+      ]
+    }
+  ]
+}
