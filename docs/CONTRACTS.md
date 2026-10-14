@@ -10,12 +10,12 @@ The only public modes are `auto`, `once`, `always` and `off`. Parent and subagen
 
 | Mode | Scope |
 | --- | --- |
-| `auto` | Per new user turn only for exact registered dynamic model/API routes with positive cache-safety evidence, including the guarded Claude per-message path; otherwise retained session/provider/exact-model/API-route scope |
+| `auto` | Per new user turn only for exact registered dynamic model/API routes with positive cache-safety evidence, including the guarded Claude per-message path, and for unlisted cache-safe routes holding a trial verdict ([Route trial](#route-trial)); otherwise retained session/provider/exact-model/API-route scope |
 | `once` | Retained session/provider/exact-model/API-route scope |
 | `always` | Per new user turn on every eligible route |
 | `off` | No scoring or request rewrite; bounded route metadata can remain visible |
 
-Without a turn ID, active modes use retained route scope. The dynamic registry includes the exact OpenCode Go/Zen control routes and `openai-codex/gpt-6.1-sol` on `codex_responses`, subject to transport cache safety, plus the separately guarded native Claude per-message route. An existing field, an `effort_models` entry or a model profile grants no dynamic capability.
+Without a turn ID, active modes use retained route scope. The dynamic registry includes the exact OpenCode Go/Zen control routes and `openai-codex/gpt-6.1-sol` on `codex_responses`, subject to transport cache safety, plus the separately guarded native Claude per-message route. An existing field, an `effort_models` entry or a model profile grants no dynamic capability; only an observed trial verdict can add an unlisted route.
 
 Turn decisions key on `(session_id, turn_id)`. Retained decisions key on `(session_id, provider, exact model, api_mode)`. Each ledger has its own `max_turns` bound. A new session, eviction, reset or reload can require a new classification.
 
@@ -110,6 +110,39 @@ Selection is explicit: Jev, OpenAI Decisions, OpenRouter, Cloudflare, Nace or cu
 | Cloudflare | Account-scoped Clef/Clef Flash/Clef Omni route (selectors `clef`, `clef-flash`, `clef-omni`; unknown selectors fall back to `clef`); require `success: true`, no reported errors and a valid named choice or legacy `result.answers.effort.score` |
 | Nace | System One `POST /v1/systemone` on `https://console.nace.ai` (or `NACE_BASE_URL`, a base gets `/v1/systemone`) with `nace_model` (default pinned `drex-v2.0`); `choice` question and `answers.effort.choice` on registered routes, otherwise the shared score question and `answers.effort.score`. `confidence`/`probabilities` are ignored. The response `model` may name an older Drex model for over-long requests and is never checked. Every non-2xx status (401, 402, 422, 429, 5xx) fails open as `http_error`; only the transient statuses of the retry rule below get one retry |
 | Custom System One | Exact configured URL/model (the only custom format; a configured `chat_completions` fails open as `unsupported_api_format` with no network call); choice question on exact-choice routes, otherwise score question; read the matching `answers.effort.choice` or `.score` |
+
+### Route trial
+
+`dynamic_trial` (bool, default `true`) lets `auto` test an unlisted route instead of pinning it forever. Eligible: a cache-safe API mode (`codex_responses`, `chat_completions`), not `anthropic`, no registered named-choice vocabulary, an **existing** writable effort field (the trial never injects one), and a readable verdict store. Trial decisions use the numeric score contract, so only `low`/`medium`/`high` are sent, clamped through the usual mapping. `always` records verdicts without pinning; `once` and `off` record nothing.
+
+The plugin registers two observer hooks, `post_api_request` (Hermes' normalised `usage`: `cache_read_tokens`, `cache_write_tokens`, `prompt_tokens`, plus `message_count`) and `api_request_error` (`status_code`). The middleware notes, per request id, the effort the request carried and whether it differs from the previous request of that session and route; the hooks join on `api_request_id`. Only token counts, effort values and request ids are kept (bounded: 64 session routes, 64 pending requests, 128 routes), never text.
+
+Verdict per `(provider, exact model, api_mode)`. All thresholds are heuristics defined as constants in `route_trial.py`:
+
+| Observation | Result |
+| --- | --- |
+| Cache read after a change ≥ 50% of the previous request's read | one success; 3 successes → `observed` |
+| Cache read after a change < 10% of the previous read, previous read ≥ 256 tokens, and a no-change request in that session kept its cache | `observed_cache_loss`, route pinned immediately |
+| Gap over 5 minutes, prompt or message count shrank (compression / history rewrite), or the previous request had no cache read | inconclusive, not counted |
+| 5 consecutive responses without any cache counter | `no_cache_data`, pinned |
+| HTTP 400 or 422 on a request this plugin rewrote | `rejected_level`, pinned; that level is never sent again on the route |
+
+Verdicts persist in the profile plugin-data SQLite table `route_verdicts` (bounded to 128 rows, never in config). `reset_state` clears in-memory counters and keeps persisted verdicts. If the store cannot be read, or a positive verdict cannot be saved, the route stays pinned (`trial_disabled`); a pinning verdict that cannot be saved is still held in memory. `dynamic_trial: false` skips the whole mechanism and request handling is unchanged. Hooks and verdict logic fail open. Cost and cache effects beyond the single bounded miss of a failed trial are unmeasured.
+
+Status entries and the Desktop decision event v2 gain, additively, `dynamic` (bool or `null`), `dynamic_reason` and `trial_progress` (successes so far, integer, `trial` only):
+
+| `dynamic_reason` | `dynamic` | Meaning |
+| --- | --- | --- |
+| `listed` | true | exact registry route |
+| `observed` | true | trial passed |
+| `trial` | true | trial in progress (`trial_progress`/3) |
+| `observed_cache_loss` | false | clear cache drop right after an effort change |
+| `rejected_level` | false | provider rejected a trial level |
+| `no_cache_data` | false | provider reports no cache counters |
+| `api_mode` | false | cache-hostile or unknown API mode, or Claude outside the guarded path |
+| `trial_disabled` | false | unlisted route with `dynamic_trial` off, or no usable verdict store |
+
+A route with no existing effort field reports `null` for both. `/hae status` and the Desktop details show one line, for example `Effort changes: every turn — on trial (1/3)` or `Effort changes: once, then kept — not dynamic (observed cache loss)`, with a suffix when the mode overrides it (`once` always keeps one decision; `always` changes every turn even on a non-dynamic route and flags the cache risk). `Cache:` is unchanged. Tool-error escalation never applies to trial routes: they have no named choices.
 
 ### Tool-error escalation
 

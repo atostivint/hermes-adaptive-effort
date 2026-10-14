@@ -21,6 +21,8 @@ provides_hooks:
   - on_session_reset
   - subagent_start
   - subagent_stop
+  - post_api_request
+  - api_request_error
 # Every key here renders as a field in Desktop Capabilities → Plugins (gear row),
 # in declaration order; this host form is flat, so provider-prefixed labels make
 # related fields easier to scan. Saving writes plugins.entries.hermes-adaptive-effort
@@ -50,6 +52,7 @@ config_schema:
   scorer_pause_s: {type: float, default: 60.0, label: Advanced — scorer pause (s), description: "How long a paused scorer is skipped before one trial call", required: false}
   max_turns: {type: int, default: 64, label: Advanced — decision capacity, description: "Maximum retained entries in each bounded decision ledger", required: false}
   tool_error_escalation: {type: bool, default: true, label: Routing — raise effort on repeated tool errors, description: "Default on. When the same tool error repeats after a file-edit attempt within one turn, raise effort one level for the rest of that turn. Local signal only: no scorer call and no text shared, only a SHA-256 of the normalised error is compared. Applies only on exact dynamic-effort routes (not Claude per-message); it only ever raises, never to none or ultra. Set false to disable.", required: false}
+  dynamic_trial: {type: bool, default: true, label: Routing — trial unlisted routes, description: "Default on. On a cache-safe route that is not in the exact registry and already carries an effort field, auto changes effort every turn on trial and watches the provider's own cache counters (no text is kept). Three effort changes that keep the cache make the route dynamic; a clear cache drop right after a change, a rejected level, or no cache counters pin it again. Costs at most one cache miss (unmeasured). Set false to keep one decision per unlisted route.", required: false}
   show_tui_status: {type: bool, default: true, label: Display — TUI effort status, description: "Show the Effort status item in the Hermes terminal interface", required: false}
   show_desktop_popup: {type: bool, default: true, label: Display — Desktop popup, description: "Show the bottom-right effort chip, mode-selection popup, and its change notifications in Hermes Desktop", required: false}
   debug: {type: bool, default: false, label: Display — debug diagnostics, description: "Append a short diagnostic code and counts (no identifiers, prompts or paths) to Desktop selector-sync notices and log each sync step to the Desktop developer console", required: false}

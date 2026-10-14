@@ -61,6 +61,10 @@ def register(ctx: Any) -> None:
     # the goal its parent wrote.
     ctx.register_hook("subagent_start", _middleware.on_subagent_start)
     ctx.register_hook("subagent_stop", _middleware.on_subagent_stop)
+    # Observers for the route trial: the provider's own cache counters after each call, and a
+    # rejected request. They only read counts and a status code, never request or response text.
+    ctx.register_hook("post_api_request", _middleware.on_post_api_request)
+    ctx.register_hook("api_request_error", _middleware.on_api_request_error)
     command_description = (
         "Hermes Adaptive Effort: conversation history, status, bounded probe, and "
         "auto|once|always|off for future requests"

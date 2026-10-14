@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 MAX_HISTORY_CHANGES = 64
 MAX_HISTORY_CONVERSATIONS = 64
 MAX_MODE_OVERRIDES = 256
+MAX_ROUTE_VERDICTS = 128
 _OVERRIDE_MODES = ("auto", "once", "always", "off")
 
 _PATH_PROVIDER: Optional[Callable[[], Any]] = None
@@ -28,7 +29,8 @@ _STORE_LOCK = threading.RLock()
 
 _DETAIL_FIELDS = (
     "state", "score", "label", "target", "decision_type", "choices",
-    "cache_behavior", "cache_verdict", "continuation", "held", "escalated", "escalation_reason", "mode", "provider", "model", "api_mode",
+    "cache_behavior", "cache_verdict", "continuation", "held", "escalated", "escalation_reason",
+    "dynamic", "dynamic_reason", "trial_progress", "mode", "provider", "model", "api_mode",
     "scorer_provider", "scorer_model", "requests", "probes", "elapsed_ms",
     "failure", "updated_at",
 )
@@ -150,6 +152,12 @@ def _connect(path: Path, *, create: bool) -> sqlite3.Connection:
                 CREATE TABLE IF NOT EXISTS conversation_modes (
                     scope_id TEXT PRIMARY KEY,
                     mode TEXT NOT NULL,
+                    updated_at REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS route_verdicts (
+                    route_key TEXT PRIMARY KEY,
+                    verdict TEXT NOT NULL,
+                    detail TEXT,
                     updated_at REAL NOT NULL
                 );
             """)
@@ -392,4 +400,64 @@ def clear_conversation(identities: Iterable[Any]) -> bool:
         return True
     except Exception:
         logger.debug("hermes-adaptive-effort: could not clear reset history", exc_info=True)
+        return False
+
+
+# ── observed route verdicts (dynamic-route trial) ────────────────────────────
+
+def store_available() -> bool:
+    """True when a profile data path is bound, i.e. a verdict can be remembered."""
+    return _path() is not None
+
+
+def read_route_verdict(route_key: Any) -> tuple[bool, Optional[Dict[str, Any]]]:
+    """``(ok, verdict)`` for one route; ``ok`` is False when the store cannot be read.
+
+    A verdict is ``{"verdict": str, "detail": str | None}``. A missing file or row is
+    ``(True, None)``: nothing has been observed yet.
+    """
+    path = _path()
+    key = _safe_text(route_key, 512)
+    if path is None or not key:
+        return False, None
+    if not path.is_file():
+        return True, None
+    try:
+        with _STORE_LOCK, _open(path, create=False) as connection:
+            row = connection.execute(
+                "SELECT verdict, detail FROM route_verdicts WHERE route_key=?", (key,)).fetchone()
+    except sqlite3.OperationalError:
+        # An older file written before this table existed: nothing observed yet.
+        return True, None
+    except Exception:
+        logger.debug("hermes-adaptive-effort: could not read route verdict", exc_info=True)
+        return False, None
+    if row is None:
+        return True, None
+    return True, {"verdict": str(row[0]), "detail": row[1]}
+
+
+def write_route_verdict(route_key: Any, verdict: str, detail: Optional[str] = None) -> bool:
+    """Upsert one route verdict, keeping the table bounded; ``False`` on any failure."""
+    path = _path()
+    key = _safe_text(route_key, 512)
+    if path is None or not key or not verdict:
+        return False
+    try:
+        with _STORE_LOCK, _open(path, create=True) as connection:
+            connection.execute(
+                "INSERT INTO route_verdicts(route_key, verdict, detail, updated_at) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT(route_key) DO UPDATE SET "
+                "verdict=excluded.verdict, detail=excluded.detail, "
+                "updated_at=excluded.updated_at",
+                (key, _safe_text(verdict, 64), _safe_text(detail, 64), time.time()))
+            connection.execute("""
+                DELETE FROM route_verdicts WHERE route_key IN (
+                    SELECT route_key FROM route_verdicts
+                    ORDER BY updated_at DESC, rowid DESC LIMIT -1 OFFSET ?
+                )
+            """, (MAX_ROUTE_VERDICTS,))
+        return True
+    except Exception:
+        logger.debug("hermes-adaptive-effort: could not save route verdict", exc_info=True)
         return False

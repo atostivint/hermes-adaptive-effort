@@ -438,3 +438,52 @@ def test_real_dispatcher_marks_an_unwritable_request_unsupported(dispatched, no_
     assert entry["failure"] == "reasoning_disabled"
     assert entry["probes"] == 0
     assert probes["n"] == 0
+
+
+def test_real_dispatcher_registers_the_trial_hooks_and_delivers_cache_counters(
+        dispatched, no_network):
+    """``post_api_request`` / ``api_request_error`` reach the plugin through real discovery."""
+    from hermes_cli import lifecycle
+    from hermes_cli.middleware import apply_llm_request_middleware
+
+    plugin = dispatched["manager"]._plugins["hermes-adaptive-effort"]
+    assert "post_api_request" in plugin.hooks_registered
+    assert "api_request_error" in plugin.hooks_registered
+    assert lifecycle.has_hook("post_api_request")
+    assert lifecycle.has_hook("api_request_error")
+
+    middleware = dispatched["middleware"]
+    trial = _payload_module(dispatched["home"], ".route_trial")
+    middleware.reset_state()
+    middleware._classifier_factory = _counting_factory({"n": 0}, 1.9)
+
+    apply_llm_request_middleware(
+        _recorded(), session_id="sess-int-trial", provider="acme-cloud", model="acme/model-x",
+        api_mode="chat_completions", turn_id="turn-1", api_request_id="req-int-1",
+        api_call_count=1)
+    entry = middleware.session_state()["sess-int-trial/turn-1"]
+    assert entry["dynamic_reason"] == "trial" and entry["dynamic"] is True
+    assert "req-int-1" in trial._PENDING
+
+    lifecycle.invoke_hook(
+        "post_api_request", session_id="sess-int-trial", provider="acme-cloud",
+        model="acme/model-x", api_mode="chat_completions", turn_id="turn-1",
+        api_request_id="req-int-1", message_count=3,
+        usage={"input_tokens": 10, "cache_read_tokens": 0, "cache_write_tokens": 900,
+               "prompt_tokens": 910})
+    assert "req-int-1" not in trial._PENDING
+    assert trial._SESSIONS[("sess-int-trial", trial.route_key(
+        middleware._route_identity("acme-cloud", "acme/model-x", "chat_completions")))]["read"] == 0
+
+    apply_llm_request_middleware(
+        _recorded(), session_id="sess-int-trial", provider="acme-cloud", model="acme/model-x",
+        api_mode="chat_completions", turn_id="turn-2", api_request_id="req-int-2",
+        api_call_count=1)
+    lifecycle.invoke_hook(
+        "api_request_error", session_id="sess-int-trial", provider="acme-cloud",
+        model="acme/model-x", api_mode="chat_completions", turn_id="turn-2",
+        api_request_id="req-int-2", status_code=400, retryable=False, error={"type": "x"})
+    status = trial.status(middleware._route_identity(
+        "acme-cloud", "acme/model-x", "chat_completions"))
+    assert status["dynamic_reason"] == "rejected_level"
+    middleware.reset_state()

@@ -77,7 +77,7 @@ def test_register_registers_nothing_beyond_the_declared_surface():
     assert [k for k, _ in ctx.middleware] == ["llm_request"]
     assert [k for k, _ in ctx.hooks] == [
         "on_session_end", "on_session_finalize", "on_session_reset",
-        "subagent_start", "subagent_stop"]
+        "subagent_start", "subagent_stop", "post_api_request", "api_request_error"]
     assert [c["name"] for c in ctx.commands] == ["hae"]
 
 

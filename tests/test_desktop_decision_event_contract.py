@@ -59,3 +59,15 @@ def test_popup_visibility_does_not_gate_event_listener_or_native_sync():
     assert "ctx.onEvent(DECISION_EVENT" in register
     assert "showDesktopPopup" in source
     assert "if (showDesktopPopup) host.notify(input)" in source
+
+
+def test_desktop_details_show_the_dynamic_effort_line_from_allowlisted_fields():
+    source = DESKTOP.read_text(encoding="utf-8")
+    public = source.split("function publicStatus", 1)[1].split("function sameRoute", 1)[0]
+
+    for field in ("'dynamic'", "'dynamic_reason'", "'trial_progress'"):
+        assert field in public
+    assert "function effortChangesLine(entry)" in source
+    assert "effortChangesLine(focusedEntry)" in source
+    for text in ("every turn — dynamic", "every turn — on trial", "once, then kept — not dynamic"):
+        assert text in source

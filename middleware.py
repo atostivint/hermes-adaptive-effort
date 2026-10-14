@@ -41,6 +41,7 @@ from . import effort as _effort
 from . import history_store as _history_store
 from . import jev_client as _jev_client
 from . import model_profiles as _model_profiles
+from . import route_trial as _route_trial
 from . import rubric as _rubric
 from . import scorers as _scorers
 from . import tool_errors as _tool_errors
@@ -73,6 +74,7 @@ DEFAULTS: Dict[str, Any] = {
     "dialogue_context_messages": 0,
     "continuation_downgrade_votes": 0,
     "tool_error_escalation": True,
+    "dynamic_trial": True,
     "show_tui_status": True,
     "show_desktop_popup": True,
     "debug": False,
@@ -92,6 +94,9 @@ _config_reader: Optional[Callable[[], Dict[str, Any]]] = None
 _MODE_OVERRIDE: Optional[str] = None
 
 _lock = threading.Lock()
+#: Per-request scratch for the thread running ``on_llm_request``: the route's dynamic status
+#: (stamped onto the decision entries it touches) and whether this request is a trial request.
+_TLS = threading.local()
 _SESSIONS: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 # Persistent decisions are keyed by session plus normalized provider, exact model,
 # and API mode. Kept separately so each registry has its own max_turns bound.
@@ -171,6 +176,7 @@ def reset_state() -> None:
         _CLI_STATUS_HANDLE = None
         _CLI_STATUS_TEXT = "N/A"
         _MODE_OVERRIDE = None
+    _route_trial.reset()
 
 
 # ── runtime mode override (``/hae auto|once|always|off``) ────────────────────
@@ -541,6 +547,13 @@ def _remember(session_id: str, entry: Dict[str, Any], max_sessions: int) -> None
             _SESSIONS.popitem(last=False)
 
 
+def _stamp_dynamic(entry: Dict[str, Any]) -> None:
+    """Copy the current request's route dynamic status onto a decision entry."""
+    info = getattr(_TLS, "dynamic", None)
+    if info:
+        entry.update(info)
+
+
 def _touch(key: str, settings: Dict[str, Any], mode: str,
            provider: Any = None, model: Any = None, api_mode: Any = None,
            conversation_id: Optional[str] = None) -> Dict[str, Any]:
@@ -558,6 +571,7 @@ def _touch(key: str, settings: Dict[str, Any], mode: str,
                 "decision_type": None, "choices": [], "cache_behavior": None,
                 "continuation": None, "held": False,
                 "escalated": False, "escalation_reason": None,
+                "dynamic": None, "dynamic_reason": None, "trial_progress": None,
                 "mode": mode, "provider": provider, "model": model,
                 "scope": "turn",
                 "scorer_provider": settings.get("scorer_provider", _scorers.JEV),
@@ -573,6 +587,7 @@ def _touch(key: str, settings: Dict[str, Any], mode: str,
         entry["mode"] = mode
         entry["api_mode"] = api_mode
         entry["updated_at"] = time.time()
+        _stamp_dynamic(entry)
         _SESSIONS.move_to_end(key)
         while len(_SESSIONS) > max(1, int(settings["max_turns"])):
             _SESSIONS.popitem(last=False)
@@ -591,6 +606,7 @@ def _touch_pin(key: str, settings: Dict[str, Any], mode: str,
                 "decision_type": None, "choices": [], "cache_behavior": None,
                 "continuation": None, "held": False,
                 "escalated": False, "escalation_reason": None,
+                "dynamic": None, "dynamic_reason": None, "trial_progress": None,
                 "mode": mode, "provider": provider, "model": model,
                 "scope": "session_route",
                 "api_mode": api_mode,
@@ -607,6 +623,7 @@ def _touch_pin(key: str, settings: Dict[str, Any], mode: str,
         entry["model"] = model
         entry["api_mode"] = api_mode
         entry["updated_at"] = time.time()
+        _stamp_dynamic(entry)
         _PINNED.move_to_end(key)
         while len(_PINNED) > max(1, int(settings["max_turns"])):
             _PINNED.popitem(last=False)
@@ -651,6 +668,7 @@ def _clear_session_state(session_id: Optional[str], *, clear_history: bool = Fal
                 _CONTINUITY.pop(key, None)
         _IN_FLIGHT.discard(session)
         _CHILD_GOALS.pop(session, None)
+    _route_trial.clear_session(session)
     _publish_desktop_decision(session, clear=True)
     if clear_history:
         _history_store.clear_conversation((session,))
@@ -902,6 +920,7 @@ def _settings() -> Dict[str, Any]:
                           DEFAULTS["continuation_downgrade_votes"])),
         "tool_error_escalation": _bool(
             "tool_error_escalation", DEFAULTS["tool_error_escalation"]),
+        "dynamic_trial": _bool("dynamic_trial", DEFAULTS["dynamic_trial"]),
         "show_tui_status": _bool("show_tui_status", DEFAULTS["show_tui_status"]),
         "show_desktop_popup": _bool(
             "show_desktop_popup", DEFAULTS["show_desktop_popup"]),
@@ -1739,6 +1758,29 @@ def _dynamic_effort_route(provider: Any, model: Any, api_mode: Any,
     return False
 
 
+def _dynamic_info(settings: Dict[str, Any], provider: Any, model: Any, api_mode: Any,
+                  request: Any, base_url: Any, has_effort_field: bool) -> Dict[str, Any]:
+    """Whether this route changes effort every turn, and why (stable ``dynamic_reason`` code).
+
+    Fail-open: any error reports nothing and leaves the route pinned.
+    """
+    try:
+        if _dynamic_effort_route(provider, model, api_mode, request=request, base_url=base_url):
+            return {"dynamic": True, "dynamic_reason": _route_trial.LISTED, "trial_progress": None}
+        route = _route_identity(provider, model, api_mode)
+        if route[0] == "anthropic" or not _cache_safety.effort_is_cache_safe(*route):
+            return {"dynamic": False, "dynamic_reason": _route_trial.API_MODE,
+                    "trial_progress": None}
+        if not settings.get("dynamic_trial"):
+            return {"dynamic": False, "dynamic_reason": _route_trial.TRIAL_DISABLED,
+                    "trial_progress": None}
+        choices = _effort.route_choice_levels(provider, model, api_mode, base_url)
+        return _route_trial.status(route, choices, has_effort_field)
+    except Exception:
+        logger.debug("hermes-adaptive-effort: dynamic status unavailable", exc_info=True)
+        return {"dynamic": None, "dynamic_reason": None, "trial_progress": None}
+
+
 def _claude_anchor_content(content: Any) -> Any:
     """Drop request-local prompt-cache decoration so a turn hashes the same every request.
 
@@ -1962,8 +2004,12 @@ def _copy_decision(source: Dict[str, Any], target: Dict[str, Any]) -> None:
 
 def on_llm_request(**kwargs: Any) -> Optional[Dict[str, Any]]:
     """Fail-open: returns ``None`` for every path that must not change a request."""
+    _TLS.dynamic = None
+    _TLS.trial = None
     try:
-        return _handle(kwargs)
+        result = _handle(kwargs)
+        _note_trial_request(kwargs, result)
+        return result
     except Exception:
         session_id = str(kwargs.get("session_id") or "")
         if (session_id and str(kwargs.get("provider") or "").lower() == "anthropic"
@@ -1973,6 +2019,43 @@ def on_llm_request(**kwargs: Any) -> Optional[Dict[str, Any]]:
                                             kwargs.get("api_mode"))))
         logger.debug("hermes-adaptive-effort: middleware error; failing open", exc_info=True)
         return None
+    finally:
+        _TLS.dynamic = None
+        _TLS.trial = None
+
+
+def _note_trial_request(kwargs: Dict[str, Any], result: Optional[Dict[str, Any]]) -> None:
+    """Tell the route trial which effort this request finally carries (counts only)."""
+    trial = getattr(_TLS, "trial", None)
+    if not trial:
+        return
+    try:
+        request = result["request"] if result else kwargs.get("request")
+        slot = _effort_slot(request, kwargs.get("provider"), kwargs.get("model"),
+                            kwargs.get("api_mode"), kwargs.get("base_url"))
+        if slot is not None:
+            _route_trial.note_request(
+                kwargs.get("session_id"), trial["route"], kwargs.get("api_request_id"),
+                slot[2], rewritten=result is not None)
+    except Exception:
+        logger.debug("hermes-adaptive-effort: trial bookkeeping failed", exc_info=True)
+
+
+def on_post_api_request(**kwargs: Any) -> None:
+    """``post_api_request`` observer: feed the provider's cache counters to the route trial."""
+    try:
+        _route_trial.on_response(
+            kwargs.get("api_request_id"), kwargs.get("usage"), kwargs.get("message_count"))
+    except Exception:
+        logger.debug("hermes-adaptive-effort: post_api_request ignored", exc_info=True)
+
+
+def on_api_request_error(**kwargs: Any) -> None:
+    """``api_request_error`` observer: a 4xx rejection of a trial level pins the route."""
+    try:
+        _route_trial.on_error(kwargs.get("api_request_id"), kwargs.get("status_code"))
+    except Exception:
+        logger.debug("hermes-adaptive-effort: api_request_error ignored", exc_info=True)
 
 
 def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -1983,6 +2066,12 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     settings = _settings()
     _sync_cli_status(settings)
     session_id = str(kwargs.get("session_id") or "")
+    dynamic_info = _dynamic_info(
+        settings, kwargs.get("provider"), kwargs.get("model"), kwargs.get("api_mode"), request,
+        kwargs.get("base_url"),
+        _effort_slot(request, kwargs.get("provider"), kwargs.get("model"),
+                     kwargs.get("api_mode"), kwargs.get("base_url")) is not None)
+    _TLS.dynamic = dynamic_info
     # A conversation override replaces the default mode for a parent session only;
     # children keep subagent_mode. The store is read outside _lock and fails open.
     if session_id and _child_goal(session_id) is None:
@@ -2069,6 +2158,15 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     route_choices = _effort.route_choice_levels(provider, model, api_mode, base_url)
     dynamic_route = _dynamic_effort_route(
         provider, model, api_mode, request=request, base_url=base_url)
+    # An unlisted cache-safe route earns dynamic status only from a trial (in progress or
+    # observed); the trial changes an existing field and never injects one.
+    trial_route = (
+        not dynamic_route and slot is not None
+        and dynamic_info.get("dynamic_reason") in (_route_trial.TRIAL, _route_trial.OBSERVED))
+    if trial_route:
+        dynamic_route = True
+        if dynamic_info["dynamic_reason"] == _route_trial.TRIAL and mode in ("auto", "always"):
+            _TLS.trial = {"route": route}
     persistent_scope = (
         mode == "once"
         or (mode == "auto" and not dynamic_route)
@@ -2377,6 +2475,11 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         # report no decision at all rather than a rewrite identical to the input.
         # The display (not the change feed) still shows the kept level as ``high → high``.
         _update_cli_status(_transition_text(before, target))
+        _publish_desktop_decision(session_id, provider, model, api_mode, entry)
+        return None
+    if (dynamic_info.get("dynamic_reason") == _route_trial.REJECTED_LEVEL
+            and _route_trial.level_rejected(route, target)):
+        # The provider rejected this level during the trial: never send it again.
         _publish_desktop_decision(session_id, provider, model, api_mode, entry)
         return None
     new_request = (_apply(request, slot, target) if slot is not None

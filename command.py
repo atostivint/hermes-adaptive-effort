@@ -63,6 +63,7 @@ PROBE_SCHEMA = "hermes-adaptive-effort.probe.v1"
 _ENTRY_FIELDS = (
     "conversation_id", "state", "score", "label", "target", "previous", "decision_type", "choices",
     "cache_behavior", "continuation", "held", "escalated", "escalation_reason", "mode", "provider", "model", "api_mode",
+    "dynamic", "dynamic_reason", "trial_progress",
     "scorer_provider", "scorer_model",
     "requests", "probes", "elapsed_ms", "failure", "updated_at",
 )
@@ -417,6 +418,41 @@ def _conversation_mode_line(payload: Dict[str, Any]) -> str:
     return f"conversation mode: default ({default})"
 
 
+_DYNAMIC_REASON_TEXT = {
+    "listed": "listed",
+    "observed": "observed",
+    "observed_cache_loss": "observed cache loss",
+    "rejected_level": "provider rejected a trial level",
+    "no_cache_data": "no cache data from the provider",
+    "api_mode": "cache-hostile API mode",
+    "trial_disabled": "trial off",
+}
+_TRIAL_TARGET = _middleware._route_trial.SUCCESSES_REQUIRED
+
+
+def _effort_changes_line(entry: Dict[str, Any]) -> Optional[str]:
+    """One line saying whether the route changes effort every turn, and why."""
+    if not entry or not entry.get("state"):
+        return None
+    reason = entry.get("dynamic_reason")
+    if entry.get("dynamic") is True and reason == "trial":
+        done = int(_number(entry.get("trial_progress")))
+        text = f"every turn — on trial ({done}/{_TRIAL_TARGET})"
+    elif entry.get("dynamic") is True:
+        text = f"every turn — dynamic ({_DYNAMIC_REASON_TEXT.get(reason, reason or 'listed')})"
+    else:
+        why = _DYNAMIC_REASON_TEXT.get(reason)
+        text = "once, then kept — not dynamic" + (f" ({why})" if why else "")
+    mode = entry.get("mode")
+    if mode == "once":
+        text += "; mode once always keeps one decision"
+    elif mode == "always" and entry.get("dynamic") is not True:
+        text += "; mode always changes every turn anyway (prompt-cache risk)"
+    elif mode == "off":
+        text += "; mode off changes nothing"
+    return "Effort changes: " + text
+
+
 def _status_text() -> str:
     """Compact, conversation-scoped status for people checking the live result."""
     payload = _status_payload()
@@ -450,6 +486,9 @@ def _status_text() -> str:
         f"Decision: {entry.get('state', 'no request seen')}",
         f"Cache: {cache_text}",
     ]
+    changes_line = _effort_changes_line(entry)
+    if changes_line:
+        lines.append(changes_line)
     label, target = entry.get("label"), entry.get("target")
     if label or target:
         lines.append(f"Selected effort: {target or 'N/A'}" +
@@ -503,7 +542,7 @@ def _status_full_text() -> str:
     if entry:
         for field in ("provider", "model", "api_mode", "decision_type", "choices",
                       "score", "label", "target", "continuation", "held", "escalated", "escalation_reason",
-                      "cache_behavior", "cache_verdict",
+                      "dynamic", "dynamic_reason", "trial_progress", "cache_behavior", "cache_verdict",
                       "requests", "probes", "elapsed_ms", "failure"):
             value = entry.get(field)
             if value is not None:
@@ -521,6 +560,7 @@ def _status_full_text() -> str:
         *([f"Continuation: {settings['continuation']}"]
           if settings.get("continuation_downgrade_votes") else []),
         f"Tool error escalation: {'on' if settings.get('tool_error_escalation') else 'off'}",
+        f"Dynamic trial: {'on' if settings.get('dynamic_trial') else 'off'}",
         f"Display: TUI={'on' if settings['show_tui_status'] else 'off'} · "
         f"Desktop popup={'on' if settings['show_desktop_popup'] else 'off'} · "
         f"debug={'on' if settings.get('debug') else 'off'}",

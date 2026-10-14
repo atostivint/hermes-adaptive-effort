@@ -126,7 +126,8 @@ function publicStatus(entry) {
     'conversation_id', 'state', 'score', 'label', 'target', 'previous', 'decision_type', 'choices',
     'cache_behavior', 'mode', 'provider', 'model',
     'api_mode', 'scorer_provider', 'scorer_model', 'requests', 'probes', 'elapsed_ms',
-    'failure', 'updated_at', 'continuation', 'held', 'escalated', 'escalation_reason'
+    'failure', 'updated_at', 'continuation', 'held', 'escalated', 'escalation_reason',
+    'dynamic', 'dynamic_reason', 'trial_progress'
   ]
   const result = {}
   for (const field of allowed) {
@@ -830,6 +831,34 @@ function cacheLabel(verdict) {
   })[verdict] || 'Not verified'
 }
 
+const DYNAMIC_REASON_TEXT = {
+  listed: 'listed',
+  observed: 'observed',
+  observed_cache_loss: 'observed cache loss',
+  rejected_level: 'provider rejected a trial level',
+  no_cache_data: 'no cache data from the provider',
+  api_mode: 'cache-hostile API mode',
+  trial_disabled: 'trial off'
+}
+
+function effortChangesLine(entry) {
+  if (!entry || !entry.state) return null
+  const reason = entry.dynamic_reason
+  let text
+  if (entry.dynamic === true && reason === 'trial') {
+    text = `every turn — on trial (${Number.isFinite(entry.trial_progress) ? entry.trial_progress : 0}/3)`
+  } else if (entry.dynamic === true) {
+    text = `every turn — dynamic (${DYNAMIC_REASON_TEXT[reason] || reason || 'listed'})`
+  } else {
+    const why = DYNAMIC_REASON_TEXT[reason]
+    text = `once, then kept — not dynamic${why ? ` (${why})` : ''}`
+  }
+  if (entry.mode === 'once') text += '; mode once always keeps one decision'
+  else if (entry.mode === 'always' && entry.dynamic !== true) text += '; mode always changes every turn anyway (prompt-cache risk)'
+  else if (entry.mode === 'off') text += '; mode off changes nothing'
+  return `Effort changes: ${text}`
+}
+
 function AdaptiveEffortDetails({ data, mode, effort, transition, reason, route, syncReason, settings, scorerProvider, scorerModel, credential, gateway, focusedEntry, history, historyError }) {
   const [showActivity, setShowActivity] = useState(false)
   const last = data?.last
@@ -850,6 +879,9 @@ function AdaptiveEffortDetails({ data, mode, effort, transition, reason, route, 
             : focusedEntry?.cache_behavior === 'top_level_cache_may_reset'
               ? jsx('div', { className: 'text-(--ui-text-tertiary)', children: 'Changing Claude effort between turns may reset prompt caching.' })
               : null,
+          effortChangesLine(focusedEntry)
+            ? jsx('div', { className: 'text-(--ui-text-tertiary)', children: effortChangesLine(focusedEntry) })
+            : null,
           effort === 'N/A' && reason
             ? jsx('div', { className: 'text-(--ui-text-tertiary)', children: `Why: ${reason}` })
             : null,

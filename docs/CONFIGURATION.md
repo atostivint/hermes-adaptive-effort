@@ -188,6 +188,7 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | `dialogue_context_messages` | `0` | Earlier user/assistant text messages (0-6, each at most 1,200 characters) also sent to the scorer as untrusted context; `0` sends none, larger values clamp to 6, invalid or negative values mean `0` |
 | `continuation_downgrade_votes` | `0` | `0` is off; `1`-`5` enables continuation hysteresis (suggested `2`; larger clamps to 5, invalid or negative means `0`). Active only with `dialogue_context_messages` above 0, otherwise ignored and `/hae status full` reports `Continuation: inactive (no dialogue context)` |
 | `tool_error_escalation` | `true` | Raise effort one level, locally, when the same tool error repeats after a file edit within one turn. Applies only on exact dynamic-effort routes (never Claude); `false` disables it entirely. See [Raise effort on repeated tool errors](#raise-effort-on-repeated-tool-errors) |
+| `dynamic_trial` | `true` | In `auto`, change effort every turn *on trial* on an unlisted cache-safe route that already has an effort field, and watch the provider's cache counters (token counts only). Three effort changes that keep the cache make the route dynamic; a clear cache drop, a rejected level or no cache counters pin it. Verdicts persist in the profile data directory. `false` keeps one decision per unlisted route. Cost and cache effect are unmeasured. See [Trial of unlisted routes](#trial-of-unlisted-routes) |
 | `effort_models` | empty | Exact model IDs whose effort support the operator asserts |
 | `timeout_s` | `0` | Timeout in seconds for one scoring request. `0`, a negative or an invalid value uses the selected provider's default deadline (table below); any positive value wins, including an explicit `3.0`. A timeout fails open |
 | `scorer_pause_failures` | `3` | Consecutive failed scorer calls (timeout, transport, HTTP, malformed, unexpected) before the selected scorer is paused; `0` disables the pause; negative or invalid values use the default |
@@ -249,6 +250,17 @@ In `always` mode (and `auto` on an exact dynamic route) every new user turn is s
 - The raise is recorded in the applied-change feed like any rewrite; the status entry shows `escalated: true` and `escalation_reason: repeated_tool_error`.
 
 Set `tool_error_escalation: false` to turn it off.
+
+### Trial of unlisted routes
+
+`dynamic_trial` is on by default. Without it, `auto` keeps one decision per session and route for every route outside the exact registry. With it, a route that is cache-safe (Responses or Chat Completions), not Claude, and already carries an effort field is trialled: `auto` scores each new turn and may change effort, while the plugin reads `cache_read_tokens` and `prompt_tokens` from Hermes' `post_api_request` hook (and a 400/422 from `api_request_error`). The plugin never injects an effort field for a trial.
+
+- `/hae status` shows `Effort changes: every turn — on trial (k/3)` while it runs, then `dynamic (observed)` after three effort changes kept at least half of the previous request's cached tokens.
+- A cache read below 10% of the previous one right after a change (with a healthy no-change request in the same session) pins the route as `observed_cache_loss`, at the cost of one cache miss. A rejected level (`rejected_level`) is never sent again; five responses without any cache counter pin the route as `no_cache_data`.
+- Gaps over five minutes, shrinking history (compression) and a previous request without a cache read are ignored. Thresholds are heuristics defined in `route_trial.py`.
+- Verdicts live in the plugin-data SQLite file (`route_verdicts`), not in `config.yaml`; only token counts, effort values and request ids are held. If that file cannot be used, routes stay pinned.
+
+Set `dynamic_trial: false` to restore the previous behaviour. Cost and cache effects are unmeasured.
 
 ### Assert support for an exact model
 

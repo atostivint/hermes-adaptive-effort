@@ -118,6 +118,10 @@ def test_config_schema_types_and_defaults_match_middleware():
     assert schema["tool_error_escalation"]["type"] == "bool"
     assert schema["tool_error_escalation"]["default"] is True
     assert middleware.DEFAULTS["tool_error_escalation"] is True
+    assert schema["dynamic_trial"]["type"] == "bool"
+    assert schema["dynamic_trial"]["default"] is True
+    assert middleware.DEFAULTS["dynamic_trial"] is True
+    assert "unmeasured" in schema["dynamic_trial"]["description"]
 
 
 def test_config_schema_declares_no_secret():

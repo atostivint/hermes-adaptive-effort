@@ -142,3 +142,18 @@ def test_failed_history_storage_does_not_escape_the_fail_open_boundary(tmp_path,
     )
     assert event is not None
     assert event["from"] == "low" and event["to"] == "high"
+
+
+def test_route_verdicts_round_trip_and_a_missing_store_is_reported(tmp_path, monkeypatch):
+    path = tmp_path / "history.sqlite3"
+    monkeypatch.setattr(history_store, "_PATH_PROVIDER", lambda: path)
+    assert history_store.read_route_verdict("r") == (True, None)  # no file yet: nothing observed
+    assert history_store.write_route_verdict("r", "rejected_level", "high")
+    assert history_store.read_route_verdict("r") == (
+        True, {"verdict": "rejected_level", "detail": "high"})
+    assert history_store.write_route_verdict("r", "observed")
+    assert history_store.read_route_verdict("r")[1] == {"verdict": "observed", "detail": None}
+    monkeypatch.setattr(history_store, "_PATH_PROVIDER", None)
+    assert history_store.read_route_verdict("r") == (False, None)
+    assert history_store.write_route_verdict("r", "observed") is False
+    assert history_store.store_available() is False
