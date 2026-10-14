@@ -1158,6 +1158,11 @@ def test_custom_systemone_scorer_rewrites(monkeypatch):
     body = json.loads(requests[0].data.decode("utf-8"))
     assert body["model"] == "local-rubric-4b"
     assert body["state"]["prompt"] == "first user prompt"
+    assert requests[0].get_header("Authorization") is None
+    entry = middleware.session_state()["custom-scorer/turn"]
+    assert entry["scorer_provider"] == "custom"
+    assert entry["scorer_model"] == "local-rubric-4b"
+    assert entry["probes"] == 1
 
 
 def test_custom_chat_completions_scorer_fails_open_without_a_network_call(monkeypatch):

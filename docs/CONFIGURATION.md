@@ -114,7 +114,7 @@ settings:
   scorer_model: "YOUR_OPENROUTER_DECISION_MODEL"
 ```
 
-The model is required; the plugin does not choose one for you. It uses OpenRouter's fixed Decisions API (`POST https://openrouter.ai/api/alpha/decisions`) and sends the same System One rubric as Jev: `state.prompt` plus the shared `questions`, read back from `answers.effort`. The request also sets `provider.zdr: true` and `data_collection: deny`; the Decisions API documentation could not be checked when this adapter was written, so whether it honors these preferences is unconfirmed (see [ZDR note](CONTRACTS.md#scorer-adapter-contracts)). If no eligible endpoint is available or the request is rejected, classification fails open. **Breaking change:** OpenRouter chat-model scoring was removed; a chat model slug no longer works as `scorer_model`.
+The model is required; the plugin does not choose one for you. It uses OpenRouter's fixed Decisions API (`POST https://openrouter.ai/api/alpha/decisions`) and sends the same System One rubric as Jev: `state.prompt` plus the shared `questions`, read back from `answers.effort`. The request also sets `provider.zdr: true` and `data_collection: deny`; OpenRouter's Decisions request schema documents these preferences; they have not yet been exercised by a live call (see [ZDR note](CONTRACTS.md#scorer-adapter-contracts)). If no eligible endpoint is available or the request is rejected, classification fails open. **Breaking change:** OpenRouter chat-model scoring was removed; a chat model slug no longer works as `scorer_model`.
 
 ### Cloudflare Clef, Clef Flash or Clef Omni
 
@@ -246,7 +246,7 @@ A reused decision makes no new scoring request. The plugin sends neither the who
 
 These limits describe the plugin. They do not guarantee how an external service retains data:
 
-- OpenRouter requests ask for ZDR endpoints and deny data-collecting endpoints (`provider` preferences; their acceptance by the Decisions API is unconfirmed). OpenRouter still processes the input; see its [ZDR policy and routing controls](https://openrouter.ai/docs/guides/features/zdr).
+- OpenRouter requests ask for ZDR endpoints and deny data-collecting endpoints (`provider` preferences; documented in the Decisions request schema). OpenRouter still processes the input; see its [ZDR policy and routing controls](https://openrouter.ai/docs/guides/features/zdr).
 - OpenAI documents Decisions ZDR support for eligible customers. The plugin cannot verify account eligibility; see the [Decisions guide](https://developers.openai.com/api/docs/guides/decisions).
 - The plugin gives no ZDR guarantee for Jev, Cloudflare, Nace or custom endpoints.
 
