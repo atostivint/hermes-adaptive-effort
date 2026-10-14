@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `nace` scorer provider for the Nace Drex model (System One on `https://console.nace.ai/v1/systemone`), with the new `nace_model` setting (default pinned `drex-v2.0`), `NACE_API_KEY` (legacy `DREX_API_KEY` accepted) and an optional `NACE_BASE_URL` base. It supports named effort choices and the legacy score rubric, fails open, and never falls back to Jev. Live behaviour, score quality and cost are unmeasured
+- `.env.example`; `.env` and `.env.*` are now git-ignored
+
 ## [0.3.1] - 2026-10-08
 
 ### Added
