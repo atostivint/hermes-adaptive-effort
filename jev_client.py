@@ -28,6 +28,7 @@ import urllib.request
 from typing import Any, Callable, Optional, Sequence
 
 from . import rubric
+from . import scorer_retry
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +148,8 @@ class JevClient:
         return self.classify_detail(prompt)[0]
 
     def classify_detail(self, prompt: Optional[str],
-                        choices: Optional[Sequence[str]] = None) -> "tuple[Any, Optional[str]]":
+                        choices: Optional[Sequence[str]] = None, *,
+                        continuation: bool = False) -> "tuple[Any, Optional[str]]":
         """``(score, failure)`` — the same call as :meth:`classify`, plus the reason.
 
         ``failure`` is ``None`` when a score came back, otherwise one of the
@@ -176,7 +178,8 @@ class JevClient:
         body = {
             "state": {"prompt": truncate_prompt(prompt, self.max_prompt_chars)},
             "model": self.model,
-            "questions": rubric.questions_for(self.classification_instructions, choices),
+            "questions": (rubric.continuation_questions() if continuation else
+                          rubric.questions_for(self.classification_instructions, choices)),
         }
         request = urllib.request.Request(
             self.endpoint,
@@ -192,7 +195,8 @@ class JevClient:
         started = time.monotonic()
         transport = self._transport or _default_transport
         try:
-            payload = transport(request, self.timeout)
+            payload = scorer_retry.send_with_retry(
+                lambda t: transport(request, t), self.timeout)
         except urllib.error.HTTPError:
             logger.debug("hermes-adaptive-effort: classification failed after %.0fms",
                          (time.monotonic() - started) * 1000)
@@ -235,13 +239,19 @@ class JevClient:
             return None, "malformed_response"
 
         levels = rubric.normalize_effort_choices(choices)
-        if levels:
+        if continuation:
+            score, failure = rubric.systemone_noul(data)
+        elif levels:
             score, failure = rubric.systemone_choice(data, levels)
         else:
             score, failure = _extract_score_detail(data)
         logger.debug("hermes-adaptive-effort: classified in %.0fms (valid=%s, failure=%s)",
                      (time.monotonic() - started) * 1000, score is not None, failure)
         return score, failure
+
+    def classify_continuation(self, prompt: Optional[str]):
+        """``(probability, failure)`` of one separate yes/no continuation question."""
+        return self.classify_detail(prompt, continuation=True)
 
     def classify_effort_detail(self, prompt: Optional[str], choices: Sequence[str]):
         """Return one route-authorized named level using a System One Choice question."""

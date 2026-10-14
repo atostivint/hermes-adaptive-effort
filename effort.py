@@ -291,3 +291,18 @@ def map_named_choice(label: Optional[str], supported: Sequence[str]) -> Optional
     if not isinstance(clamped, str) or clamped.strip().lower() not in vocabulary:
         return None
     return clamped.strip().lower()
+
+
+def raise_choice_level(current: Optional[str], supported: Sequence[str],
+                       steps: int = 1) -> Optional[str]:
+    """Move *current* up *steps* levels within a route's own list; never down.
+
+    Only named levels (``CHOICE_LEVELS``) take part, so ``none`` and ``ultra`` are never
+    reached. An unknown *current*, an empty list or the top of the list returns *current*.
+    """
+    if not isinstance(current, str):
+        return current
+    levels = [level for level in CHOICE_LEVELS if level in supported]
+    if current not in levels or steps < 1:
+        return current
+    return levels[min(levels.index(current) + int(steps), len(levels) - 1)]

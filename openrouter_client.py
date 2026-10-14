@@ -1,10 +1,12 @@
-"""Bounded OpenRouter chat-completions classifier.
+"""Bounded OpenRouter Decisions API classifier.
 
 This adapter is selected explicitly with ``scorer_provider=openrouter`` and a
-configured ``scorer_model``. It sends only the bounded text being classified and
-requests ZDR-only routing with data-collecting endpoints denied. The request still
-contains the prompt and OpenRouter processes it. It fails open on missing
-credentials, transport errors, or an invalid score.
+configured ``scorer_model`` that names an OpenRouter *decision model*. It sends the
+shared System One rubric (``state.prompt`` plus ``questions``) to the Decisions
+endpoint, bounded to the text being classified, and requests ZDR-only routing with
+data-collecting endpoints denied. The request still contains the prompt and
+OpenRouter processes it. It fails open on missing credentials, transport errors, or
+an invalid answer.
 """
 
 from __future__ import annotations
@@ -19,13 +21,13 @@ from typing import Any, Callable, Optional, Sequence
 
 from .jev_client import DEFAULT_MAX_PROMPT_CHARS, DEFAULT_TIMEOUT_S, truncate_prompt
 from . import rubric
+from . import scorer_retry
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_ENDPOINT = "https://openrouter.ai/api/alpha/decisions"
 SENTINEL_ENV = "OPENROUTER_API_KEY"
-MAX_COMPLETION_TOKENS = rubric.MAX_COMPLETION_TOKENS
-_SYSTEM_PROMPT = rubric.CHAT_SYSTEM_PROMPT
+QUESTIONS = rubric.QUESTIONS
 
 
 def _default_key_reader() -> str:
@@ -45,7 +47,7 @@ def _default_transport(request: urllib.request.Request, timeout: float):
 
 
 class OpenRouterClient:
-    """Request one strict 0..2 effort score from a configured OpenRouter model."""
+    """Request one strict effort answer from a configured OpenRouter decision model."""
 
     def __init__(self, *, model: str, api_key: str = "", timeout: float = DEFAULT_TIMEOUT_S,
                  max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
@@ -76,7 +78,8 @@ class OpenRouterClient:
         return self.classify_detail(prompt)[0]
 
     def classify_detail(self, prompt: Optional[str],
-                        choices: Optional[Sequence[str]] = None) -> "tuple[Any, Optional[str]]":
+                        choices: Optional[Sequence[str]] = None, *,
+                        continuation: bool = False) -> "tuple[Any, Optional[str]]":
         if not isinstance(prompt, str) or not prompt.strip():
             return None, "invalid_prompt"
         if not self.model:
@@ -89,15 +92,9 @@ class OpenRouterClient:
 
         body = {
             "model": self.model,
-            "messages": [
-                {"role": "system", "content": rubric.chat_system_prompt(
-                    self.classification_instructions, choices)},
-                {"role": "user", "content": truncate_prompt(prompt, self.max_prompt_chars)},
-            ],
-            "response_format": {"type": "json_object"},
-            "max_tokens": MAX_COMPLETION_TOKENS,
-            "temperature": 0,
-            "stream": False,
+            "state": {"prompt": truncate_prompt(prompt, self.max_prompt_chars)},
+            "questions": (rubric.continuation_questions() if continuation else
+                          rubric.questions_for(self.classification_instructions, choices)),
             "provider": {"zdr": True, "data_collection": "deny"},
         }
         request = urllib.request.Request(
@@ -114,7 +111,8 @@ class OpenRouterClient:
         started = time.monotonic()
         transport = self._transport or _default_transport
         try:
-            payload = transport(request, self.timeout)
+            payload = scorer_retry.send_with_retry(
+                lambda t: transport(request, t), self.timeout)
         except urllib.error.HTTPError:
             logger.debug("hermes-adaptive-effort: OpenRouter request failed after %.0fms",
                          (time.monotonic() - started) * 1000)
@@ -152,21 +150,23 @@ class OpenRouterClient:
         except Exception:
             return None, "malformed_response"
         levels = rubric.normalize_effort_choices(choices)
-        score = (rubric.chat_completion_choice(data, levels) if levels
-                 else _extract_score(data))
-        failure = None if score is not None else "malformed_response"
+        if continuation:
+            score, failure = rubric.systemone_noul(data)
+        elif levels:
+            score, failure = rubric.systemone_choice(data, levels)
+        else:
+            score, failure = rubric.systemone_score(data)
         logger.debug("hermes-adaptive-effort: OpenRouter classified in %.0fms (valid=%s)",
                      (time.monotonic() - started) * 1000, score is not None)
         return score, failure
 
+    def classify_continuation(self, prompt: Optional[str]):
+        """``(probability, failure)`` of one separate yes/no continuation question."""
+        return self.classify_detail(prompt, continuation=True)
+
     def classify_effort_detail(self, prompt: Optional[str], choices: Sequence[str]):
         """Return one route-authorized named choice from the configured model."""
         return self.classify_detail(prompt, choices=choices)
-
-
-def _extract_score(payload: Any) -> Optional[float]:
-    """Extract only a finite numeric ``score`` in the shared 0..2 rubric."""
-    return rubric.chat_completion_score(payload)
 
 
 def credential_present(key_reader: Optional[Callable[[], str]] = None) -> bool:

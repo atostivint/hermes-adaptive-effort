@@ -1,4 +1,4 @@
-"""Configurable rubric scorer for systemone and chat-completions endpoints."""
+"""Configurable rubric scorer for System One endpoints."""
 
 from __future__ import annotations
 
@@ -12,13 +12,14 @@ import urllib.request
 from typing import Any, Callable, Optional, Sequence, Tuple
 
 from . import rubric
+from . import scorer_retry
 from .jev_client import DEFAULT_MAX_PROMPT_CHARS, DEFAULT_TIMEOUT_S, truncate_prompt
 
 logger = logging.getLogger(__name__)
 QUESTIONS = rubric.QUESTIONS
 
 SENTINEL_ENV = "CUSTOM_SCORER_API_KEY"
-API_FORMATS = ("systemone", "chat_completions")
+API_FORMATS = ("systemone",)
 AUTH_MODES = ("none", "bearer")
 
 
@@ -111,7 +112,8 @@ class CustomClient:
         return self.classify_detail(prompt)[0]
 
     def classify_detail(self, prompt: Optional[str],
-                        choices: Optional[Sequence[str]] = None) -> "tuple[Any, Optional[str]]":
+                        choices: Optional[Sequence[str]] = None, *,
+                        continuation: bool = False) -> "tuple[Any, Optional[str]]":
         if not isinstance(prompt, str) or not prompt.strip():
             return None, "invalid_prompt"
         endpoint, failure = validate_endpoint(self.endpoint)
@@ -130,23 +132,10 @@ class CustomClient:
             if not key:
                 return None, "credential_missing"
 
-        prompt_text = truncate_prompt(prompt, self.max_prompt_chars)
-        if self.api_format == "systemone":
-            body = {"state": {"prompt": prompt_text}, "model": self.model,
-                    "questions": rubric.questions_for(self.classification_instructions, choices)}
-        else:
-            body = {
+        body = {"state": {"prompt": truncate_prompt(prompt, self.max_prompt_chars)},
                 "model": self.model,
-                "messages": [
-                    {"role": "system", "content": rubric.chat_system_prompt(
-                        self.classification_instructions, choices)},
-                    {"role": "user", "content": prompt_text},
-                ],
-                "response_format": {"type": "json_object"},
-                "max_tokens": rubric.MAX_COMPLETION_TOKENS,
-                "temperature": 0,
-                "stream": False,
-            }
+                "questions": (rubric.continuation_questions() if continuation else
+                              rubric.questions_for(self.classification_instructions, choices))}
         headers = {"Accept": "application/json", "Content-Type": "application/json",
                    "User-Agent": "hermes-adaptive-effort/0.1"}
         if self.auth == "bearer":
@@ -156,7 +145,8 @@ class CustomClient:
 
         started = time.monotonic()
         try:
-            payload = (self._transport or _default_transport)(request, self.timeout)
+            payload = scorer_retry.send_with_retry(
+                lambda t: (self._transport or _default_transport)(request, t), self.timeout)
         except urllib.error.HTTPError:
             return None, "http_error"
         except urllib.error.URLError as exc:
@@ -185,21 +175,19 @@ class CustomClient:
             return None, "malformed_response"
 
         levels = rubric.normalize_effort_choices(choices)
-        if self.api_format == "systemone" and levels:
-            result, failure = rubric.systemone_choice(data, levels)
-        elif self.api_format == "systemone":
-            score, failure = rubric.systemone_score(data)
-            result = score
+        if continuation:
+            result, failure = rubric.systemone_noul(data)
         elif levels:
-            result = rubric.chat_completion_choice(data, levels)
-            failure = None if result is not None else "malformed_response"
+            result, failure = rubric.systemone_choice(data, levels)
         else:
-            score = rubric.chat_completion_score(data)
-            failure = None if score is not None else "malformed_response"
-            result = score
+            result, failure = rubric.systemone_score(data)
         logger.debug("hermes-adaptive-effort: custom scorer completed in %.0fms (valid=%s)",
                      (time.monotonic() - started) * 1000, result is not None)
         return result, failure
+
+    def classify_continuation(self, prompt: Optional[str]):
+        """``(probability, failure)`` of one separate yes/no continuation question."""
+        return self.classify_detail(prompt, continuation=True)
 
     def classify_effort_detail(self, prompt: Optional[str], choices: Sequence[str]):
         """Return one route-authorized named effort through this custom protocol."""

@@ -16,7 +16,7 @@ Without `--send` it only validates the corpus and prints the number of planned c
 export HERMES_SOURCE_ROOT=/path/to/hermes-agent
 .venv/bin/python scripts/run_scorer_eval.py --provider jev                 # dry run
 .venv/bin/python scripts/run_scorer_eval.py --provider jev --send          # billed
-.venv/bin/python scripts/run_scorer_eval.py --provider openrouter --scorer-model <id> --send --limit 10
+.venv/bin/python scripts/run_scorer_eval.py --provider openrouter --scorer-model <decision-model-id> --send --limit 10
 ```
 
 Flags: `--provider`, `--scorer-model`, `--jev-model`, `--endpoint`, `--cloudflare-account-id`, `--cloudflare-model`, `--custom-endpoint`, `--custom-api-format`, `--custom-auth`, `--timeout-s` (0 = provider default), `--choices`, `--instructions-file`, `--limit N`, `--out-dir`, `--repo-copy`.

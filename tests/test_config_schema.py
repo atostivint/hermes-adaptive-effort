@@ -73,7 +73,7 @@ def test_custom_scorer_schema_defaults_and_choices_match_settings():
         assert schema[key]["type"] == expected_type
         assert schema[key]["default"] == middleware.DEFAULTS[key]
     assert set(schema["custom_api_format"].get("choices") or []) == {
-        "systemone", "chat_completions"}
+        "systemone"}
     assert set(schema["custom_auth"].get("choices") or []) == {"none", "bearer"}
 
 
@@ -93,6 +93,9 @@ def test_config_schema_types_and_defaults_match_middleware():
     assert int(schema["prompt_chars"]["default"]) == int(middleware.DEFAULTS["prompt_chars"])
     assert schema["endpoint"]["type"] == "str"
     assert schema["cloudflare_account_id"]["type"] == "str"
+    cloudflare_client = import_plugin("cloudflare_client")
+    assert set(schema["cloudflare_model"]["choices"]) == set(cloudflare_client.MODEL_PATHS)
+    assert schema["cloudflare_model"]["default"] == cloudflare_client.DEFAULT_MODEL_SELECTOR
     assert str(schema["endpoint"]["default"]) == str(middleware.DEFAULTS["endpoint"])
     assert schema["classification_instructions"]["default"] == ""
     assert "2000" in schema["classification_instructions"]["description"]
@@ -102,6 +105,17 @@ def test_config_schema_types_and_defaults_match_middleware():
     assert schema["use_target_model_context"]["type"] == "bool"
     assert schema["use_target_model_context"]["default"] is False
     assert "observed effort" in schema["use_target_model_context"]["description"]
+    assert schema["dialogue_context_messages"]["type"] == "int"
+    assert schema["dialogue_context_messages"]["default"] == 0
+    assert middleware.DEFAULTS["dialogue_context_messages"] == 0
+    assert "1200" in schema["dialogue_context_messages"]["description"]
+    assert schema["continuation_downgrade_votes"]["type"] == "int"
+    assert schema["continuation_downgrade_votes"]["default"] == 0
+    assert middleware.DEFAULTS["continuation_downgrade_votes"] == 0
+    assert "dialogue_context_messages" in schema["continuation_downgrade_votes"]["description"]
+    assert schema["tool_error_escalation"]["type"] == "bool"
+    assert schema["tool_error_escalation"]["default"] is True
+    assert middleware.DEFAULTS["tool_error_escalation"] is True
 
 
 def test_config_schema_declares_no_secret():

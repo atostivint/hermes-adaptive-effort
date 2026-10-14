@@ -71,20 +71,15 @@ def test_systemone_does_not_accept_cloudflare_wrapper():
         None, "malformed_response")
 
 
-def test_chat_completions_reuses_openrouter_body_without_zdr_options():
-    payload = {"choices": [{"message": {"content": '{"score": 0.75}'}}]}
-    transport = FakeTransport(payload)
-    client = make_client(transport=transport, api_format="chat_completions")
-    assert client.classify("prompt") == pytest.approx(0.75)
-    body = json.loads(transport.calls[0]["body"])
-    assert body["model"] == "rubric-v1"
-    assert body["messages"][1]["content"] == "prompt"
-    assert body["messages"][0]["content"] == custom_module.rubric.CHAT_SYSTEM_PROMPT
-    assert body["response_format"] == {"type": "json_object"}
-    assert body["max_tokens"] == 32
-    assert body["temperature"] == 0
-    assert body["stream"] is False
-    assert "provider" not in body
+@pytest.mark.parametrize("fmt", ["chat_completions", "CHAT_COMPLETIONS", "", "other"])
+def test_removed_or_unknown_api_format_fails_open_without_a_network_call(fmt):
+    transport = FakeTransport({"choices": [{"message": {"content": '{"score": 1}'}}]})
+    client = make_client(transport=transport, api_format=fmt)
+    assert client.classify_detail("prompt") == (None, "unsupported_api_format")
+    assert client.classify_effort_detail("prompt", ("low", "high")) == (
+        None, "unsupported_api_format")
+    assert transport.calls == []
+    assert custom_module.API_FORMATS == ("systemone",)
 
 
 def test_bearer_auth_reads_optional_key_and_sends_it():

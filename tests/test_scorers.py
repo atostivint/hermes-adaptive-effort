@@ -86,8 +86,8 @@ def test_custom_provider_uses_configured_endpoint_model_format_and_auth():
     configured = settings(
         scorer_provider="custom",
         scorer_model="local-rubric-4b",
-        custom_endpoint="http://127.0.0.1:8080/v1/chat/completions",
-        custom_api_format="chat_completions",
+        custom_endpoint="http://127.0.0.1:8080/v1/systemone",
+        custom_api_format="systemone",
         custom_auth="none",
     )
 
@@ -97,7 +97,7 @@ def test_custom_provider_uses_configured_endpoint_model_format_and_auth():
     assert isinstance(client, custom_client.CustomClient)
     assert client.endpoint == configured["custom_endpoint"]
     assert client.model == "local-rubric-4b"
-    assert client.api_format == "chat_completions"
+    assert client.api_format == "systemone"
     assert client.auth == "none"
     assert scorers.model_for("custom", configured["scorer_model"]) == "local-rubric-4b"
     assert scorers.endpoint_for(
