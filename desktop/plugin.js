@@ -7,7 +7,7 @@
  *
  * Backend is the sibling `dashboard/plugin_api.py` (`/api/plugins/hermes-adaptive-effort/`),
  * itself a thin wrapper around the agent half's command/middleware. Everything
- * fails open: backend disabled or unreachable renders `Effort: N/A`, actions toast.
+ * fails open: backend disabled or unreachable renders `N/A`, actions toast.
  */
 import {
   Codicon,
@@ -934,7 +934,7 @@ function AdaptiveEffortChip() {
   const conversationApplies = Boolean(conversation && scopeId &&
     (conversation.conversation_id == null || conversation.conversation_id === scopeId))
   const overridden = Boolean(conversationApplies && conversation.source === 'conversation' && conversationMode)
-  const label = overridden ? `Effort: ${effort} · ${conversationMode} (this chat)` : `Effort: ${effort}`
+  const label = overridden ? `${effort} · ${conversationMode} (this chat)` : effort
   const tone = toneFor(mode, query.isError)
 
   useEffect(() => subscribeLive(setLiveVersion), [])

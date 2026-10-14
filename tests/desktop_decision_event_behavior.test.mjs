@@ -120,7 +120,7 @@ function findEffortChip(tree) {
   if (!tree || typeof tree !== 'object') return null
   if (tree.type === 'button' && Array.isArray(tree.props?.children)) {
     const text = tree.props.children.find(child => typeof child === 'string')
-    if (typeof text === 'string' && text.startsWith('Effort:')) return text
+    if (typeof text === 'string') return text
   }
   const children = tree.props?.children
   for (const child of Array.isArray(children) ? children : [children]) {
@@ -156,7 +156,7 @@ test('fresh focused live status overrides an empty REST response in the rendered
   const h = makeHarness()
   h.api.handleDecisionEvent(h.ctx, decision())
   const rendered = h.api.AdaptiveEffortChip()
-  assert.equal(findEffortChip(rendered), 'Effort: high')
+  assert.equal(findEffortChip(rendered), 'high')
 })
 
 test('v2 named-choice status is accepted alongside the older v1 event schema', () => {
@@ -174,7 +174,7 @@ test('v2 named-choice status is accepted alongside the older v1 event schema', (
     },
     selector_sync_supported: false
   }))
-  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: xhigh')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'xhigh')
   assert.equal(h.calls.length, 0)
 })
 
@@ -187,11 +187,11 @@ test('stored decision ids match a focused chat whose gateway runtime id is diffe
       score: 0.67, target: 'medium' },
     applied: { id: 1, from: 'max', to: 'medium', at: 123 }, selector_sync_supported: false })
   h.api.handleDecisionEvent(h.ctx, event)
-  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: medium')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'medium')
   assert.equal(h.notices[0].message, 'max → medium')
 
   h.state.focusedStoredSessionId.set('another-chat')
-  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: N/A')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'N/A')
 })
 
 test('REST status matches the stored conversation id instead of the gateway runtime id', () => {
@@ -199,13 +199,13 @@ test('REST status matches the stored conversation id instead of the gateway runt
     mode: 'auto', settings: { show_desktop_popup: true }, sessions: [decision().payload.status,
       { conversation_id: 'another-chat', state: 'decided', target: 'low', updated_at: 999 }]
   } })
-  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: high')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'high')
 })
 
 test('legacy events still carry a stored id even though their field says runtime_session_id', () => {
   const h = makeHarness({ sessionId: 'runtime-8hex', conversationId: 'session-1' })
   h.api.handleDecisionEvent(h.ctx, decision())
-  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: high')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'high')
 })
 
 test('session.info follows a rotated stored id and isolates mappings by owner', () => {
@@ -216,16 +216,16 @@ test('session.info follows a rotated stored id and isolates mappings by owner', 
     ...info.payload, stored_session_id: 'unrelated-chat'
   } })
   h.api.handleDecisionEvent(h.ctx, decision())
-  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: N/A')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'N/A')
   h.api.publishSessionInfo(info)
-  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: high')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'high')
 
   h.api.publishSessionInfo({ ...info, replayed: true, payload: {
     ...info.payload, stored_session_id: 'stale-chat'
   } })
-  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: high')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'high')
   h.api.publishSessionInfo({ ...info, payload: { ...info.payload, stored_session_id: 'new-tip' } })
-  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: N/A')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'N/A')
 })
 
 test('selector sync uses the gateway runtime id and requires acknowledgment of the stored id', async () => {
@@ -278,7 +278,7 @@ test('local primary events without connectionId resolve stored and runtime ids s
   delete event.connectionId
   h.api.handleDecisionEvent(h.ctx, event)
   await flush()
-  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: high')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'high')
   assert.equal(h.calls.length, 1)
   assert.equal(h.calls[0][2].session_id, 'runtime-local')
   assert.equal(h.api.liveFor('local', 'work', 'session-1').syncReason, 'Selector synced for this chat.')
@@ -293,7 +293,7 @@ test('a stored conversation clear cancels an acknowledgment for a distinct runti
     clear: true, status: null, applied: null, revision: 2 }))
   await flush()
   assert.ok(h.timers.every(timer => timer.canceled))
-  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: N/A')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'N/A')
   assert.equal(h.notices.filter(notice => notice.kind === 'warning').length, 0)
 })
 
@@ -428,7 +428,7 @@ test('clear boundary events with empty route fields clear focused live state', (
   const live = h.api.liveFor('conn-1', 'work', 'session-1')
   assert.equal(live.clear, true)
   assert.equal(live.status, null)
-  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: N/A')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'N/A')
 })
 
 function collect(tree, predicate, out = []) {
@@ -500,17 +500,17 @@ test('Use default posts mode default for the conversation and is active without 
 test('chip label gets a this-chat suffix only for a conversation override', () => {
   const h = makeHarness({ status: scopedStatus({ mode: 'off', effective_mode: 'off', source: 'conversation' }) })
   h.api.handleDecisionEvent(h.ctx, decision())
-  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'Effort: high · off (this chat)')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'high · off (this chat)')
   const plain = makeHarness({ status: scopedStatus({}) })
   plain.api.handleDecisionEvent(plain.ctx, decision())
-  assert.equal(findEffortChip(plain.api.AdaptiveEffortChip()), 'Effort: high')
+  assert.equal(findEffortChip(plain.api.AdaptiveEffortChip()), 'high')
 })
 
 test('older status payloads without conversation fields keep the global UI', () => {
   const h = makeHarness()
   h.api.handleDecisionEvent(h.ctx, decision())
   const tree = h.api.AdaptiveEffortChip()
-  assert.equal(findEffortChip(tree), 'Effort: high')
+  assert.equal(findEffortChip(tree), 'high')
   const texts = textsOf(tree)
   assert.ok(texts.includes('Routing mode'))
   assert.ok(!texts.includes('This conversation'))

@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - Scorer deadline is now a per-provider default (`timeout_s: 0`): Jev 3.0 → 2.0 s, custom 3.0 → 10.0 s, others 3.0 s; installs that never set `timeout_s` move automatically, a positive value still wins, and configuration is never rewritten
+- Desktop status chip drops the redundant `Effort: ` prefix from its visible label (the icon already identifies it); tooltip, details popover, notifications and the terminal status item are unchanged
 
 ### Added
 
