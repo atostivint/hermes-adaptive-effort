@@ -247,6 +247,8 @@ The plugin enables the cache-preserving path only for the exact native HTTPS hos
 
 For a per-message change, the plugin adds an empty-content system message with `output_config.effort` immediately before that user turn. The top-level `output_config.effort` stays unchanged, so the Desktop session selector is not synchronized for this route. It replays each stored marker at the same turn boundary on later requests. The bounded registry stores levels and hashes/positions only, never message text. Missing anchors (including compression), a manually changed initial setting, a reset/eviction or an internal error invalidates continuity and fails open; cache preservation is not promised across those events. When the effective beta header is unavailable, `auto` retains a route decision; `always` may update the top-level field and status labels that path `top_level_cache_may_reset`.
 
+Markers are placed only at user-turn boundaries, and this is final for mid-turn changes. Anthropic documents that an effort-only system message placed after a user turn holding only `tool_result` blocks "waits for the next `user` turn with new input" ([Effort, per-message effort (beta)](https://platform.claude.com/docs/en/build-with-claude/effort#change-effort-mid-conversation-beta), checked 2026-10-14). A marker inside a tool loop therefore cannot change effort for the rest of the current turn, so `tool_error_escalation` never applies to this path. Research and an optional local measurement protocol are recorded in issue #52.
+
 ## Dashboard API
 
 Routes mount under `/api/plugins/hermes-adaptive-effort/`:
