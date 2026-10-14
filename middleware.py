@@ -33,7 +33,7 @@ import threading
 import time
 import uuid
 from collections import OrderedDict, deque
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import cache_safety as _cache_safety
 from . import effort as _effort
@@ -125,6 +125,13 @@ _BREAKER_COUNTED_FAILURES = frozenset({
     "timeout", "transport_error", "http_error", "malformed_response", "unexpected_error",
 })
 
+#: Scorer latency histogram: provider id -> bucket counts (one per ``_LATENCY_BUCKETS_MS`` bound,
+#: plus a trailing overflow bucket). Counts only; never prompts, session ids, keys, models or
+#: routes. Entries of other providers are kept. Guarded by ``_lock``.
+_SCORER_LATENCY: Dict[str, List[int]] = {}
+#: Upper bounds in ms; a value equal to a bound belongs to that bucket.
+_LATENCY_BUCKETS_MS = (100, 200, 350, 500, 750, 1000, 1500, 2000, 3000, 5000, 10000)
+
 
 # ── session state ───────────────────────────────────────────────────────────
 
@@ -145,6 +152,7 @@ def reset_state() -> None:
         _ROUTE_IN_FLIGHT.clear()
         _CHILD_GOALS.clear()
         _SCORER_BREAKER.clear()
+        _SCORER_LATENCY.clear()
         _EFFORT_CHANGES.clear()
         _CHANGE_SEQUENCE = 0
         _CHANGE_STREAM_ID = uuid.uuid4().hex
@@ -978,6 +986,16 @@ def _scorer_paused_remaining(settings: Dict[str, Any]) -> float:
         return 0.0
 
 
+def _classify_timed(prompt: str, settings: Dict[str, Any], choices: Any) -> Tuple[Any, Any]:
+    """``_classify`` timed for the latency histogram (the breaker is recorded by the caller)."""
+    started = _monotonic()
+    result, failure = _classify(prompt, settings, choices)
+    _scorer_latency_record(
+        settings, (failure or "classifier_error") if (failure or result is None) else None,
+        (float(_monotonic()) - float(started)) * 1000.0)
+    return result, failure
+
+
 def _scorer_breaker_record(settings: Dict[str, Any], failure: Optional[str]) -> None:
     """Count a launched scorer call: a usable answer resets, a counted failure may open the pause.
 
@@ -1019,6 +1037,59 @@ def scorer_pause_state(settings: Optional[Dict[str, Any]] = None) -> Dict[str, A
         "paused": remaining > 0,
         "remaining_s": int(round(remaining)) if remaining > 0 else 0,
     }
+
+
+# ── scorer latency ──────────────────────────────────────────────────────────
+
+def _scorer_latency_record(settings: Dict[str, Any], failure: Optional[str],
+                           elapsed_ms: float) -> None:
+    """Count one launched scorer call in its provider's histogram. Never raises.
+
+    Successes and the launched failures the breaker counts are recorded; configuration
+    failures and ``classifier_error`` never reached the network and would skew low.
+    """
+    try:
+        if failure is not None and failure not in _BREAKER_COUNTED_FAILURES:
+            return
+        provider = str(settings.get("scorer_provider") or _scorers.JEV)
+        index = len(_LATENCY_BUCKETS_MS)
+        for position, bound in enumerate(_LATENCY_BUCKETS_MS):
+            if elapsed_ms <= bound:
+                index = position
+                break
+        with _lock:
+            counts = _SCORER_LATENCY.setdefault(provider, [0] * (len(_LATENCY_BUCKETS_MS) + 1))
+            counts[index] += 1
+    except Exception:
+        logger.debug("hermes-adaptive-effort: scorer latency bookkeeping failed", exc_info=True)
+
+
+def scorer_latency_state(settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Prompt-free p95 bound for the selected scorer (status payload).
+
+    ``p95_le_ms`` is the smallest bucket bound whose cumulative count reaches 95 % of the
+    samples; ``None`` with no samples or when the p95 falls in the overflow bucket
+    (``p95_over_max``).
+    """
+    settings = settings if settings is not None else _settings()
+    provider = str(settings.get("scorer_provider") or _scorers.JEV)
+    with _lock:
+        counts = list(_SCORER_LATENCY.get(provider) or [])
+    total = sum(counts)
+    p95: Optional[int] = None
+    over = False
+    if total:
+        threshold = 0.95 * total
+        cumulative = 0
+        for position, count in enumerate(counts):
+            cumulative += count
+            if cumulative >= threshold:
+                if position < len(_LATENCY_BUCKETS_MS):
+                    p95 = _LATENCY_BUCKETS_MS[position]
+                else:
+                    over = True
+                break
+    return {"provider": provider, "count": total, "p95_le_ms": p95, "p95_over_max": over}
 
 
 def run_probe(prompt: str,
@@ -1864,11 +1935,11 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                         scoring_settings = settings
                         result, failure = None, "classifier_error"
                     else:
-                        result, failure = _classify(
+                        result, failure = _classify_timed(
                             scoring_prompt, scoring_settings,
                             tuple(route_choices) if len(route_choices) > 1 else None)
                 else:
-                    result, failure = _classify(
+                    result, failure = _classify_timed(
                         scoring_prompt, scoring_settings,
                         tuple(route_choices) if len(route_choices) > 1 else None)
                 _scorer_breaker_record(
