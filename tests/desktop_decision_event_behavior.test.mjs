@@ -179,6 +179,39 @@ test('v2 named-choice status is accepted alongside the older v1 event schema', (
   assert.equal(h.calls.length, 0)
 })
 
+test('chip shows previous → decided, maps absent to default and keeps a no-change level', () => {
+  const withPrevious = previous => decision({
+    schema: 'hermes-adaptive-effort.desktop-status.v2',
+    status: { ...decision().payload.status, previous }
+  })
+  const h = makeHarness()
+  h.api.handleDecisionEvent(h.ctx, withPrevious('low'))
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'low → high')
+
+  const injected = makeHarness()
+  injected.api.handleDecisionEvent(injected.ctx, withPrevious('absent'))
+  assert.equal(findEffortChip(injected.api.AdaptiveEffortChip()), 'default → high')
+
+  const kept = makeHarness()
+  kept.api.handleDecisionEvent(kept.ctx, withPrevious('high'))
+  assert.equal(findEffortChip(kept.api.AdaptiveEffortChip()), 'high → high')
+  assert.equal(kept.notices.length, 0)
+})
+
+test('a v1 event without previous still renders the decided level alone', () => {
+  const h = makeHarness()
+  h.api.handleDecisionEvent(h.ctx, decision())
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'high')
+})
+
+test('REST status carries previous into the chip', () => {
+  const h = makeHarness({ status: {
+    mode: 'auto', settings: { show_desktop_popup: true },
+    sessions: [{ ...decision().payload.status, previous: 'medium' }]
+  } })
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'medium → high')
+})
+
 test('stored decision ids match a focused chat whose gateway runtime id is different', () => {
   const storedId = '20261007_123650_2301be'
   const route = { provider: 'openai-codex', model: 'gpt-6-luna', api_mode: 'codex_responses' }
@@ -505,6 +538,12 @@ test('chip label gets a this-chat suffix only for a conversation override', () =
   const plain = makeHarness({ status: scopedStatus({}) })
   plain.api.handleDecisionEvent(plain.ctx, decision())
   assert.equal(findEffortChip(plain.api.AdaptiveEffortChip()), 'high')
+})
+
+test('override suffix follows the previous → decided label', () => {
+  const h = makeHarness({ status: scopedStatus({ mode: 'auto', effective_mode: 'auto', source: 'conversation' }) })
+  h.api.handleDecisionEvent(h.ctx, decision({ status: { ...decision().payload.status, previous: 'low' } }))
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'low → high · auto (this chat)')
 })
 
 test('older status payloads without conversation fields keep the global UI', () => {

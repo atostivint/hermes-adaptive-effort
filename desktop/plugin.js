@@ -123,7 +123,7 @@ function liveFor(connectionId, profile, sessionId) {
 function publicStatus(entry) {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null
   const allowed = [
-    'conversation_id', 'state', 'score', 'label', 'target', 'decision_type', 'choices',
+    'conversation_id', 'state', 'score', 'label', 'target', 'previous', 'decision_type', 'choices',
     'cache_behavior', 'mode', 'provider', 'model',
     'api_mode', 'scorer_provider', 'scorer_model', 'requests', 'probes', 'elapsed_ms',
     'failure', 'updated_at', 'continuation', 'held', 'escalated', 'escalation_reason'
@@ -599,6 +599,16 @@ function routeForConversation(data, conversationId) {
     .join(' · ') || 'N/A'
 }
 
+// `previous → decided` for the chip and details. The internal `absent` reads `default`;
+// a v1 decision event has no `previous`, so it falls back to the target alone.
+function transitionForConversation(data, conversationId) {
+  const target = effortForConversation(data, conversationId)
+  if (target === 'N/A') return target
+  const previous = entryForConversation(data, conversationId)?.previous
+  if (typeof previous !== 'string' || !previous) return target
+  return `${previous === 'absent' ? 'default' : previous} → ${target}`
+}
+
 function ownerMatchesActiveBackend(owner, connectionId, profile) {
   const ownerConnectionId = typeof owner?.connectionId === 'string' ? owner.connectionId.trim() : ''
   if (!ownerConnectionId) return false
@@ -820,7 +830,7 @@ function cacheLabel(verdict) {
   })[verdict] || 'Not verified'
 }
 
-function AdaptiveEffortDetails({ data, mode, effort, reason, route, syncReason, settings, scorerProvider, scorerModel, credential, gateway, focusedEntry, history, historyError }) {
+function AdaptiveEffortDetails({ data, mode, effort, transition, reason, route, syncReason, settings, scorerProvider, scorerModel, credential, gateway, focusedEntry, history, historyError }) {
   const [showActivity, setShowActivity] = useState(false)
   const last = data?.last
 
@@ -831,7 +841,7 @@ function AdaptiveEffortDetails({ data, mode, effort, reason, route, syncReason, 
         className: 'space-y-1 text-[0.6875rem]',
         children: [
           jsx('div', { className: 'font-medium', children: 'This chat' }),
-          jsx('div', { className: 'text-(--ui-text-secondary)', children: `Effort: ${effort}` }),
+          jsx('div', { className: 'text-(--ui-text-secondary)', children: transition }),
           focusedEntry?.decision_type === 'native_choice' && Array.isArray(focusedEntry.choices)
             ? jsx('div', { className: 'text-(--ui-text-tertiary)', children: `Selected from: ${focusedEntry.choices.join(', ')}` })
             : null,
@@ -980,6 +990,9 @@ function AdaptiveEffortChip() {
   const effort = live
     ? live.clear ? 'N/A' : effortForConversation({ sessions: [focusedEntry] }, focusedConversationId)
     : ownerMatchesBackend ? effortForConversation(data, focusedConversationId) : 'N/A'
+  const transition = live
+    ? live.clear ? 'N/A' : transitionForConversation({ sessions: [focusedEntry] }, focusedConversationId)
+    : ownerMatchesBackend ? transitionForConversation(data, focusedConversationId) : 'N/A'
   const reason = live
     ? live.clear ? 'No request status is available for this chat yet.' : outcomeForEntry(focusedEntry, focusedEntry?.mode || mode)
     : ownerMatchesBackend ? outcomeForEntry(focusedEntry, mode) : 'This chat belongs to a different backend or profile.'
@@ -992,7 +1005,7 @@ function AdaptiveEffortChip() {
   const conversationApplies = Boolean(conversation && scopeId &&
     (conversation.conversation_id == null || conversation.conversation_id === scopeId))
   const overridden = Boolean(conversationApplies && conversation.source === 'conversation' && conversationMode)
-  const label = overridden ? `${effort} · ${conversationMode} (this chat)` : effort
+  const label = overridden ? `${transition} · ${conversationMode} (this chat)` : transition
   const tone = toneFor(mode, query.isError)
 
   useEffect(() => subscribeLive(setLiveVersion), [])
@@ -1024,8 +1037,8 @@ function AdaptiveEffortChip() {
             title: query.isError
               ? 'Scoring backend unavailable — enable the plugin in config (plugins.enabled) and Desktop'
               : conversation
-                ? `Hermes Adaptive Effort: this conversation: ${overridden ? conversationMode : 'default'} · default: ${defaultMode || 'loading'} · focused conversation effort: ${effort} · route: ${route} — click to switch`
-                : `Hermes Adaptive Effort: ${mode || 'loading'} · focused conversation effort: ${effort} · route: ${route} — click to switch`,
+                ? `Hermes Adaptive Effort: this conversation: ${overridden ? conversationMode : 'default'} · default: ${defaultMode || 'loading'} · focused conversation effort: ${transition} · route: ${route} — click to switch`
+                : `Hermes Adaptive Effort: ${mode || 'loading'} · focused conversation effort: ${transition} · route: ${route} — click to switch`,
             children: [jsx(Codicon, { name: 'zap', className: 'text-[0.75rem]' }), label]
           })
         }),
@@ -1107,6 +1120,7 @@ function AdaptiveEffortChip() {
                   data,
                   mode,
                   effort,
+                  transition,
                   reason,
                   route,
                   syncReason: live?.syncReason,

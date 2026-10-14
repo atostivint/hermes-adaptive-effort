@@ -61,7 +61,7 @@ PROBE_SCHEMA = "hermes-adaptive-effort.probe.v1"
 #: The only session fields ever rendered — an entry may hold anything (it is
 #: plugin-author payload), so prompt text and provider junk are filtered out.
 _ENTRY_FIELDS = (
-    "conversation_id", "state", "score", "label", "target", "decision_type", "choices",
+    "conversation_id", "state", "score", "label", "target", "previous", "decision_type", "choices",
     "cache_behavior", "continuation", "held", "escalated", "escalation_reason", "mode", "provider", "model", "api_mode",
     "scorer_provider", "scorer_model",
     "requests", "probes", "elapsed_ms", "failure", "updated_at",

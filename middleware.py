@@ -111,7 +111,7 @@ _CHANGE_SEQUENCE = 0
 _EFFORT_CHANGES: "deque[Dict[str, Any]]" = deque(maxlen=_CHANGE_HISTORY_LIMIT)
 _DESKTOP_EVENT_REVISION = 0
 _CLI_STATUS_HANDLE: Any = None
-_CLI_STATUS_TEXT = "Effort: N/A"
+_CLI_STATUS_TEXT = "N/A"
 #: Sessions with a classification running right now — at most one probe per
 #: session, claimed atomically so two concurrent requests cannot both call the scorer.
 _IN_FLIGHT: set = set()
@@ -169,7 +169,7 @@ def reset_state() -> None:
         _CHANGE_STREAM_ID = uuid.uuid4().hex
         _DESKTOP_EVENT_REVISION = 0
         _CLI_STATUS_HANDLE = None
-        _CLI_STATUS_TEXT = "Effort: N/A"
+        _CLI_STATUS_TEXT = "N/A"
         _MODE_OVERRIDE = None
 
 
@@ -450,6 +450,14 @@ def _sync_cli_status(settings: Optional[Dict[str, Any]] = None) -> None:
         update(_CLI_STATUS_TEXT if current["show_tui_status"] else "")
     except Exception:
         logger.debug("hermes-adaptive-effort: CLI status item update failed", exc_info=True)
+
+
+def _transition_text(previous: Any, decided: Any) -> str:
+    """``low → high`` label shared by the terminal item; the internal ``absent`` reads ``default``."""
+    def shown(value: Any) -> str:
+        text = str(value) if value else "default"
+        return "default" if text == "absent" else text
+    return f"{shown(previous)} → {shown(decided)}"
 
 
 def _update_cli_status(value: str) -> None:
@@ -2322,6 +2330,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                          cache_behavior="invalidated")
             _publish_desktop_decision(session_id, provider, model, api_mode, entry)
             return None
+        entry["previous"] = turn_entry["previous"] = before
         event = None
         if changed_effort:
             event = _record_effort_change(
@@ -2335,13 +2344,14 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         _publish_desktop_decision(
             session_id, provider, model, api_mode, entry, applied=applied)
         if new_request is request:
+            _update_cli_status(_transition_text(before, target))
             return None
         if event is not None:
             try:
                 logger.info("Effort changed: %s -> %s", event["from"], event["to"])
             except Exception:
                 pass
-            _update_cli_status(f"Effort: {event['to']}")
+            _update_cli_status(_transition_text(event["from"], event["to"]))
             _notify_cli(f"Effort changed: {event['from']} -> {event['to']}")
         return {
             "request": new_request,
@@ -2358,9 +2368,12 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             if entry is not turn_entry:
                 entry = dict(entry, escalated=True, escalation_reason=ESCALATION_REASON)
     before = slot[2] if slot is not None else "absent"
+    entry["previous"] = turn_entry["previous"] = before
     if target == before:
         # The route already sits at the level the scorer picked: nothing to send, so we
         # report no decision at all rather than a rewrite identical to the input.
+        # The display (not the change feed) still shows the kept level as ``high → high``.
+        _update_cli_status(_transition_text(before, target))
         _publish_desktop_decision(session_id, provider, model, api_mode, entry)
         return None
     new_request = (_apply(request, slot, target) if slot is not None
@@ -2380,7 +2393,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         except Exception:
             # A logging handler must never turn an optional rewrite into a failure.
             pass
-        _update_cli_status(f"Effort: {event['to']}")
+        _update_cli_status(_transition_text(event["from"], event["to"]))
         _notify_cli(f"Effort changed: {event['from']} -> {event['to']}")
     return {
         "request": new_request,

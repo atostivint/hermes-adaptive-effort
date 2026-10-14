@@ -43,7 +43,7 @@ def register(ctx: Any) -> None:
             # Windows console a non-ASCII glyph degrades to a replacement box. It also
             # states the truth — a route with no writable effort field has no effort
             # to report, as opposed to one that simply has not decided yet.
-            status_handle = register_cli_status_item("effort", "Effort: N/A", priority=30)
+            status_handle = register_cli_status_item("effort", "N/A", priority=30)
             _middleware.set_cli_status_handle(status_handle)
         except Exception:
             _middleware.set_cli_status_handle(None)

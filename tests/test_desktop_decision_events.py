@@ -162,3 +162,54 @@ def test_event_bridge_failure_does_not_change_rewrite(monkeypatch):
     result = invoke()
 
     assert result["request"]["extra_body"]["reasoning"]["effort"] == "high"
+
+
+def status_item(monkeypatch):
+    class Handle:
+        texts = []
+
+        def update(self, text):
+            self.texts.append(text)
+
+    handle = Handle()
+    monkeypatch.setattr(middleware, "_CLI_STATUS_HANDLE", handle)
+    return handle
+
+
+def test_tui_status_shows_previous_to_decided_without_prefix(monkeypatch):
+    events = capture_events(monkeypatch)
+    handle = status_item(monkeypatch)
+    configure(monkeypatch, classifier=FakeJev())
+
+    assert middleware._CLI_STATUS_TEXT == "N/A"
+    invoke()  # medium -> high
+
+    assert handle.texts[-1] == "medium \u2192 high"
+    assert payloads(events)[-1]["status"]["previous"] == "medium"
+    assert middleware.effort_change_state()["events"][-1]["from"] == "medium"
+
+
+def test_no_change_decision_shows_the_kept_level_without_feed_or_notice(monkeypatch):
+    events = capture_events(monkeypatch)
+    handle = status_item(monkeypatch)
+    notices = []
+    monkeypatch.setattr(middleware, "_notify_cli", notices.append)
+    configure(monkeypatch, classifier=FakeJev())
+    request = {
+        "model": ROUTE["model"],
+        "messages": [{"role": "user", "content": "PRIVATE TASK TEXT"}],
+        "extra_body": {"reasoning": {"enabled": True, "effort": "high"}},
+    }
+
+    assert invoke(request=request) is None
+
+    assert handle.texts[-1] == "high \u2192 high"
+    assert middleware.effort_change_state()["events"] == []
+    assert notices == []
+    last = payloads(events)[-1]
+    assert last["applied"] is None
+    assert last["status"]["previous"] == "high" and last["status"]["target"] == "high"
+
+
+def test_previous_is_an_additive_status_field():
+    assert "previous" in command._ENTRY_FIELDS

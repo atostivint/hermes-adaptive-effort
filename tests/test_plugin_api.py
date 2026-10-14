@@ -367,7 +367,7 @@ def test_desktop_plugin_static_contract():
     assert "${ID}.status" not in text
     for detail in (
         "This chat",
-        "Effort: ${effort}",
+        "children: transition",  # was "Effort: ${effort}": the label is now `previous → decided`
         "Route: ${route}",
         "Scorer",
         "${credential} key",

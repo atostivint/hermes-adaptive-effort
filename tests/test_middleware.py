@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import types
 
 import pytest
 
@@ -215,6 +216,18 @@ def test_inject_first_responses_request_copy_on_write(monkeypatch, score, target
         "decided", target, target, "opencode", MUSE)
     assert entry["probes"] == 1
     assert middleware.effort_change_state()["latest"]["from"] == "absent"
+
+
+def test_injection_shows_default_to_decided_and_records_absent_as_previous(monkeypatch):
+    configure_injection(monkeypatch, 2.0)
+    texts = []
+    monkeypatch.setattr(middleware, "_CLI_STATUS_HANDLE",
+                        types.SimpleNamespace(update=texts.append))
+    muse_call(muse_request(reasoning={"summary": "auto"}))
+    assert texts[-1] == "default \u2192 high"
+    entry = middleware.session_state()["s1/t1"]
+    assert entry["previous"] == "absent"
+    assert middleware.effort_change_state()["latest"]["from"] == "absent"  # feed keeps `absent`
 
 
 def test_auto_keeps_pinned_effort_across_three_turns_when_route_not_dynamic(monkeypatch):
