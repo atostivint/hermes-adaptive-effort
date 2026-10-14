@@ -84,7 +84,8 @@ class OpenAIDecisionClient:
         return self.classify_detail(prompt)[0]
 
     def classify_detail(self, prompt: Optional[str],
-                        choices: Optional[Sequence[str]] = None) -> "tuple[Any, Optional[str]]":
+                        choices: Optional[Sequence[str]] = None, *,
+                        continuation: bool = False) -> "tuple[Any, Optional[str]]":
         if not isinstance(prompt, str) or not prompt.strip():
             return None, "invalid_prompt"
         key = self._key()
@@ -96,7 +97,8 @@ class OpenAIDecisionClient:
         body = {
             "model": self.model,
             "input": truncate_prompt(prompt, self.max_prompt_chars),
-            "questions": [rubric.decisions_question(self.classification_instructions, choices)],
+            "questions": [rubric.continuation_decisions_question() if continuation else
+                          rubric.decisions_question(self.classification_instructions, choices)],
         }
         request = urllib.request.Request(
             self.endpoint,
@@ -144,13 +146,19 @@ class OpenAIDecisionClient:
             return None, "malformed_response"
 
         levels = rubric.normalize_effort_choices(choices)
-        if levels:
+        if continuation:
+            score, failure = rubric.decisions_predicate(data)
+        elif levels:
             score, failure = rubric.decisions_choice(data, levels)
         else:
             score, failure = rubric.decisions_score(data)
         logger.debug("hermes-adaptive-effort: OpenAI Decisions completed in %.0fms (valid=%s)",
                      (time.monotonic() - started) * 1000, score is not None)
         return score, failure
+
+    def classify_continuation(self, prompt: Optional[str]):
+        """``(probability, failure)`` of one separate yes/no continuation question."""
+        return self.classify_detail(prompt, continuation=True)
 
     def classify_effort_detail(self, prompt: Optional[str], choices: Sequence[str]):
         """Return one route-authorized named choice from OpenAI Decisions."""

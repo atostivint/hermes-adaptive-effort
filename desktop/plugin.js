@@ -104,12 +104,13 @@ function publicStatus(entry) {
     'conversation_id', 'state', 'score', 'label', 'target', 'decision_type', 'choices',
     'cache_behavior', 'mode', 'provider', 'model',
     'api_mode', 'scorer_provider', 'scorer_model', 'requests', 'probes', 'elapsed_ms',
-    'failure', 'updated_at'
+    'failure', 'updated_at', 'continuation', 'held'
   ]
   const result = {}
   for (const field of allowed) {
     const value = entry[field]
-    if (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)) ||
+    if (typeof value === 'string' || typeof value === 'boolean' ||
+        (typeof value === 'number' && Number.isFinite(value)) ||
         (field === 'choices' && Array.isArray(value) &&
           value.every(item => typeof item === 'string' && EFFORT_VALUES.has(item)))) {
       result[field] = value

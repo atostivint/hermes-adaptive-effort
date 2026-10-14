@@ -112,7 +112,8 @@ class CustomClient:
         return self.classify_detail(prompt)[0]
 
     def classify_detail(self, prompt: Optional[str],
-                        choices: Optional[Sequence[str]] = None) -> "tuple[Any, Optional[str]]":
+                        choices: Optional[Sequence[str]] = None, *,
+                        continuation: bool = False) -> "tuple[Any, Optional[str]]":
         if not isinstance(prompt, str) or not prompt.strip():
             return None, "invalid_prompt"
         endpoint, failure = validate_endpoint(self.endpoint)
@@ -133,7 +134,8 @@ class CustomClient:
 
         body = {"state": {"prompt": truncate_prompt(prompt, self.max_prompt_chars)},
                 "model": self.model,
-                "questions": rubric.questions_for(self.classification_instructions, choices)}
+                "questions": (rubric.continuation_questions() if continuation else
+                              rubric.questions_for(self.classification_instructions, choices))}
         headers = {"Accept": "application/json", "Content-Type": "application/json",
                    "User-Agent": "hermes-adaptive-effort/0.1"}
         if self.auth == "bearer":
@@ -173,13 +175,19 @@ class CustomClient:
             return None, "malformed_response"
 
         levels = rubric.normalize_effort_choices(choices)
-        if levels:
+        if continuation:
+            result, failure = rubric.systemone_noul(data)
+        elif levels:
             result, failure = rubric.systemone_choice(data, levels)
         else:
             result, failure = rubric.systemone_score(data)
         logger.debug("hermes-adaptive-effort: custom scorer completed in %.0fms (valid=%s)",
                      (time.monotonic() - started) * 1000, result is not None)
         return result, failure
+
+    def classify_continuation(self, prompt: Optional[str]):
+        """``(probability, failure)`` of one separate yes/no continuation question."""
+        return self.classify_detail(prompt, continuation=True)
 
     def classify_effort_detail(self, prompt: Optional[str], choices: Sequence[str]):
         """Return one route-authorized named effort through this custom protocol."""

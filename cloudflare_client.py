@@ -101,7 +101,8 @@ class CloudflareClient:
         return self.classify_detail(prompt)[0]
 
     def classify_detail(self, prompt: Optional[str],
-                        choices: Optional[Sequence[str]] = None) -> "tuple[Any, Optional[str]]":
+                        choices: Optional[Sequence[str]] = None, *,
+                        continuation: bool = False) -> "tuple[Any, Optional[str]]":
         if not isinstance(prompt, str) or not prompt.strip():
             return None, "invalid_prompt"
         if not valid_account_id(self.account_id):
@@ -115,7 +116,8 @@ class CloudflareClient:
         body = {
             "model": self.model_selector,
             "state": {"prompt": truncate_prompt(prompt, self.max_prompt_chars)},
-            "questions": rubric.questions_for(self.classification_instructions, choices),
+            "questions": (rubric.continuation_questions() if continuation else
+                          rubric.questions_for(self.classification_instructions, choices)),
         }
         request = urllib.request.Request(
             self.endpoint,
@@ -153,6 +155,12 @@ class CloudflareClient:
                 data = payload
         except Exception:
             return None, "malformed_response"
+        if continuation:
+            # Same REST wrapper as every Clef answer: only a successful envelope is read.
+            if (not isinstance(data, dict) or data.get("success") is not True
+                    or data.get("errors")):
+                return None, "malformed_response"
+            return rubric.systemone_noul(data.get("result"))
         levels = rubric.normalize_effort_choices(choices)
         if levels:
             try:
@@ -171,6 +179,10 @@ class CloudflareClient:
         logger.debug("hermes-adaptive-effort: Cloudflare classified in %.0fms (valid=%s)",
                      (time.monotonic() - started) * 1000, score is not None)
         return (score, None) if score is not None else (None, "malformed_response")
+
+    def classify_continuation(self, prompt: Optional[str]):
+        """``(probability, failure)`` of one separate yes/no continuation question."""
+        return self.classify_detail(prompt, continuation=True)
 
     def classify_effort_detail(self, prompt: Optional[str], choices: Sequence[str]):
         """Return one route-authorized named choice from Cloudflare Clef."""

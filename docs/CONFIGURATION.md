@@ -186,6 +186,7 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | `classification_instructions` | empty | Extra guidance, capped at 2,000 characters |
 | `use_target_model_context` | `false` | Include bounded target route/profile context when classifying a request |
 | `dialogue_context_messages` | `0` | Earlier user/assistant text messages (0-6, each at most 1,200 characters) also sent to the scorer as untrusted context; `0` sends none, larger values clamp to 6, invalid or negative values mean `0` |
+| `continuation_downgrade_votes` | `0` | `0` is off; `1`-`5` enables continuation hysteresis (suggested `2`; larger clamps to 5, invalid or negative means `0`). Active only with `dialogue_context_messages` above 0, otherwise ignored and `/hae status full` reports `Continuation: inactive (no dialogue context)` |
 | `effort_models` | empty | Exact model IDs whose effort support the operator asserts |
 | `timeout_s` | `0` | Timeout in seconds for one scoring request. `0`, a negative or an invalid value uses the selected provider's default deadline (table below); any positive value wins, including an explicit `3.0`. A timeout fails open |
 | `scorer_pause_failures` | `3` | Consecutive failed scorer calls (timeout, transport, HTTP, malformed, unexpected) before the selected scorer is paused; `0` disables the pause; negative or invalid values use the default |
@@ -225,6 +226,17 @@ With `use_target_model_context: true`, a request classification also shares targ
 
 With `dialogue_context_messages: N` (1-6), a request classification also shares up to N user and assistant text messages that precede the latest user message, oldest first, each cut to 1,200 characters. It helps a follow-up ("now fix the tests") be judged with the task it refers to. `prompt_chars` still caps only the latest user text. System and developer messages, tool calls, tool results, images and other non-text parts are never included. Subagents (classified from the parent-written goal) and `probe` never carry dialogue context. The block format is in [Contracts](CONTRACTS.md#scorer-input-with-dialogue-context).
 
+### Avoid effort oscillation on one task
+
+```yaml
+settings:
+  mode: always
+  dialogue_context_messages: 4
+  continuation_downgrade_votes: 2
+```
+
+In `always` mode (and `auto` on an exact dynamic route) every new user turn is scored on its own, so a short follow-up can be scored below the work it continues. With `continuation_downgrade_votes: N` the plugin also asks the selected scorer one separate yes/no question (does the latest message continue the task under way?). The call goes out in parallel with the unchanged effort call and shares its `timeout_s` deadline; it carries the same bounded dialogue block and task text, costs one more scorer request per turn, and its failure, timeout or malformed answer is ignored. A probability of 0.5 or more counts as yes. On a continuation a higher choice applies at once, an equal one keeps the level, and a lower one applies only after N consecutive lower votes (until then the previous level is held and re-clamped for the route). A no or unknown answer behaves as before. State is kept per session and exact route and cleared on a route change or reset. `once` and retained `auto` routes are unaffected. Added cost and latency are unmeasured.
+
 ### Assert support for an exact model
 
 `effort_models` accepts comma- or newline-separated exact model IDs, with an optional provider/namespace prefix stripped for matching. It permits adding a missing field only to known Responses or Chat Completions containers.
@@ -239,6 +251,7 @@ This is an operator assertion. It cannot establish dynamic effort support, enabl
 | Eligible classification in an active mode | Bounded latest user text, optional guidance, and the route's allowed effort names when using named-choice classification |
 | Child classification with both gates enabled | Bounded parent-written goal, optional guidance, and allowed effort names on named-choice routes |
 | Request classification with target context enabled | The above task/guidance plus bounded target route/profile context |
+| Continuation call (`continuation_downgrade_votes` above 0, with dialogue context) | The same bounded latest user text and dialogue block, sent as a second, separate request with one yes/no question; never for child classification or `probe` |
 | Request classification with `dialogue_context_messages` above 0 | The above plus up to that many earlier user/assistant texts (each at most 1,200 characters); never for child classification or `probe` |
 | Explicit `probe`, including while `off` | Operator-typed text plus optional guidance; no target context |
 

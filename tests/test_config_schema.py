@@ -109,6 +109,10 @@ def test_config_schema_types_and_defaults_match_middleware():
     assert schema["dialogue_context_messages"]["default"] == 0
     assert middleware.DEFAULTS["dialogue_context_messages"] == 0
     assert "1200" in schema["dialogue_context_messages"]["description"]
+    assert schema["continuation_downgrade_votes"]["type"] == "int"
+    assert schema["continuation_downgrade_votes"]["default"] == 0
+    assert middleware.DEFAULTS["continuation_downgrade_votes"] == 0
+    assert "dialogue_context_messages" in schema["continuation_downgrade_votes"]["description"]
 
 
 def test_config_schema_declares_no_secret():

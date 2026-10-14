@@ -25,6 +25,7 @@ prompt text is stored.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import hashlib
 import json
@@ -69,6 +70,7 @@ DEFAULTS: Dict[str, Any] = {
     "classification_instructions": "",
     "use_target_model_context": False,
     "dialogue_context_messages": 0,
+    "continuation_downgrade_votes": 0,
     "show_tui_status": True,
     "show_desktop_popup": True,
 }
@@ -94,6 +96,9 @@ _PINNED: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 # Claude per-message effort continuity stores only effort labels and private
 # hashes/ordinals for user-message positions; never message text.
 _CLAUDE_HISTORY: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+# Continuation hysteresis (issue #32): per session + provider + exact model + API route, the
+# last applied label and the current lower-vote streak. Effort labels and a counter only.
+_CONTINUITY: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 # Recent effort rewrites are kept in memory for the Desktop event poller. The
 # private decision key deduplicates repeated tool-loop rewrites without ever
 # leaving this module.
@@ -150,6 +155,7 @@ def reset_state() -> None:
         _SESSIONS.clear()
         _PINNED.clear()
         _CLAUDE_HISTORY.clear()
+        _CONTINUITY.clear()
         _IN_FLIGHT.clear()
         _ROUTE_IN_FLIGHT.clear()
         _CHILD_GOALS.clear()
@@ -536,6 +542,7 @@ def _touch(key: str, settings: Dict[str, Any], mode: str,
             entry = {
                 "state": "new", "label": None, "target": None, "score": None,
                 "decision_type": None, "choices": [], "cache_behavior": None,
+                "continuation": None, "held": False,
                 "mode": mode, "provider": provider, "model": model,
                 "scope": "turn",
                 "scorer_provider": settings.get("scorer_provider", _scorers.JEV),
@@ -567,6 +574,7 @@ def _touch_pin(key: str, settings: Dict[str, Any], mode: str,
             entry = {
                 "state": "new", "label": None, "target": None, "score": None,
                 "decision_type": None, "choices": [], "cache_behavior": None,
+                "continuation": None, "held": False,
                 "mode": mode, "provider": provider, "model": model,
                 "scope": "session_route",
                 "api_mode": api_mode,
@@ -622,6 +630,9 @@ def _clear_session_state(session_id: Optional[str], *, clear_history: bool = Fal
         for key in list(_CLAUDE_HISTORY):
             if _CLAUDE_HISTORY[key].get("session_id") == session:
                 _CLAUDE_HISTORY.pop(key, None)
+        for key in list(_CONTINUITY):
+            if _CONTINUITY[key].get("session_id") == session:
+                _CONTINUITY.pop(key, None)
         _IN_FLIGHT.discard(session)
         _CHILD_GOALS.pop(session, None)
     _publish_desktop_decision(session, clear=True)
@@ -870,6 +881,9 @@ def _settings() -> Dict[str, Any]:
             "use_target_model_context", DEFAULTS["use_target_model_context"]),
         "dialogue_context_messages": _dialogue_message_count(
             _read_setting("dialogue_context_messages", DEFAULTS["dialogue_context_messages"])),
+        "continuation_downgrade_votes": _downgrade_votes(
+            _read_setting("continuation_downgrade_votes",
+                          DEFAULTS["continuation_downgrade_votes"])),
         "show_tui_status": _bool("show_tui_status", DEFAULTS["show_tui_status"]),
         "show_desktop_popup": _bool(
             "show_desktop_popup", DEFAULTS["show_desktop_popup"]),
@@ -1222,6 +1236,122 @@ def _dialogue_context(request: Any, count: int) -> "List[Tuple[str, str]]":
         return [(role, _jev_client.truncate_prompt(text.strip(), DIALOGUE_MESSAGE_CHARS))
                 for role, text in earlier]
     return []
+
+
+# ── continuation hysteresis (issue #32) ──────────────────────────────────────
+
+CONTINUATION_MAX_VOTES = 5
+_LEVEL_RANK = {level: index for index, level in enumerate(_rubric.CHOICE_LEVELS)}
+
+
+def _downgrade_votes(value: Any) -> int:
+    """Consecutive lower votes before a downgrade: invalid or negative is 0 (off), above 5 is 5."""
+    if isinstance(value, bool):
+        return 0
+    try:
+        count = int(float(value))
+    except Exception:
+        return 0
+    return max(0, min(count, CONTINUATION_MAX_VOTES))
+
+
+def continuation_state(settings: Dict[str, Any]) -> str:
+    """Operator-facing state of the feature: ``off``, inactive without dialogue, or active."""
+    votes = int(settings.get("continuation_downgrade_votes") or 0)
+    if votes <= 0:
+        return "off"
+    if int(settings.get("dialogue_context_messages") or 0) <= 0:
+        return "inactive (no dialogue context)"
+    return f"active (downgrade after {votes} consecutive lower votes)"
+
+
+def _classify_continuation(prompt: str, settings: Dict[str, Any]) -> "Tuple[Any, Optional[str]]":
+    """One separate yes/no continuation call; ``(probability, failure)``, never raises.
+
+    It deliberately touches neither the circuit breaker nor the latency histogram: only the
+    effort call counts for those. An adapter without the question is simply unsupported.
+    """
+    try:
+        factory = _classifier_factory
+        if factory is None:
+            client, build_failure = _scorers.build_client(settings)
+            if client is None:
+                return None, build_failure or "classifier_error"
+        else:
+            client = _build_client(factory, settings)
+            if client is None:
+                return None, "classifier_error"
+        ask = getattr(client, "classify_continuation", None)
+        if not callable(ask):
+            return None, "unsupported_provider"
+        value, failure = ask(prompt)
+        if value is None:
+            return None, failure or "classifier_error"
+        probability = _rubric.probability(value)
+        return (probability, None) if probability is not None else (None, "malformed_response")
+    except Exception:
+        logger.debug("hermes-adaptive-effort: continuation call raised; ignoring", exc_info=True)
+        return None, "classifier_error"
+
+
+def _start_continuation(prompt: str, settings: Dict[str, Any]) -> Dict[str, Any]:
+    """Launch the continuation call on a worker thread, in parallel with the effort call."""
+    job: Dict[str, Any] = {"result": None, "started": float(_monotonic())}
+    context = contextvars.copy_context()
+
+    def work() -> None:
+        try:
+            job["result"] = context.run(_classify_continuation, prompt, settings)
+        except Exception:
+            job["result"] = None
+
+    thread = threading.Thread(target=work, name="hae-continuation", daemon=True)
+    job["thread"] = thread
+    try:
+        thread.start()
+    except Exception:
+        job["thread"] = None
+    return job
+
+
+def _join_continuation(job: Dict[str, Any], settings: Dict[str, Any]) -> Optional[bool]:
+    """The continuation answer within the shared ``timeout_s`` deadline, else ``None`` (ignored)."""
+    thread = job.get("thread")
+    if thread is None:
+        return None
+    remaining = float(settings["timeout_s"]) - (float(_monotonic()) - float(job["started"]))
+    thread.join(max(0.0, remaining))
+    if thread.is_alive():
+        return None
+    result = job.get("result")
+    if not isinstance(result, tuple) or len(result) != 2 or result[1] is not None:
+        return None
+    return _rubric.is_continuation(result[0])
+
+
+def _hysteresis(route_key: str, session_id: str, label: str, continuation: Optional[bool],
+                votes: int, max_turns: int) -> "Tuple[str, bool]":
+    """Applied label for this turn on this route, and whether it was held at the prior level."""
+    with _lock:
+        prior = _CONTINUITY.get(route_key)
+        # A route change starts fresh: this session's memory of any other route is dropped.
+        for other in [k for k, v in _CONTINUITY.items()
+                      if v.get("session_id") == session_id and k != route_key]:
+            del _CONTINUITY[other]
+        applied, held, streak = label, False, 0
+        previous = prior.get("label") if prior else None
+        if continuation is True and previous in _LEVEL_RANK and label in _LEVEL_RANK:
+            if _LEVEL_RANK[label] < _LEVEL_RANK[previous]:
+                streak = int(prior.get("streak") or 0) + 1
+                if streak < votes:
+                    applied, held = previous, True
+                else:
+                    streak = 0
+        _CONTINUITY[route_key] = {"session_id": session_id, "label": applied, "streak": streak}
+        _CONTINUITY.move_to_end(route_key)
+        while len(_CONTINUITY) > max(1, int(max_turns)):
+            _CONTINUITY.popitem(last=False)
+    return applied, held
 
 
 def _latest_user_text(messages: Any) -> Optional[str]:
@@ -1779,7 +1909,7 @@ def _copy_decision(source: Dict[str, Any], target: Dict[str, Any]) -> None:
     for field in ("state", "label", "target", "score", "failure", "elapsed_ms",
                   "probes", "provider", "model", "api_mode", "scorer_provider",
                   "scorer_model", "updated_at", "decision_type", "choices",
-                  "cache_behavior", "_applied_from"):
+                  "cache_behavior", "continuation", "held", "_applied_from"):
         target[field] = source.get(field)
 
 
@@ -2026,6 +2156,13 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                 # Subagents are classified from the goal their parent wrote: never from dialogue.
                 dialogue = (_dialogue_context(request, settings["dialogue_context_messages"])
                             if child_goal is None else [])
+                # Continuation hysteresis: only where every new user turn is scored (`always`,
+                # `auto` on an exact dynamic route), for a parent session with dialogue context.
+                hysteresis_on = (settings["continuation_downgrade_votes"] > 0
+                                 and settings["dialogue_context_messages"] > 0
+                                 and child_goal is None and not persistent_scope)
+                continuation_job = None
+                continuation_vote: Optional[bool] = None
                 if settings["use_target_model_context"] or dialogue:
                     try:
                         task_text = _jev_client.truncate_prompt(prompt, settings["prompt_chars"])
@@ -2047,9 +2184,16 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                         scoring_settings = settings
                         result, failure = None, "classifier_error"
                     else:
+                        if hysteresis_on and dialogue:
+                            # A separate question on its own call, in parallel with the
+                            # unchanged effort call and bounded by the same deadline.
+                            continuation_job = _start_continuation(
+                                scoring_prompt, scoring_settings)
                         result, failure = _classify_timed(
                             scoring_prompt, scoring_settings,
                             tuple(route_choices) if len(route_choices) > 1 else None)
+                        if continuation_job is not None and not (failure or result is None):
+                            continuation_vote = _join_continuation(continuation_job, settings)
                 else:
                     result, failure = _classify_timed(
                         scoring_prompt, scoring_settings,
@@ -2077,8 +2221,13 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                     _publish_desktop_decision(session_id, provider, model, api_mode, entry)
                     return None
 
+                held = False
                 if len(route_choices) > 1:
                     label = result
+                    if hysteresis_on:
+                        label, held = _hysteresis(
+                            route_key, session_id, label, continuation_vote,
+                            settings["continuation_downgrade_votes"], settings["max_turns"])
                     entry.update(decision_type="native_choice", choices=list(route_choices),
                                  score=None, label=label)
                     target = _effort.map_effort(label, provider, model, route_choices)
@@ -2086,8 +2235,15 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                     score = result
                     entry["score"] = score
                     label = _effort.score_to_label(score)
+                    if label and hysteresis_on:
+                        label, held = _hysteresis(
+                            route_key, session_id, label, continuation_vote,
+                            settings["continuation_downgrade_votes"], settings["max_turns"])
                     entry.update(decision_type="legacy_score", choices=[], label=label)
                     target = _effort.map_effort(label, provider, model) if label else None
+                entry["continuation"] = (None if continuation_vote is None else
+                                         "yes" if continuation_vote else "no")
+                entry["held"] = held
                 entry["target"] = target
                 entry["provider"] = provider
                 entry["model"] = model

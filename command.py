@@ -62,7 +62,7 @@ PROBE_SCHEMA = "hermes-adaptive-effort.probe.v1"
 #: plugin-author payload), so prompt text and provider junk are filtered out.
 _ENTRY_FIELDS = (
     "conversation_id", "state", "score", "label", "target", "decision_type", "choices",
-    "cache_behavior", "mode", "provider", "model", "api_mode",
+    "cache_behavior", "continuation", "held", "mode", "provider", "model", "api_mode",
     "scorer_provider", "scorer_model",
     "requests", "probes", "elapsed_ms", "failure", "updated_at",
 )
@@ -314,6 +314,7 @@ def _status_payload(conversation_id: Optional[str] = None) -> Dict[str, Any]:
     configured_guidance = public_settings.pop("classification_instructions", "")
     public_settings["classification_instructions_configured"] = bool(configured_guidance)
     public_settings["classification_instructions_chars"] = len(configured_guidance)
+    public_settings["continuation"] = _middleware.continuation_state(settings)
     # A custom endpoint can carry harmless routing parameters (or, despite our
     # guidance, an accidentally embedded token). Never expose query values.
     public_settings["custom_endpoint"] = _scorers.safe_endpoint_display(
@@ -501,7 +502,8 @@ def _status_full_text() -> str:
     ]
     if entry:
         for field in ("provider", "model", "api_mode", "decision_type", "choices",
-                      "score", "label", "target", "cache_behavior", "cache_verdict",
+                      "score", "label", "target", "continuation", "held",
+                      "cache_behavior", "cache_verdict",
                       "requests", "probes", "elapsed_ms", "failure"):
             value = entry.get(field)
             if value is not None:
@@ -516,6 +518,8 @@ def _status_full_text() -> str:
         *([f"Dialogue context: up to {settings['dialogue_context_messages']} earlier "
            f"user/assistant messages, {_middleware.DIALOGUE_MESSAGE_CHARS} characters each "
            "(contents remain private)"] if settings.get("dialogue_context_messages") else []),
+        *([f"Continuation: {settings['continuation']}"]
+          if settings.get("continuation_downgrade_votes") else []),
         f"Display: TUI={'on' if settings['show_tui_status'] else 'off'} · "
         f"Desktop popup={'on' if settings['show_desktop_popup'] else 'off'}",
     ])

@@ -118,16 +118,17 @@ class NaceClient:
         return self.classify_detail(prompt)[0]
 
     def classify_detail(self, prompt: Optional[str],
-                        choices: Optional[Sequence[str]] = None) -> "tuple[Any, Optional[str]]":
+                        choices: Optional[Sequence[str]] = None, *,
+                        continuation: bool = False) -> "tuple[Any, Optional[str]]":
         """``(score, failure)``; ``failure`` is a reason code, never prompt text."""
         try:
-            return self._classify_detail(prompt, choices)
+            return self._classify_detail(prompt, choices, continuation)
         except Exception:
             logger.debug("hermes-adaptive-effort: Nace classification raised; failing open")
             return None, "unexpected_error"
 
-    def _classify_detail(self, prompt: Optional[str],
-                         choices: Optional[Sequence[str]]) -> "tuple[Any, Optional[str]]":
+    def _classify_detail(self, prompt: Optional[str], choices: Optional[Sequence[str]],
+                         continuation: bool = False) -> "tuple[Any, Optional[str]]":
         if not isinstance(prompt, str) or not prompt.strip():
             return None, "invalid_prompt"
         key = self._key()
@@ -139,7 +140,8 @@ class NaceClient:
         body = {
             "model": self.model,
             "state": {"prompt": truncate_prompt(prompt, self.max_prompt_chars)},
-            "questions": rubric.questions_for(self.classification_instructions, choices),
+            "questions": (rubric.continuation_questions() if continuation else
+                          rubric.questions_for(self.classification_instructions, choices)),
         }
         request = urllib.request.Request(
             self.endpoint,
@@ -184,13 +186,19 @@ class NaceClient:
             return None, "malformed_response"
 
         levels = rubric.normalize_effort_choices(choices)
-        if levels:
+        if continuation:
+            result, failure = rubric.systemone_noul(data)
+        elif levels:
             result, failure = rubric.systemone_choice(data, levels)
         else:
             result, failure = rubric.systemone_score(data)
         logger.debug("hermes-adaptive-effort: Nace classified in %.0fms (valid=%s, failure=%s)",
                      (time.monotonic() - started) * 1000, result is not None, failure)
         return result, failure
+
+    def classify_continuation(self, prompt: Optional[str]):
+        """``(probability, failure)`` of one separate yes/no continuation question."""
+        return self.classify_detail(prompt, continuation=True)
 
     def classify_effort_detail(self, prompt: Optional[str], choices: Sequence[str]):
         """Return one route-authorized named level using a System One choice question."""
