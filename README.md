@@ -26,23 +26,107 @@ An older CLI may require installation without `--enable`, followed by:
 hermes plugins enable hermes-adaptive-effort
 ```
 
-### 2. Provide the scorer key
+### 2. Choose a scorer and provide its key
 
-For the default Jev scorer, make `TYPESAFE_API_KEY` available before launching Hermes.
+Any one scorer is enough; Jev is only the default. Pick one:
 
-Linux / macOS:
+| Scorer | `scorer_provider` | Key variable | Also required |
+| --- | --- | --- | --- |
+| Jev (TypeSafe) | `jev` (default) | `TYPESAFE_API_KEY` | Nothing |
+| OpenAI Decisions | `openai_decision` | `OPENAI_API_KEY` | Nothing (`gpt-6-luna` by default) |
+| OpenRouter Decisions | `openrouter` | `OPENROUTER_API_KEY` | A decision model in `scorer_model` |
+| Cloudflare Clef | `cloudflare` | `CLOUDFLARE_AUTH_TOKEN` | Your 32-hex `cloudflare_account_id` |
+| Nace Drex | `nace` | `NACE_API_KEY` | Nothing (`drex-v2.0` by default) |
+| Custom / local System One server | `custom` | none, or `CUSTOM_SCORER_API_KEY` | `custom_endpoint` and `scorer_model` |
 
-```bash
-export TYPESAFE_API_KEY="YOUR_KEY"
+Put the key in the `.env` file of the Hermes profile that serves your requests (`~/.hermes/.env` on Linux/macOS, `%LOCALAPPDATA%\hermes\.env` on Windows for the default profile), for example:
+
+```dotenv
+OPENAI_API_KEY=YOUR_KEY
 ```
 
-Windows PowerShell:
+Then select the scorer in Desktop (**Capabilities → Plugins → Hermes Adaptive Effort**) or in the `plugins.entries.hermes-adaptive-effort.settings` block of `config.yaml`. Keep keys out of `config.yaml`.
 
-```powershell
-$env:TYPESAFE_API_KEY = "YOUR_KEY"
+<details>
+<summary><b>Jev</b> — default, no extra setting</summary>
+
+Get `TYPESAFE_API_KEY` from your TypeSafe account. No setting is needed; to be explicit:
+
+```yaml
+settings:
+  scorer_provider: jev
 ```
 
-These examples apply to the current terminal session. For persistent keys, services, another scorer or a local model, follow the [configuration guide](docs/CONFIGURATION.md). Keep secrets out of `config.yaml`.
+</details>
+
+<details>
+<summary><b>OpenAI Decisions</b></summary>
+
+Use an `OPENAI_API_KEY` from your OpenAI API account. The plugin calls the fixed Decisions endpoint with `gpt-6-luna` unless `scorer_model` names another model.
+
+```yaml
+settings:
+  scorer_provider: openai_decision
+```
+
+</details>
+
+<details>
+<summary><b>OpenRouter Decisions</b></summary>
+
+Create an [OpenRouter key](https://openrouter.ai/keys) as `OPENROUTER_API_KEY` and name a **decision model** (a chat model slug does not work):
+
+```yaml
+settings:
+  scorer_provider: openrouter
+  scorer_model: "typesafe/jev-1.13"   # or another OpenRouter decision model, e.g. cloudflare/clef-omni
+```
+
+</details>
+
+<details>
+<summary><b>Cloudflare Clef, Clef Flash or Clef Omni</b></summary>
+
+In **Cloudflare dashboard → Workers AI → Use REST API**, create a Workers AI token (`CLOUDFLARE_AUTH_TOKEN`) and copy your Account ID:
+
+```yaml
+settings:
+  scorer_provider: cloudflare
+  cloudflare_account_id: "YOUR_32_HEX_ACCOUNT_ID"
+  cloudflare_model: clef   # clef, clef-flash or clef-omni
+```
+
+</details>
+
+<details>
+<summary><b>Nace Drex</b></summary>
+
+Create a key in the [Nace console](https://console.nace.ai) as `NACE_API_KEY` (the legacy `DREX_API_KEY` is still read):
+
+```yaml
+settings:
+  scorer_provider: nace
+  nace_model: drex-v2.0
+```
+
+</details>
+
+<details>
+<summary><b>Custom or local System One server</b></summary>
+
+Point the plugin at a server you run that speaks the System One format. No cloud account is needed:
+
+```yaml
+settings:
+  scorer_provider: custom
+  custom_endpoint: "http://127.0.0.1:8099/v1/systemone"
+  scorer_model: "YOUR_SERVED_MODEL_NAME"
+  custom_auth: none   # or bearer, with CUSTOM_SCORER_API_KEY in .env
+```
+
+</details>
+
+A key exported only in a terminal (`export OPENAI_API_KEY=...`, or `$env:OPENAI_API_KEY = "..."` in PowerShell) reaches only a Hermes started from that terminal, not a running gateway or Desktop agent. The [configuration guide](docs/CONFIGURATION.md#configure-your-scorer) covers each scorer in detail: endpoints, defaults, data handling and failure behavior.
 
 ### 3. Restart the serving Hermes process
 
