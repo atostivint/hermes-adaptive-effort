@@ -187,6 +187,7 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | `use_target_model_context` | `false` | Include bounded target route/profile context when classifying a request |
 | `dialogue_context_messages` | `0` | Earlier user/assistant text messages (0-6, each at most 1,200 characters) also sent to the scorer as untrusted context; `0` sends none, larger values clamp to 6, invalid or negative values mean `0` |
 | `continuation_downgrade_votes` | `0` | `0` is off; `1`-`5` enables continuation hysteresis (suggested `2`; larger clamps to 5, invalid or negative means `0`). Active only with `dialogue_context_messages` above 0, otherwise ignored and `/hae status full` reports `Continuation: inactive (no dialogue context)` |
+| `tool_error_escalation` | `true` | Raise effort one level, locally, when the same tool error repeats after a file edit within one turn. Applies only on exact dynamic-effort routes (never Claude); `false` disables it entirely. See [Raise effort on repeated tool errors](#raise-effort-on-repeated-tool-errors) |
 | `effort_models` | empty | Exact model IDs whose effort support the operator asserts |
 | `timeout_s` | `0` | Timeout in seconds for one scoring request. `0`, a negative or an invalid value uses the selected provider's default deadline (table below); any positive value wins, including an explicit `3.0`. A timeout fails open |
 | `scorer_pause_failures` | `3` | Consecutive failed scorer calls (timeout, transport, HTTP, malformed, unexpected) before the selected scorer is paused; `0` disables the pause; negative or invalid values use the default |
@@ -236,6 +237,17 @@ settings:
 ```
 
 In `always` mode (and `auto` on an exact dynamic route) every new user turn is scored on its own, so a short follow-up can be scored below the work it continues. With `continuation_downgrade_votes: N` the plugin also asks the selected scorer one separate yes/no question (does the latest message continue the task under way?). The call goes out in parallel with the unchanged effort call and shares its `timeout_s` deadline; it carries the same bounded dialogue block and task text, costs one more scorer request per turn, and its failure, timeout or malformed answer is ignored. A probability of 0.5 or more counts as yes. On a continuation a higher choice applies at once, an equal one keeps the level, and a lower one applies only after N consecutive lower votes (until then the previous level is held and re-clamped for the route). A no or unknown answer behaves as before. State is kept per session and exact route and cleared on a route change or reset. `once` and retained `auto` routes are unaffected. Added cost and latency are unmeasured.
+
+### Raise effort on repeated tool errors
+
+`tool_error_escalation` is on by default and needs no scorer call. When the same tool error appears twice in one user turn with a `write_file` or `patch` call in between (a turn stuck on the same failing test), the plugin raises the effort one level within the route's own choices for the rest of that turn. It acts once per distinct error, never lowers effort, never selects `none` or `ultra`, and does nothing at the top of the route's list. The next user turn starts from its normal decision again.
+
+- Only exact dynamic-effort routes (the OpenCode Go/Zen control routes and `openai-codex/gpt-6.1-sol`) are affected. Claude routes, `effort_models` additions and every other route keep their previous behaviour, so no cache-sensitive route is touched. The effect on cost, latency and cache hits is unmeasured.
+- An error is a tool result whose JSON has a non-empty `error` or a non-zero `exit_code` (or an Anthropic `tool_result` with `is_error`). Only the last 20 tool results of the current turn are compared.
+- The error text is normalised (colours, line endings, `file.py:123` positions, timings, hex addresses, temp paths) and only its SHA-256 is compared in memory. Nothing is sent anywhere, and the text or hash never appears in status, logs, the history store or the change feed.
+- The raise is recorded in the applied-change feed like any rewrite; the status entry shows `escalated: true` and `escalation_reason: repeated_tool_error`.
+
+Set `tool_error_escalation: false` to turn it off.
 
 ### Assert support for an exact model
 

@@ -111,6 +111,21 @@ Selection is explicit: Jev, OpenAI Decisions, OpenRouter, Cloudflare, Nace or cu
 | Nace | System One `POST /v1/systemone` on `https://console.nace.ai` (or `NACE_BASE_URL`, a base gets `/v1/systemone`) with `nace_model` (default pinned `drex-v2.0`); `choice` question and `answers.effort.choice` on registered routes, otherwise the shared score question and `answers.effort.score`. `confidence`/`probabilities` are ignored. The response `model` may name an older Drex model for over-long requests and is never checked. Every non-2xx status (401, 402, 422, 429, 5xx) fails open as `http_error`; only the transient statuses of the retry rule below get one retry |
 | Custom System One | Exact configured URL/model (the only custom format; a configured `chat_completions` fails open as `unsupported_api_format` with no network call); choice question on exact-choice routes, otherwise score question; read the matching `answers.effort.choice` or `.score` |
 
+### Tool-error escalation
+
+`tool_error_escalation` (bool, default `true`) lets a repeated tool error raise effort locally. Scope: an exact dynamic route (`_dynamic_effort_route`), never an `anthropic` provider, in `auto`, `once` and `always` (and `subagent_mode` for children). With the setting `false` the code path is skipped and request handling is unchanged.
+
+| Part | Contract |
+| --- | --- |
+| Error | A tool result (Chat `role: tool` content, Responses `function_call_output.output`) whose JSON has a non-empty `error` or a non-zero numeric `exit_code`; text is `error` plus, for a non-zero exit, `output`. `guardrail_refusal: true` never counts. An Anthropic `tool_result` with `is_error: true` counts. Non-JSON text never counts. |
+| Edit attempt | An assistant call to `write_file` or `patch` (Hermes `FILE_MUTATING_TOOL_NAMES`), whether or not it succeeded |
+| Fingerprint | ANSI stripped, line endings unified, source positions, durations, hex addresses and temp paths replaced by placeholders, last 2,000 characters, SHA-256. Empty text has none |
+| Window | The current user turn, last 20 tool results |
+| Trigger | The same fingerprint again with an edit attempt after its previous occurrence |
+| Effect | One level up within the route's choices (`CHOICE_LEVELS` order) for the rest of the turn; once per fingerprint; never down; never `none`/`ultra`; none at the top; re-derived on each request so a route change re-clamps it |
+| Surfaces | Applied through the single rewrite return point, so the change feed records `from -> to` once. The decision entry gains `escalated` (bool) and `escalation_reason` (`"repeated_tool_error"` or `null`), additive in status v2, the Desktop decision event v2 and the history store; `target` stays the decision's level |
+| Privacy | No scorer call, nothing shared. Digests live only in the in-memory turn record (bounded by `max_turns`); error text and digests never appear in status, logs, the history store, the feed or events |
+
 ### Continuation call and hysteresis
 
 `continuation_downgrade_votes` (int, default 0 = off, 0-5; invalid or negative means 0) is active only when `dialogue_context_messages` is above 0 and the request is classified per turn (`always`, or `auto` on an exact dynamic route) for a parent session; otherwise it is ignored and status reports `Continuation: inactive (no dialogue context)` (or `off`). When active and an earlier message exists, a second, separate scorer request is sent in parallel with the effort request, with the same prompt (task plus dialogue block) and a fixed question; it is never batched into the effort request, whose body is unchanged, and it shares the effort call's `timeout_s` deadline (an answer arriving after the deadline is ignored). Only the effort call counts for the circuit breaker and latency histogram; the continuation call has no retry beyond the transient-status rule of the adapter.

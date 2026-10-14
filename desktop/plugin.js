@@ -104,7 +104,7 @@ function publicStatus(entry) {
     'conversation_id', 'state', 'score', 'label', 'target', 'decision_type', 'choices',
     'cache_behavior', 'mode', 'provider', 'model',
     'api_mode', 'scorer_provider', 'scorer_model', 'requests', 'probes', 'elapsed_ms',
-    'failure', 'updated_at', 'continuation', 'held'
+    'failure', 'updated_at', 'continuation', 'held', 'escalated', 'escalation_reason'
   ]
   const result = {}
   for (const field of allowed) {
