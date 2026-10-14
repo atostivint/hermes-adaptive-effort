@@ -440,7 +440,9 @@ def _status_full_text() -> str:
             if value is not None:
                 lines.append(f"{field.replace('_', ' ').title()}: {value}")
     lines.extend([
-        f"Timeout: {settings['timeout_s']} s · retained turns: {settings['max_turns']} · "
+        f"Timeout: {settings['timeout_s']} s "
+        f"({'configured' if settings.get('timeout_source') == 'configured' else 'provider default'})"
+        f" · retained turns: {settings['max_turns']} · "
         f"task text limit: {settings['prompt_chars']} characters",
         f"Classifier guidance: {'configured' if settings.get('classification_instructions_configured') else 'default'} "
         f"(contents remain private; limit={_middleware._rubric.MAX_CLASSIFICATION_INSTRUCTION_CHARS} characters)",

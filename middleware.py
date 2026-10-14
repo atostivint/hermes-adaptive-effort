@@ -50,7 +50,7 @@ VALID_MODES: Tuple[str, ...] = ("auto", "once", "always", "off")
 DEFAULTS: Dict[str, Any] = {
     "mode": "off",
     "subagent_mode": "off",
-    "timeout_s": _jev_client.DEFAULT_TIMEOUT_S,
+    "timeout_s": 0.0,
     "max_turns": 64,
     "scorer_pause_failures": 3,
     "scorer_pause_s": 60.0,
@@ -779,11 +779,25 @@ def _settings() -> Dict[str, Any]:
 
     effort_models = _read_setting("effort_models", DEFAULTS["effort_models"])
 
+    scorer_provider = str(_read_setting(
+        "scorer_provider", DEFAULTS["scorer_provider"]) or _scorers.JEV).strip().lower()
+    # 0, negative or invalid -> the selected provider's default deadline.
+    try:
+        timeout_configured = float(_read_setting("timeout_s", DEFAULTS["timeout_s"]))
+        if not timeout_configured > 0 or timeout_configured == float("inf"):
+            timeout_configured = 0.0
+    except Exception:
+        timeout_configured = 0.0
+    timeout_effective = (timeout_configured if timeout_configured > 0
+                         else _scorers.default_timeout_s(scorer_provider))
+
     settings = {
         "mode": mode,
         "mode_source": mode_source,
         "subagent_mode": subagent_mode,
-        "timeout_s": _num("timeout_s", DEFAULTS["timeout_s"]),
+        "timeout_s": timeout_effective,
+        "timeout_s_configured": timeout_configured,
+        "timeout_source": "configured" if timeout_configured > 0 else "provider_default",
         "max_turns": _int("max_turns", DEFAULTS["max_turns"]),
         "scorer_pause_failures": _nonneg_int(
             "scorer_pause_failures", DEFAULTS["scorer_pause_failures"]),
@@ -794,8 +808,7 @@ def _settings() -> Dict[str, Any]:
         # The URL the client will actually POST to: the setting above may name the
         # API base instead of the scoring route, and a mismatch is invisible until
         # every classification fails open. Reported so `status` shows the truth.
-        "scorer_provider": str(_read_setting(
-            "scorer_provider", DEFAULTS["scorer_provider"]) or _scorers.JEV).strip().lower(),
+        "scorer_provider": scorer_provider,
         "jev_model": str(_read_setting(
             "jev_model", DEFAULTS["jev_model"]) or DEFAULTS["jev_model"]).strip()
         or DEFAULTS["jev_model"],

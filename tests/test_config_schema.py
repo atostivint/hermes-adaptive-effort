@@ -77,7 +77,7 @@ def test_custom_scorer_schema_defaults_and_choices_match_settings():
 def test_config_schema_types_and_defaults_match_middleware():
     schema = _load_manifest()["config_schema"]
     assert schema["timeout_s"]["type"] == "float"
-    assert float(schema["timeout_s"]["default"]) == float(middleware.DEFAULTS["timeout_s"])
+    assert float(schema["timeout_s"]["default"]) == float(middleware.DEFAULTS["timeout_s"]) == 0
     assert schema["max_turns"]["type"] == "int"
     assert int(schema["max_turns"]["default"]) == int(middleware.DEFAULTS["max_turns"])
     assert schema["scorer_pause_failures"]["type"] == "int"
