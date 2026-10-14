@@ -453,11 +453,14 @@ def _sync_cli_status(settings: Optional[Dict[str, Any]] = None) -> None:
 
 
 def _transition_text(previous: Any, decided: Any) -> str:
-    """``low → high`` label shared by the terminal item; the internal ``absent`` reads ``default``."""
+    """``low -> high`` label for the terminal item; the internal ``absent`` reads ``default``.
+
+    ASCII arrow on purpose: a Windows console status bar renders ``→`` as a replacement box
+    (see the ``N/A`` placeholder note in ``__init__``). Desktop renders ``→`` itself."""
     def shown(value: Any) -> str:
         text = str(value) if value else "default"
         return "default" if text == "absent" else text
-    return f"{shown(previous)} → {shown(decided)}"
+    return f"{shown(previous)} -> {shown(decided)}"
 
 
 def _update_cli_status(value: str) -> None:

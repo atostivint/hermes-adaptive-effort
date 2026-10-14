@@ -224,7 +224,7 @@ def test_injection_shows_default_to_decided_and_records_absent_as_previous(monke
     monkeypatch.setattr(middleware, "_CLI_STATUS_HANDLE",
                         types.SimpleNamespace(update=texts.append))
     muse_call(muse_request(reasoning={"summary": "auto"}))
-    assert texts[-1] == "default \u2192 high"
+    assert texts[-1] == "default -> high"
     entry = middleware.session_state()["s1/t1"]
     assert entry["previous"] == "absent"
     assert middleware.effort_change_state()["latest"]["from"] == "absent"  # feed keeps `absent`

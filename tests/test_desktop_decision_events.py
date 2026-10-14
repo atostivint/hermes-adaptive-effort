@@ -184,7 +184,7 @@ def test_tui_status_shows_previous_to_decided_without_prefix(monkeypatch):
     assert middleware._CLI_STATUS_TEXT == "N/A"
     invoke()  # medium -> high
 
-    assert handle.texts[-1] == "medium \u2192 high"
+    assert handle.texts[-1] == "medium -> high"
     assert payloads(events)[-1]["status"]["previous"] == "medium"
     assert middleware.effort_change_state()["events"][-1]["from"] == "medium"
 
@@ -203,7 +203,7 @@ def test_no_change_decision_shows_the_kept_level_without_feed_or_notice(monkeypa
 
     assert invoke(request=request) is None
 
-    assert handle.texts[-1] == "high \u2192 high"
+    assert handle.texts[-1] == "high -> high"
     assert middleware.effort_change_state()["events"] == []
     assert notices == []
     last = payloads(events)[-1]
