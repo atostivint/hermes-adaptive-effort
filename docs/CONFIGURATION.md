@@ -204,6 +204,7 @@ When `timeout_s` is `0` (the default) the deadline follows the selected `scorer_
 | `openrouter` | 3.0 s |
 | `cloudflare` | 3.0 s |
 | `openai_decision` | 3.0 s |
+| `nace` | 3.0 s |
 | `custom` | 10.0 s (often fronts a local model that must load on its first call; a longer cold start still fails open on that call) |
 
 These values are not measured on this plugin's traffic; the Jev/Clef figures come from claude-router's synthetic probe. `/hae status` shows the effective value and whether it is a provider default or configured. Installs that never set `timeout_s` move to these values automatically; the plugin never rewrites configuration.
