@@ -44,6 +44,7 @@ CI runs this harness alongside the JavaScript syntax check; see [CI](CI.md#funct
 | `middleware.py` | Gates, turn/route decisions, request copies, child registry, applied changes and Desktop events |
 | `effort.py`, `cache_safety.py` | Named choice/legacy score mapping, exact route registry and transport cache evidence |
 | `scorers.py`, `*_client.py` | Explicit provider selection, credentials, endpoint display and scorer adapters |
+| `scorer_retry.py` | One retry of a transient scorer HTTP status inside the `timeout_s` deadline, injectable clock/sleep |
 | `rubric.py` | Shared named-choice and legacy score questions, guidance and strict response validation |
 | `model_profiles.py`, `model_profiles.json` | Local exact-ID reference catalog and bounded optional context |
 | `command.py` | `/hae` commands and public status allowlist |
@@ -63,7 +64,7 @@ A function autouse fixture resets plugin state and substitutes empty settings, s
 | Request preservation, modes, turn/route reuse and concurrency | `test_middleware.py`, `test_command_modes.py`, `test_turn_scope.py`, `test_decision_cache.py`, `test_cache_safety.py` |
 | Mapping, rubric and exact model context | `test_effort.py`, `test_rubric.py`, `test_model_profiles.py` |
 | Named choices, scorer formats, exact route options and Claude turn markers | `test_named_effort_choices.py`, `test_native_choice_middleware.py` |
-| Scorer construction and transports | `test_scorers.py`, `test_jev_client.py`, `test_openai_decision_client.py`, `test_openrouter_client.py`, `test_cloudflare_client.py`, `test_nace_client.py`, `test_custom_client.py` |
+| Scorer construction and transports | `test_scorers.py`, `test_jev_client.py`, `test_openai_decision_client.py`, `test_openrouter_client.py`, `test_cloudflare_client.py`, `test_nace_client.py`, `test_custom_client.py`, `test_scorer_retry.py` |
 | Child lifecycle and routing | `test_subagent.py` |
 | Commands, manifest/settings parity and real host integration | `test_command.py`, `test_plugin_registration.py`, `test_config_schema.py`, `test_dispatcher_integration.py` |
 | Bounded prompt-free conversation history and CLI rendering | `test_history_store.py` |

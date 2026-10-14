@@ -108,13 +108,13 @@ Selection is explicit: Jev, OpenAI Decisions, OpenRouter, Cloudflare, Nace or cu
 | OpenAI Decisions | Fixed `/v1/decisions`; one bounded string input; exact-choice routes use one `effort` choice question and accept its named answer, otherwise accept one valid `effort` score answer |
 | OpenRouter | Fixed Chat Completions endpoint, explicit model, JSON response request and 32-token completion cap; require ZDR and deny data collection |
 | Cloudflare | Account-scoped Clef/Clef Flash route; require `success: true`, no reported errors and a valid named choice or legacy `result.answers.effort.score` |
-| Nace | System One `POST /v1/systemone` on `https://console.nace.ai` (or `NACE_BASE_URL`, a base gets `/v1/systemone`) with `nace_model` (default pinned `drex-v2.0`); `choice` question and `answers.effort.choice` on registered routes, otherwise the shared score question and `answers.effort.score`. `confidence`/`probabilities` are ignored. The response `model` may name an older Drex model for over-long requests and is never checked. Every non-2xx status (401, 402, 422, 429, 5xx) fails open as `http_error` with no retry |
+| Nace | System One `POST /v1/systemone` on `https://console.nace.ai` (or `NACE_BASE_URL`, a base gets `/v1/systemone`) with `nace_model` (default pinned `drex-v2.0`); `choice` question and `answers.effort.choice` on registered routes, otherwise the shared score question and `answers.effort.score`. `confidence`/`probabilities` are ignored. The response `model` may name an older Drex model for over-long requests and is never checked. Every non-2xx status (401, 402, 422, 429, 5xx) fails open as `http_error`; only the transient statuses of the retry rule below get one retry |
 | Custom System One | Exact configured URL/model; choice question on exact-choice routes, otherwise score question; read the matching `answers.effort.choice` or `.score` |
 | Custom Chat Completions | Exact configured URL/model, JSON response request, temperature zero, no streaming and 32-token cap; exact-choice routes require only `{"effort":"<allowed level>"}`, other routes require the legacy finite `0..2` score JSON |
 
 Custom servers used with an exact-choice route must implement the named-choice contract. A server that only returns scores fails open on such a route; there is no second request or legacy retry. A probe always uses the legacy score contract.
 
-Custom endpoints must be valid HTTP(S) URLs without embedded credentials or fragments. Auth `none` performs no key lookup; `bearer` requires the custom key. Status masks query values. The adapters do not follow redirects or retry transport errors. OpenAI Decisions confidence/probabilities do not change the shared thresholds.
+Custom endpoints must be valid HTTP(S) URLs without embedded credentials or fragments. Auth `none` performs no key lookup; `bearer` requires the custom key. Status masks query values. The adapters do not follow redirects or retry timeouts or transport errors. OpenAI Decisions confidence/probabilities do not change the shared thresholds.
 
 [Configuration](CONFIGURATION.md#configure-your-scorer) owns model defaults, keys and endpoint setup. [Data sharing](CONFIGURATION.md#data-sharing) owns the shared input and provider-retention boundary.
 
@@ -135,6 +135,14 @@ Custom endpoints must be valid HTTP(S) URLs without embedded credentials or frag
 | Internal plugin exception | Original request | No retry by the middleware |
 
 Scoring deadline: `timeout_s` of `0`, negative or invalid means the selected provider's default (`scorers.PROVIDER_TIMEOUT_S`); a positive value wins. `status` settings expose the effective `timeout_s`, `timeout_s_configured` (raw operator value, `0` when unset) and `timeout_source` (`provider_default` | `configured`), additively within status schema v2. A timeout still fails open with `timeout` and counts toward the circuit breaker.
+
+Transient scorer HTTP errors (`scorer_retry.py`, every adapter and `/hae probe`): a scorer call that ends in HTTP 408, 429, 500, 502, 503 or 504 is repeated **once**, never more.
+
+- The retry happens only if at least 300 ms of the `timeout_s` deadline remain after the wait. Its own timeout is the remaining budget, so the whole call (attempt, wait, retry) never exceeds `timeout_s`.
+- The wait is the `Retry-After` header (delay-seconds or HTTP-date) when present and usable, otherwise 100 ms. A `Retry-After` that does not fit the remaining budget means no retry, and the first attempt's `http_error` stands.
+- Never retried: a timeout, a connection or other transport error, any other status (400, 401, 403, 404, 422, ...), and any answer that was received (malformed, refused or out-of-list); invariant 5 is unchanged for answers.
+- Reason codes do not change; a failed retry reports the second attempt's reason (`http_error`, `timeout`, `transport_error`, ...).
+- The middleware sees one scorer call: the circuit breaker counts at most one failure and the latency histogram records one sample (retry included) per decision, and the one-decision-per-turn rule is unchanged.
 
 Stable scorer failure codes: `invalid_prompt`, `credential_missing`, `http_error`, `timeout`, `transport_error`, `malformed_response`, `unexpected_error`, `classifier_error`.
 

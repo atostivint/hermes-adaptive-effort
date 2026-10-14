@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Scorer calls that end in a transient HTTP status (408, 429, 500, 502, 503, 504) are retried once inside the existing `timeout_s` deadline (at least 300 ms must remain; `Retry-After` honoured only if it fits, else a 100 ms wait); timeouts, transport errors, other statuses and received answers are never retried, and the breaker and latency histogram see one call
 - Scorer deadline is now a per-provider default (`timeout_s: 0`): Jev 3.0 → 2.0 s, custom 3.0 → 10.0 s, others 3.0 s; installs that never set `timeout_s` move automatically, a positive value still wins, and configuration is never rewritten
 
 ### Added
