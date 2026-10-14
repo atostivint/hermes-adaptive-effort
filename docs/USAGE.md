@@ -122,7 +122,7 @@ Start with `/hae status`. Do not probe private conversation text to diagnose an 
 | `account_missing` / `account_invalid` | Cloudflare account ID is absent or not 32 hexadecimal characters | Correct `cloudflare_account_id` |
 | `endpoint_missing` / `endpoint_invalid` | Custom URL is absent or invalid | Supply the complete HTTP(S) route without embedded credentials/fragments |
 | `unsupported_api_format` / `unsupported_auth` | Custom format or auth value is unknown | Use `systemone`/`chat_completions` and `none`/`bearer` |
-| `failed` with `timeout`, `http_error` or `transport_error` | Scorer request failed | Check the selected endpoint/access; consider cold-model startup and `timeout_s` |
+| `failed` with `timeout`, `http_error` or `transport_error` | Scorer request failed | Check the selected endpoint/access; consider cold-model startup and raise `timeout_s` above the provider default shown by `/hae status full` |
 | `malformed_response` | Score or named choice does not match the adapter contract | Check the exact allowed choices for that route, or the finite `0..2` score contract for legacy routes and probes |
 | `unsupported`, `effort_control_unsupported`, zero probes | No writable control or authorized missing-field insertion | Check the exact route in [Compatibility](MODEL_COMPATIBILITY.md) |
 | `reasoning_disabled` | Reasoning is explicitly disabled | Review the original model setting; routing preserves it |

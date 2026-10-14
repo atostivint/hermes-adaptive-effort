@@ -133,6 +133,8 @@ Custom endpoints must be valid HTTP(S) URLs without embedded credentials or frag
 | Target already matches | Valid decision, no rewrite/event | Reused decision or one classification |
 | Internal plugin exception | Original request | No retry by the middleware |
 
+Scoring deadline: `timeout_s` of `0`, negative or invalid means the selected provider's default (`scorers.PROVIDER_TIMEOUT_S`); a positive value wins. `status` settings expose the effective `timeout_s`, `timeout_s_configured` (raw operator value, `0` when unset) and `timeout_source` (`provider_default` | `configured`), additively within status schema v2. A timeout still fails open with `timeout` and counts toward the circuit breaker.
+
 Stable scorer failure codes: `invalid_prompt`, `credential_missing`, `http_error`, `timeout`, `transport_error`, `malformed_response`, `unexpected_error`, `classifier_error`.
 
 Configuration codes: `model_missing`, `unsupported_provider`, `account_missing`, `account_invalid`, `endpoint_missing`, `endpoint_invalid`, `unsupported_api_format`, `unsupported_auth`.

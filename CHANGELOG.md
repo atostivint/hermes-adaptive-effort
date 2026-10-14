@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Scorer deadline is now a per-provider default (`timeout_s: 0`): Jev 3.0 → 2.0 s, custom 3.0 → 10.0 s, others 3.0 s; installs that never set `timeout_s` move automatically, a positive value still wins, and configuration is never rewritten
+
 ### Added
 
 - Scorer circuit breaker: after `scorer_pause_failures` consecutive scorer failures the selected scorer is paused for `scorer_pause_s` seconds (reason `scorer_paused`, `scorer_pause` in `status json`)
