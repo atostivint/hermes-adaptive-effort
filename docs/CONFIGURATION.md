@@ -36,7 +36,7 @@ Required keys resolve through Hermes' secret scope first, then the process envir
 | --- | --- | --- |
 | Jev | `TYPESAFE_API_KEY` | None; `jev_model` defaults to `jev-latest` |
 | OpenAI Decisions | `OPENAI_API_KEY` | None; empty `scorer_model` uses `gpt-6-luna` |
-| OpenRouter | `OPENROUTER_API_KEY` | Explicit `scorer_model` slug |
+| OpenRouter | `OPENROUTER_API_KEY` | Explicit `scorer_model` naming an OpenRouter decision model |
 | Cloudflare | `CLOUDFLARE_AUTH_TOKEN` | 32-character hexadecimal `cloudflare_account_id` |
 | Nace | `NACE_API_KEY` (legacy `DREX_API_KEY` also accepted) | None; `nace_model` defaults to `drex-v2.0` |
 | Custom, `custom_auth: none` | No key lookup | Exact endpoint and explicit model |
@@ -105,16 +105,16 @@ For an exact model/API route with a registered effort vocabulary, the adapter as
 
 ### OpenRouter
 
-Create an [OpenRouter key](https://openrouter.ai/keys) and set an exact model slug you intend to use.
+Create an [OpenRouter key](https://openrouter.ai/keys) and set the exact OpenRouter **decision model** you intend to use (for example `typesafe/jev-1.13` or `cloudflare/clef-omni`). A chat model slug is not a decision model.
 
 ```yaml
 settings:
   mode: auto
   scorer_provider: openrouter
-  scorer_model: "YOUR_OPENROUTER_MODEL_SLUG"
+  scorer_model: "YOUR_OPENROUTER_DECISION_MODEL"
 ```
 
-The model is required; the plugin does not choose one for you. It uses OpenRouter's fixed Chat Completions endpoint, requests JSON and caps the completion at 32 tokens. The request sets `provider.zdr: true` and `data_collection: deny`. If no eligible endpoint is available, classification fails open.
+The model is required; the plugin does not choose one for you. It uses OpenRouter's fixed Decisions API (`POST https://openrouter.ai/api/alpha/decisions`) and sends the same System One rubric as Jev: `state.prompt` plus the shared `questions`, read back from `answers.effort`. The request also sets `provider.zdr: true` and `data_collection: deny`; the Decisions API documentation could not be checked when this adapter was written, so whether it honors these preferences is unconfirmed (see [ZDR note](CONTRACTS.md#scorer-adapter-contracts)). If no eligible endpoint is available or the request is rejected, classification fails open. **Breaking change:** OpenRouter chat-model scoring was removed; a chat model slug no longer works as `scorer_model`.
 
 ### Cloudflare Clef, Clef Flash or Clef Omni
 
@@ -159,7 +159,7 @@ settings:
 
 This example assumes you already run a local System One server at that address. A local server such as llama.cpp or a llama-swap setup must expose the exact route and model you configure.
 
-For an OpenAI-compatible Chat Completions server, use its complete URL, such as `http://127.0.0.1:8099/v1/chat/completions`, and set `custom_api_format: chat_completions`. On exact registered routes, the server must return only `{"effort":"<allowed level>"}`; on other routes and for `/hae probe`, it must return a finite numeric `score` in `0..2`. System One uses `answers.effort.choice` for named choices or `answers.effort.score` for the legacy rubric. The server must implement the matching named-choice response when you use a registered route; an old score-only server fails open, with no second call or score fallback. See [adapter contracts](CONTRACTS.md#scorer-adapter-contracts).
+Use the complete URL of a System One server, with `custom_api_format: systemone` (the only supported format). The server returns `answers.effort.choice` for named choices on exact registered routes, or a finite numeric `answers.effort.score` in `0..2` elsewhere and for `/hae probe`. The OpenAI-compatible `chat_completions` format was removed: a configured `chat_completions` value fails open with `unsupported_api_format` and makes no network call. The server must implement the matching named-choice response when you use a registered route; an old score-only server fails open, with no second call or score fallback. See [adapter contracts](CONTRACTS.md#scorer-adapter-contracts).
 
 For bearer authentication, set `custom_auth: bearer` and supply `CUSTOM_SCORER_API_KEY`. With `none`, the plugin does not look up a key. It uses the endpoint exactly as configured, rejects embedded credentials and fragments, and does not follow redirects. Status masks query parameter values.
 
@@ -181,7 +181,7 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | `cloudflare_model` | `clef` | `clef`, `clef-flash` or `clef-omni` |
 | `nace_model` | `drex-v2.0` | Nace Drex model name |
 | `custom_endpoint` | empty | Exact HTTP(S) scoring URL |
-| `custom_api_format` | `systemone` | `systemone` or `chat_completions`; exact-choice routes require named-choice support |
+| `custom_api_format` | `systemone` | `systemone` only; `chat_completions` was removed and fails open as `unsupported_api_format`; exact-choice routes require named-choice support |
 | `custom_auth` | `none` | `none` or `bearer` |
 | `classification_instructions` | empty | Extra guidance, capped at 2,000 characters |
 | `use_target_model_context` | `false` | Include bounded target route/profile context when classifying a request |
@@ -246,7 +246,7 @@ A reused decision makes no new scoring request. The plugin sends neither the who
 
 These limits describe the plugin. They do not guarantee how an external service retains data:
 
-- OpenRouter requests require ZDR endpoints and deny data-collecting endpoints. OpenRouter still processes the input; see its [ZDR policy and routing controls](https://openrouter.ai/docs/guides/features/zdr).
+- OpenRouter requests ask for ZDR endpoints and deny data-collecting endpoints (`provider` preferences; their acceptance by the Decisions API is unconfirmed). OpenRouter still processes the input; see its [ZDR policy and routing controls](https://openrouter.ai/docs/guides/features/zdr).
 - OpenAI documents Decisions ZDR support for eligible customers. The plugin cannot verify account eligibility; see the [Decisions guide](https://developers.openai.com/api/docs/guides/decisions).
 - The plugin gives no ZDR guarantee for Jev, Cloudflare, Nace or custom endpoints.
 

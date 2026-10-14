@@ -132,7 +132,7 @@ def test_status_reports_selected_scorer_and_active_endpoint(monkeypatch):
     assert payload["settings"]["scorer_provider"] == "openrouter"
     assert payload["settings"]["scorer_model_effective"] == "openai/gpt-4o-mini"
     assert payload["settings"]["endpoint_effective"] == \
-        "https://openrouter.ai/api/v1/chat/completions"
+        "https://openrouter.ai/api/alpha/decisions"
 
 
 def test_openai_decisions_status_reports_default_model_fixed_endpoint_and_credential(monkeypatch):

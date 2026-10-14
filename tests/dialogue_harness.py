@@ -29,9 +29,6 @@ ADAPTERS: Dict[str, Dict[str, Any]] = {
     "custom_systemone": {"scorer_provider": "custom", "scorer_model": "rubric-v1",
                          "custom_endpoint": "https://scorer.example/v1/score",
                          "custom_api_format": "systemone"},
-    "custom_chat": {"scorer_provider": "custom", "scorer_model": "rubric-v1",
-                    "custom_endpoint": "https://scorer.example/v1/chat/completions",
-                    "custom_api_format": "chat_completions"},
 }
 
 #: Route kinds: ``score`` is an unknown vocabulary (numeric 0..2 contract), ``choice`` an exact
@@ -116,6 +113,6 @@ def capture_all(monkeypatch) -> Dict[str, Any]:
     for route in ROUTES:
         captured[f"jev/{route}/composed"] = run(
             monkeypatch, "jev", route, extra_settings=composed).requests
-        captured[f"custom_chat/{route}/composed"] = run(
-            monkeypatch, "custom_chat", route, extra_settings=composed).requests
+        captured[f"openrouter/{route}/composed"] = run(
+            monkeypatch, "openrouter", route, extra_settings=composed).requests
     return json.loads(json.dumps(captured))

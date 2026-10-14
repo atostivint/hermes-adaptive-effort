@@ -8,8 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- OpenRouter scoring uses OpenRouter's Decisions API (`POST /api/alpha/decisions`) with the shared System One rubric, so `scorer_model` must name an OpenRouter decision model (for example `typesafe/jev-1.13`). `provider: {zdr: true, data_collection: "deny"}` is still sent; whether the Decisions API honors it is unconfirmed because its documentation could not be checked, and no live OpenRouter call was made (#48)
 - Scorer calls that end in a transient HTTP status (408, 429, 500, 502, 503, 504) are retried once inside the existing `timeout_s` deadline (at least 300 ms must remain; `Retry-After` honoured only if it fits, else a 100 ms wait); timeouts, transport errors, other statuses and received answers are never retried, and the breaker and latency histogram see one call
 - Scorer deadline is now a per-provider default (`timeout_s: 0`): Jev 3.0 → 2.0 s, custom 3.0 → 10.0 s, others 3.0 s; installs that never set `timeout_s` move automatically, a positive value still wins, and configuration is never rewritten
+
+### Removed
+
+- **Breaking:** the custom `chat_completions` API format and OpenRouter chat-model scoring. A configured `custom_api_format: chat_completions` now fails open with `unsupported_api_format` and makes no network call; an OpenRouter `scorer_model` that is a chat model fails open on the Decisions API. Move to a `systemone` endpoint or an OpenRouter decision model (#48)
 
 ### Added
 

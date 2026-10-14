@@ -73,7 +73,7 @@ def test_custom_scorer_schema_defaults_and_choices_match_settings():
         assert schema[key]["type"] == expected_type
         assert schema[key]["default"] == middleware.DEFAULTS[key]
     assert set(schema["custom_api_format"].get("choices") or []) == {
-        "systemone", "chat_completions"}
+        "systemone"}
     assert set(schema["custom_auth"].get("choices") or []) == {"none", "bearer"}
 
 

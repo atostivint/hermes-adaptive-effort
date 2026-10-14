@@ -215,7 +215,7 @@ SCORE = {"score": 1.25}
 PAYLOADS = {
     "jev": {"answers": {"effort": SCORE}},
     "nace": {"model": "drex", "answers": {"effort": {"type": "score", "score": 1.25}}},
-    "openrouter": {"choices": [{"message": {"content": '{"score": 1.25}'}}]},
+    "openrouter": {"answers": {"effort": SCORE}},
     "openai_decision": {"answers": [{"name": "effort", "type": "score", "score": 1.25,
                                      "probabilities": [], "confidence": 1.0}],
                         "model": "gpt-6-luna", "usage": {}},

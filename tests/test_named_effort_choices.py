@@ -30,14 +30,13 @@ class FakeTransport:
 
 
 def response(provider, value):
-    if provider in {"jev", "nace", "custom-systemone"}:
+    if provider in {"jev", "nace", "openrouter", "custom-systemone"}:
         return {"answers": {"effort": {"type": "choice", "choice": value}}}
     if provider == "cloudflare":
         return {"success": True, "errors": [], "result": {
             "answers": {"effort": {"type": "choice", "choice": value}}}}
     if provider == "decisions":
         return {"answers": [{"name": "effort", "type": "choice", "choice": value}]}
-    return {"choices": [{"message": {"content": json.dumps({"effort": value})}}]}
 
 
 def make_client(provider, transport):
@@ -52,15 +51,12 @@ def make_client(provider, transport):
     if provider == "openrouter":
         return openrouter.OpenRouterClient(model="scorer/model", api_key="key",
                                            transport=transport)
-    if provider == "custom-systemone":
-        return custom.CustomClient(endpoint="https://scorer.example/score", model="scorer",
-                                   api_key="", transport=transport)
     return custom.CustomClient(endpoint="https://scorer.example/score", model="scorer",
-                               api_format="chat_completions", transport=transport)
+                               api_key="", transport=transport)
 
 
 @pytest.mark.parametrize("provider", [
-    "jev", "nace", "decisions", "cloudflare", "openrouter", "custom-systemone", "custom-chat",
+    "jev", "nace", "decisions", "cloudflare", "openrouter", "custom-systemone",
 ])
 def test_provider_sends_only_route_choices_and_reads_named_response(provider):
     transport = FakeTransport(response(provider, "max"))
@@ -68,7 +64,7 @@ def test_provider_sends_only_route_choices_and_reads_named_response(provider):
 
     assert client.classify_effort_detail("bounded task", CHOICES) == ("max", None)
     body = json.loads(transport.calls[0].data.decode("utf-8"))
-    if provider in {"jev", "nace", "cloudflare", "custom-systemone"}:
+    if provider in {"jev", "nace", "cloudflare", "openrouter", "custom-systemone"}:
         question = body["questions"]["effort"]
         assert question["type"] == "choice"
         assert tuple(question["criteria"]) == CHOICES
@@ -76,14 +72,10 @@ def test_provider_sends_only_route_choices_and_reads_named_response(provider):
         question = body["questions"][0]
         assert question["type"] == "choice"
         assert tuple(option["value"] for option in question["choices"]) == CHOICES
-    else:
-        prompt = body["messages"][0]["content"]
-        assert '"effort":"<allowed level>"' in prompt
-        assert "max:" in prompt and "xhigh:" not in prompt
 
 
 @pytest.mark.parametrize("provider", [
-    "jev", "nace", "decisions", "cloudflare", "openrouter", "custom-systemone", "custom-chat",
+    "jev", "nace", "decisions", "cloudflare", "openrouter", "custom-systemone",
 ])
 def test_provider_rejects_a_choice_outside_the_route_vocabulary(provider):
     transport = FakeTransport(response(provider, "medium"))

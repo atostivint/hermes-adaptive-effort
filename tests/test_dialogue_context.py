@@ -31,8 +31,6 @@ def prompt_of(request):
     body = json.loads(request["body"])
     if "state" in body:
         return body["state"]["prompt"]
-    if "messages" in body:
-        return body["messages"][-1]["content"]
     return json.dumps(body)
 
 
@@ -66,7 +64,7 @@ def test_composed_features_with_setting_off_match_master(monkeypatch):
     composed = {"classification_instructions": "Prefer low for chores.",
                 "use_target_model_context": True, "dialogue_context_messages": 0}
     for route in harness.ROUTES:
-        for adapter in ("jev", "custom_chat"):
+        for adapter in ("jev", "openrouter"):
             got = harness.run(monkeypatch, adapter, route, extra_settings=composed).requests
             assert json.loads(json.dumps(got)) == golden[f"{adapter}/{route}/composed"]
 

@@ -97,7 +97,7 @@ def test_context_and_task_are_bounded_and_metadata_is_json_escaped():
 
 @pytest.mark.parametrize("adapter", [
     "jev", "openrouter", "openai_decision", "cloudflare",
-    "custom_systemone", "custom_chat_completions",
+    "custom_systemone",
 ])
 def test_shared_context_prefix_reaches_each_scorer_transport(adapter):
     prompt = profiles.wrap_task(
@@ -111,7 +111,7 @@ def test_shared_context_prefix_reaches_each_scorer_transport(adapter):
                                transport=lambda request, _timeout: _capture_response(
                                    calls, request, Response(payload)))
     elif adapter == "openrouter":
-        payload = {"choices": [{"message": {"content": '{"score": 1}'}}]}
+        payload = {"answers": {"effort": {"score": 1.0}}}
         client = openrouter.OpenRouterClient(
             model="test-scorer", api_key="key", max_prompt_chars=len(prompt),
             transport=lambda request, _timeout: _capture_response(calls, request, payload))
@@ -128,24 +128,20 @@ def test_shared_context_prefix_reaches_each_scorer_transport(adapter):
             max_prompt_chars=len(prompt),
             transport=lambda request, _timeout: _capture_response(calls, request, payload))
     else:
-        systemone = adapter == "custom_systemone"
-        payload = ({"answers": {"effort": {"score": 1.0}}} if systemone else
-                   {"choices": [{"message": {"content": '{"score": 1}'}}]})
+        payload = {"answers": {"effort": {"score": 1.0}}}
         client = custom.CustomClient(
             endpoint="https://scorer.example/v1/score", model="test-scorer",
-            api_format="systemone" if systemone else "chat_completions",
+            api_format="systemone",
             max_prompt_chars=len(prompt),
             transport=lambda request, _timeout: _capture_response(calls, request, payload))
 
     assert client.classify_detail(prompt) == (1.0, None)
     assert len(calls) == 1
     body = calls[0]
-    if adapter in {"jev", "cloudflare", "custom_systemone"}:
+    if adapter in {"jev", "cloudflare", "custom_systemone", "openrouter"}:
         received = body["state"]["prompt"]
     elif adapter == "openai_decision":
         received = body["input"]
-    else:
-        received = body["messages"][-1]["content"]
     assert received == prompt
 
 

@@ -4,7 +4,7 @@
 
 A Hermes plugin that asks a separate scorer to judge a task, then adjusts the reasoning effort of the outgoing model request.
 
-Your conversation model still answers the task. You choose the scorer: Jev (the default), OpenAI Decisions, an OpenRouter model, Cloudflare Clef / Clef Flash / Clef Omni, Nace Drex (`drex-v2.0`, key `NACE_API_KEY`), or a custom hosted or local endpoint.
+Your conversation model still answers the task. You choose the scorer: Jev (the default), OpenAI Decisions, an OpenRouter decision model (Decisions API), Cloudflare Clef / Clef Flash / Clef Omni, Nace Drex (`drex-v2.0`, key `NACE_API_KEY`), or a custom System One endpoint.
 
 > **Preview:** v0.3.0 is a pre-release. Live effort acceptance is only partially validated; see the [release notes](docs/releases/v0.3.0.md#validation-status--read-before-relying-on-it).
 

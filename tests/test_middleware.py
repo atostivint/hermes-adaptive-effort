@@ -1130,13 +1130,13 @@ def test_nace_adapter_success_rewrites_the_existing_field(monkeypatch):
     assert entry["probes"] == 1
 
 
-def test_custom_chat_completions_scorer_rewrites(monkeypatch):
+def test_custom_systemone_scorer_rewrites(monkeypatch):
     use_settings(monkeypatch, {
         "mode": "auto",
         "scorer_provider": "custom",
         "scorer_model": "local-rubric-4b",
-        "custom_endpoint": "http://127.0.0.1:8080/v1/chat/completions",
-        "custom_api_format": "chat_completions",
+        "custom_endpoint": "http://127.0.0.1:8080/v1/systemone",
+        "custom_api_format": "systemone",
         "custom_auth": "none",
     })
     monkeypatch.setattr(middleware, "_classifier_factory", None)
@@ -1147,23 +1147,38 @@ def test_custom_chat_completions_scorer_rewrites(monkeypatch):
 
     def transport(request, _timeout):
         requests.append(request)
-        return {"choices": [{"message": {"content": '{"score": 1.9}'}}]}
+        return {"answers": {"effort": {"score": 1.9}}}
 
     monkeypatch.setattr(middleware._scorers.custom_client, "_default_transport", transport)
     out = call(ctx(request=supported_request(), session="custom-scorer"))
 
     assert out["request"]["extra_body"]["reasoning"]["effort"] == "high"
     assert len(requests) == 1
-    assert requests[0].full_url == "http://127.0.0.1:8080/v1/chat/completions"
+    assert requests[0].full_url == "http://127.0.0.1:8080/v1/systemone"
     body = json.loads(requests[0].data.decode("utf-8"))
     assert body["model"] == "local-rubric-4b"
-    assert body["messages"][-1]["content"] == "first user prompt"
-    assert requests[0].get_header("Authorization") is None
-    entry = middleware.session_state()["custom-scorer/turn"]
-    assert entry["scorer_provider"] == "custom"
-    assert entry["scorer_model"] == "local-rubric-4b"
-    assert entry["probes"] == 1
+    assert body["state"]["prompt"] == "first user prompt"
 
+
+def test_custom_chat_completions_scorer_fails_open_without_a_network_call(monkeypatch):
+    use_settings(monkeypatch, {
+        "mode": "auto",
+        "scorer_provider": "custom",
+        "scorer_model": "local-rubric-4b",
+        "custom_endpoint": "http://127.0.0.1:8080/v1/chat/completions",
+        "custom_api_format": "chat_completions",
+        "custom_auth": "none",
+    })
+    monkeypatch.setattr(middleware, "_classifier_factory", None)
+    requests = []
+    monkeypatch.setattr(middleware._scorers.custom_client, "_default_transport",
+                        lambda request, _timeout: requests.append(request))
+    request = supported_request()
+    assert call(ctx(request=request, session="custom-removed")) is None
+    assert requests == []
+    entry = middleware.session_state()["custom-removed/turn"]
+    assert entry["state"] == "failed"
+    assert "unsupported_api_format" in json.dumps(entry)
 
 def test_unknown_scorer_provider_fails_open_without_fallback(monkeypatch):
     use_settings(monkeypatch, {"mode": "auto", "scorer_provider": "not-a-provider"})
