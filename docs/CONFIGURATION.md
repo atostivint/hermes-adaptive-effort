@@ -116,7 +116,7 @@ settings:
 
 The model is required; the plugin does not choose one for you. It uses OpenRouter's fixed Chat Completions endpoint, requests JSON and caps the completion at 32 tokens. The request sets `provider.zdr: true` and `data_collection: deny`. If no eligible endpoint is available, classification fails open.
 
-### Cloudflare Clef or Clef Flash
+### Cloudflare Clef, Clef Flash or Clef Omni
 
 From **Cloudflare dashboard → Workers AI → Use REST API**, create a Workers AI API token and copy the Account ID. Cloudflare's [REST setup guide](https://developers.cloudflare.com/workers-ai/get-started/rest-api/) describes the token template and permissions.
 
@@ -128,7 +128,7 @@ settings:
   cloudflare_model: clef
 ```
 
-Provide the token as `CLOUDFLARE_AUTH_TOKEN`. Replace the account placeholder with 32 hexadecimal characters. Select `clef` or `clef-flash`; the plugin builds the corresponding account-scoped Workers AI endpoint.
+Provide the token as `CLOUDFLARE_AUTH_TOKEN`. Replace the account placeholder with 32 hexadecimal characters. Select `clef`, `clef-flash` or `clef-omni` (`@cf/cloudflare/clef-omni`; an unknown value falls back to `clef`); the plugin builds the corresponding account-scoped Workers AI endpoint.
 
 ### Nace Drex
 
@@ -178,7 +178,7 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | `endpoint` | `https://api.typesafe.ai/v1/systemone` | Jev endpoint; ignored by other scorers |
 | `scorer_model` | empty | Optional for OpenAI Decisions; required for OpenRouter/custom |
 | `cloudflare_account_id` | empty | Cloudflare account ID |
-| `cloudflare_model` | `clef` | `clef` or `clef-flash` |
+| `cloudflare_model` | `clef` | `clef`, `clef-flash` or `clef-omni` |
 | `nace_model` | `drex-v2.0` | Nace Drex model name |
 | `custom_endpoint` | empty | Exact HTTP(S) scoring URL |
 | `custom_api_format` | `systemone` | `systemone` or `chat_completions`; exact-choice routes require named-choice support |
