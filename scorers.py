@@ -18,6 +18,24 @@ CUSTOM = "custom"
 OPENAI_DECISION = "openai_decision"
 PROVIDERS = (JEV, OPENROUTER, CLOUDFLARE, CUSTOM, OPENAI_DECISION)
 
+# Default scoring deadline (seconds) used when the operator leaves ``timeout_s`` at 0.
+# Not measured on this plugin's traffic: the Jev/Clef figures come from claude-router's
+# synthetic probe. Custom endpoints often front a local model that must load into memory
+# on its first call; a longer cold start still fails open on that call.
+PROVIDER_TIMEOUT_S = {
+    JEV: 2.0,
+    OPENROUTER: 3.0,
+    CLOUDFLARE: 3.0,
+    OPENAI_DECISION: 3.0,
+    CUSTOM: 10.0,
+}
+
+
+def default_timeout_s(provider: Any) -> float:
+    """Provider default deadline; unknown providers use the shared adapter fallback."""
+    key = str(provider or JEV).strip().lower()
+    return float(PROVIDER_TIMEOUT_S.get(key, jev_client.DEFAULT_TIMEOUT_S))
+
 
 def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]]:
     """Build only the explicitly configured adapter; errors are fail-open codes."""

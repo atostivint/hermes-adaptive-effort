@@ -171,11 +171,27 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | `classification_instructions` | empty | Extra guidance, capped at 2,000 characters |
 | `use_target_model_context` | `false` | Include bounded target route/profile context when classifying a request |
 | `effort_models` | empty | Exact model IDs whose effort support the operator asserts |
-| `timeout_s` | `3.0` | Timeout in seconds for one scoring request |
+| `timeout_s` | `0` | Timeout in seconds for one scoring request. `0`, a negative or an invalid value uses the selected provider's default deadline (table below); any positive value wins, including an explicit `3.0`. A timeout fails open |
+| `scorer_pause_failures` | `3` | Consecutive failed scorer calls (timeout, transport, HTTP, malformed, unexpected) before the selected scorer is paused; `0` disables the pause; negative or invalid values use the default |
+| `scorer_pause_s` | `60` | Seconds the paused scorer is skipped before one trial call; non-positive or invalid values use the default |
 | `prompt_chars` | `4000` | Maximum task characters sent; not a retention control |
 | `max_turns` | `64` | Capacity of each bounded turn/route decision ledger |
 | `show_tui_status` | `true` | Show terminal Effort status item |
 | `show_desktop_popup` | `true` | Show Desktop chip, popup and notifications |
+
+### Default scoring deadline per provider
+
+When `timeout_s` is `0` (the default) the deadline follows the selected `scorer_provider`:
+
+| Provider | Default deadline |
+| --- | --- |
+| `jev` | 2.0 s |
+| `openrouter` | 3.0 s |
+| `cloudflare` | 3.0 s |
+| `openai_decision` | 3.0 s |
+| `custom` | 10.0 s (often fronts a local model that must load on its first call; a longer cold start still fails open on that call) |
+
+These values are not measured on this plugin's traffic; the Jev/Clef figures come from claude-router's synthetic probe. `/hae status` shows the effective value and whether it is a provider default or configured. Installs that never set `timeout_s` move to these values automatically; the plugin never rewrites configuration.
 
 ### Guide classification
 

@@ -41,9 +41,13 @@ function makeHarness(options = {}) {
     sessions: []
   }
   const jsx = (type, props) => ({ type, props })
-  const useQuery = query => query.queryKey[1] === 'status'
-    ? { data: emptyStatus, isError: false, refetch: async () => {} }
-    : { data: { stream_id: 'rest-stream', events: [] }, isError: false }
+  const queries = []
+  const useQuery = query => {
+    queries.push(query)
+    if (query.queryKey[1] === 'status') return { data: emptyStatus, isError: false, refetch: async () => {} }
+    if (query.queryKey[1] === 'eval') return { data: options.evalData, isError: false }
+    return { data: { stream_id: 'rest-stream', events: [] }, isError: false }
+  }
   const context = vm.createContext({
     host,
     jsx,
@@ -75,7 +79,7 @@ function makeHarness(options = {}) {
   })
   vm.runInContext(`${source.slice(start, end)}\n;globalThis.api = {
     rememberDecision, handleDecisionEvent, publishSessionInfo, liveFor,
-    syncAppliedEffort, AdaptiveEffortChip, setPopup: value => { showDesktopPopup = value },
+    syncAppliedEffort, AdaptiveEffortChip, ScorerEvaluation, evaluationRows, setPopup: value => { showDesktopPopup = value },
     setRest: value => { rest = value }, getNotices: () => notices
   }`, context, { filename: 'desktop/plugin.js' })
   context.api.setPopup(emptyStatus.settings?.show_desktop_popup !== false)
@@ -87,7 +91,7 @@ function makeHarness(options = {}) {
       return () => { item.canceled = true }
     }
   }
-  return { api: context.api, host, state, timers, notices, calls, ctx, context }
+  return { api: context.api, host, state, timers, notices, calls, ctx, context, queries }
 }
 
 function decision(overrides = {}) {
@@ -511,4 +515,35 @@ test('older status payloads without conversation fields keep the global UI', () 
   assert.ok(texts.includes('Routing mode'))
   assert.ok(!texts.includes('This conversation'))
   assert.equal(modeButtons(tree, 'off:').length, 1)
+})
+
+function textOf(tree) {
+  if (tree === null || tree === undefined) return ''
+  if (typeof tree === 'string') return tree
+  if (Array.isArray(tree)) return tree.map(textOf).join('|')
+  return textOf(tree.props?.children)
+}
+
+test('scorer evaluation section lists one row per scorer and says when there is none', () => {
+  const h = makeHarness()
+  assert.match(textOf(h.api.ScorerEvaluation({ query: { data: { evaluations: [] } } })), /No evaluation yet/)
+  const text = textOf(h.api.ScorerEvaluation({ query: { data: { evaluations: [
+    { provider: 'jev', scorer_model: 'jev-latest', choices: ['low', 'medium', 'high'], items: 66,
+      accuracy: 0.5, p95_ms: 812.4, run_at: '2026-10-14T10:00:00Z', failures: {}, corpus_version: 'v' },
+    { provider: 'bogus-row-without-fields' }, null
+  ] } } }))
+  assert.match(text, /Scorer evaluation/)
+  assert.match(text, /jev · jev-latest/)
+  assert.match(text, /50% · p95 812 ms · 66 items · 2026-10-14 · low\/medium\/high/)
+})
+
+test('the evaluation is fetched only while the popup is open and is gated by show_desktop_popup', () => {
+  const h = makeHarness({ evalData: { evaluations: [] } })
+  h.api.AdaptiveEffortChip()
+  const evalQuery = h.queries.find(query => query.queryKey[1] === 'eval')
+  assert.ok(evalQuery, 'chip registers the evaluation query')
+  assert.equal(evalQuery.enabled, false)
+  assert.ok(String(evalQuery.queryFn).includes("rest('/eval'"))
+  const hidden = makeHarness({ status: { mode: 'auto', settings: { show_desktop_popup: false }, sessions: [] } })
+  assert.equal(hidden.api.AdaptiveEffortChip(), null)
 })

@@ -68,6 +68,7 @@ A function autouse fixture resets plugin state and substitutes empty settings, s
 | Commands, manifest/settings parity and real host integration | `test_command.py`, `test_plugin_registration.py`, `test_config_schema.py`, `test_dispatcher_integration.py` |
 | Bounded prompt-free conversation history and CLI rendering | `test_history_store.py` |
 | REST/Desktop state, events and session selector synchronization | `test_plugin_api.py`, `test_desktop_decision_events.py`, `test_desktop_decision_event_contract.py`, `desktop_decision_event_behavior.test.mjs` |
+| Synthetic scorer-evaluation corpus, result writer and `GET /eval` summary (network-free) | `test_scorer_eval.py` |
 | Historical review regressions | `test_review_fixes.py` |
 
 Keep test counts in dated result records, alongside revision, platform and command. This inventory describes contracts rather than a total that drifts with every change.

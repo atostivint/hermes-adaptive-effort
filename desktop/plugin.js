@@ -700,6 +700,52 @@ function useConversationHistory(connectionId, profile, conversationId, enabled) 
   })
 }
 
+function useScorerEvaluation(connectionId, profile, enabled) {
+  return useQuery({
+    queryKey: [ID, 'eval', connectionId, profile],
+    queryFn: () => rest('/eval', { timeoutMs: 15000 }),
+    enabled: Boolean(enabled),
+    staleTime: 5000,
+    retry: 1
+  })
+}
+
+function evaluationRows(data) {
+  const rows = Array.isArray(data?.evaluations) ? data.evaluations : []
+  return rows.filter(row => row && typeof row.provider === 'string').slice(0, 5).map(row => {
+    const accuracy = Number.isFinite(row.accuracy) ? `${Math.round(row.accuracy * 100)}%` : 'n/a'
+    const p95 = Number.isFinite(row.p95_ms) ? `p95 ${Math.round(row.p95_ms)} ms` : 'p95 n/a'
+    const day = typeof row.run_at === 'string' ? row.run_at.slice(0, 10) : 'unknown date'
+    const choices = Array.isArray(row.choices) ? row.choices.join('/') : 'n/a'
+    const scorer = [row.provider, row.scorer_model].filter(Boolean).join(' · ')
+    return {
+      key: `${row.provider}|${row.scorer_model || ''}`,
+      scorer,
+      detail: `${accuracy} · ${p95} · ${Number(row.items) || 0} items · ${day} · ${choices}`
+    }
+  })
+}
+
+function ScorerEvaluation({ query }) {
+  const rows = evaluationRows(query?.data)
+  return jsxs('section', {
+    className: 'space-y-1 text-xs',
+    children: [
+      jsx('div', { className: 'font-medium', children: 'Scorer evaluation' }),
+      rows.length === 0
+        ? jsx('div', {
+          className: 'text-(--ui-text-tertiary)',
+          children: query?.isError ? 'Evaluation unavailable' : 'No evaluation yet'
+        })
+        : rows.map(row => jsxs('div', {
+          className: 'text-(--ui-text-secondary)',
+          title: 'Synthetic prompts; not answer quality, cost or savings.',
+          children: [jsx('div', { children: row.scorer }), jsx('div', { className: 'text-(--ui-text-tertiary)', children: row.detail })]
+        }, row.key))
+    ]
+  })
+}
+
 function historyTime(at) {
   const date = new Date(Number(at) * 1000)
   if (!Number.isFinite(date.getTime())) return 'unknown time'
@@ -867,6 +913,7 @@ function AdaptiveEffortChip() {
   const historyQuery = useConversationHistory(
     activeConnectionId, activeProfile, focusedConversationId, ownerMatchesBackend
   )
+  const evalQuery = useScorerEvaluation(activeConnectionId, activeProfile, open)
   const live = focusedConversationId && focusedOwner
     ? liveFor(focusedOwner.connectionId, focusedOwner.profile, focusedConversationId)
     : null
@@ -984,6 +1031,7 @@ function AdaptiveEffortChip() {
                     })
                   ]
                 }),
+              query.isError ? null : jsx(ScorerEvaluation, { query: evalQuery }),
               jsx(Tip, {
                 label: 'Conversation, scorer, gateway and activity details.',
                 side: 'top',

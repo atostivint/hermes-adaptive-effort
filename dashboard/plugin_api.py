@@ -22,6 +22,7 @@ from __future__ import annotations
 import importlib
 import importlib.machinery
 import importlib.util
+import json
 import logging
 import sys
 import time
@@ -35,6 +36,11 @@ STATUS_SCHEMA = "hermes-adaptive-effort.status.v2"
 PROBE_SCHEMA = "hermes-adaptive-effort.probe.v1"
 CHANGES_SCHEMA = "hermes-adaptive-effort.changes.v1"
 HISTORY_SCHEMA = "hermes-adaptive-effort.history.v1"
+EVAL_SCHEMA = "hermes-adaptive-effort.scorer-eval.v1"
+EVAL_SUMMARY_SCHEMA = "hermes-adaptive-effort.scorer-eval-summary.v1"
+EVAL_DIR_NAME = "scorer-eval"
+_EVAL_FIELDS = ("provider", "scorer_model", "choices", "items", "accuracy",
+                "p50_ms", "p95_ms", "failures", "run_at", "corpus_version")
 VALID_MODES = ("auto", "once", "always", "off")
 MAX_PROBE_CHARS = 4000
 
@@ -217,6 +223,52 @@ def get_history_payload(conversation_id: Any, limit: Any = 10) -> Dict[str, Any]
                 "conversation_id": conversation, "available": False, "events": []}
 
 
+def _eval_dir() -> Path:
+    from hermes_cli.plugins_state import PluginState
+    return PluginState(PLUGIN_ID).data_dir / EVAL_DIR_NAME
+
+
+#: Test seam: returns the directory holding ``scorer-eval-*.json`` result files.
+_EVAL_DIR_PROVIDER: Any = _eval_dir
+
+
+def _eval_summary(document: Any) -> Optional[Dict[str, Any]]:
+    """Public summary of one result file, or ``None`` when it is not a valid result."""
+    if not isinstance(document, dict) or document.get("schema") != EVAL_SCHEMA:
+        return None
+    summary = {key: document.get(key) for key in _EVAL_FIELDS}
+    if not isinstance(summary["provider"], str) or not isinstance(summary["run_at"], str):
+        return None
+    if not isinstance(summary["choices"], list) or not isinstance(summary["failures"], dict):
+        return None
+    for key in ("items", "accuracy", "p50_ms", "p95_ms"):
+        value = summary[key]
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
+            return None
+    return summary
+
+
+def get_eval_payload() -> Dict[str, Any]:
+    """Newest scorer-evaluation summary per scorer; never per-item rows or prompts."""
+    newest: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    try:
+        files = sorted(Path(_EVAL_DIR_PROVIDER()).glob("scorer-eval-*.json"))
+    except Exception:
+        files = []
+    for path in files:
+        try:
+            summary = _eval_summary(json.loads(path.read_text(encoding="utf-8")))
+        except Exception:
+            continue
+        if summary is None:
+            continue
+        key = (summary["provider"], str(summary["scorer_model"] or ""))
+        if key not in newest or summary["run_at"] >= newest[key]["run_at"]:
+            newest[key] = summary
+    ordered = sorted(newest.values(), key=lambda row: row["run_at"], reverse=True)
+    return {"schema": EVAL_SUMMARY_SCHEMA, "plugin": PLUGIN_ID, "evaluations": ordered}
+
+
 def set_mode(mode: Any, *, persist: bool = False) -> Dict[str, Any]:
     """Runtime mode switch for future requests of this process (never echoes config).
 
@@ -337,6 +389,10 @@ if _HAS_HTTP and router is not None:  # pragma: no cover - needs serve env
         if payload.get("error"):
             raise HTTPException(status_code=503, detail=payload["error"])
         return payload
+
+    @router.get("/eval")
+    def scorer_eval() -> Dict[str, Any]:
+        return get_eval_payload()
 
     @router.get("/history")
     def history(conversation_id: str, limit: int = 10) -> Dict[str, Any]:
