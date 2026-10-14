@@ -329,6 +329,7 @@ def _status_payload() -> Dict[str, Any]:
         "credential_required": _scorers.credential_required(
             settings["scorer_provider"], settings["custom_auth"]),
         "cloudflare_account_ready": settings["cloudflare_account_ready"],
+        "scorer_pause": _middleware.scorer_pause_state(settings),
         "counts": counts,
         "sessions": sessions,
         "last": last,
@@ -407,6 +408,10 @@ def _status_text() -> str:
         lines.append(f"Latest applied change: {latest['from']} -> {latest['to']}")
     if entry.get("failure"):
         lines.append(f"Why unchanged: {entry['failure']}")
+    pause = payload.get("scorer_pause") or {}
+    if pause.get("paused"):
+        lines.append(f"Scorer paused: {pause.get('remaining_s', 0)} s left "
+                     f"({pause.get('failures', 0)} failures)")
     lines.append("Use /hae history to see recent applied changes; /hae status full for details.")
     return "\n".join(lines)
 

@@ -80,6 +80,12 @@ def test_config_schema_types_and_defaults_match_middleware():
     assert float(schema["timeout_s"]["default"]) == float(middleware.DEFAULTS["timeout_s"])
     assert schema["max_turns"]["type"] == "int"
     assert int(schema["max_turns"]["default"]) == int(middleware.DEFAULTS["max_turns"])
+    assert schema["scorer_pause_failures"]["type"] == "int"
+    assert int(schema["scorer_pause_failures"]["default"]) == \
+        int(middleware.DEFAULTS["scorer_pause_failures"]) == 3
+    assert schema["scorer_pause_s"]["type"] == "float"
+    assert float(schema["scorer_pause_s"]["default"]) == \
+        float(middleware.DEFAULTS["scorer_pause_s"]) == 60.0
     assert schema["prompt_chars"]["type"] == "int"
     assert int(schema["prompt_chars"]["default"]) == int(middleware.DEFAULTS["prompt_chars"])
     assert schema["endpoint"]["type"] == "str"
