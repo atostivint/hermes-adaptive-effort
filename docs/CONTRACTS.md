@@ -137,6 +137,20 @@ Stable scorer failure codes: `invalid_prompt`, `credential_missing`, `http_error
 
 Configuration codes: `model_missing`, `unsupported_provider`, `account_missing`, `account_invalid`, `endpoint_missing`, `endpoint_invalid`, `unsupported_api_format`, `unsupported_auth`.
 
+Pause code: `scorer_paused`.
+
+### Scorer circuit breaker
+
+After `scorer_pause_failures` consecutive counted failures (default 3; `0` disables) the selected provider is paused for `scorer_pause_s` seconds (default 60). Counted failures are scorer calls that were launched and failed: `timeout`, `transport_error`, `http_error`, `malformed_response`, `unexpected_error`. Never counted: missing or invalid credential, model, account or endpoint, `unsupported_provider`/`unsupported_api_format`/`unsupported_auth`, `invalid_prompt`, `classifier_error`, unsupported routes, busy/in-flight skips and fixed single-level routes.
+
+- While paused, no scorer call is made, the request is unchanged and the turn entry is `failed` with `scorer_paused`.
+- After the cooldown the next call is a trial: success resets the count; failure re-opens the pause at once.
+- A pause is a call that was not launched. It is not retained on the persistent auto/once route pin, so the route is scored on the first turn after the pause. There is still at most one scorer call per turn.
+- State is per provider and in memory only (counters and a deadline; no prompts, keys or session ids). Switching provider starts from a clean count; `reset_state()` clears it. Subagents share the parent's pause.
+- `/hae probe` bypasses the breaker and does not count toward it.
+- `status json` adds `scorer_pause: {provider, failures, paused, remaining_s}` under the unchanged status v2 schema; `status` text shows `Scorer paused: N s left (k failures)` only while paused.
+- Known limitation: the claim is per turn, so concurrent turns right after the cooldown may each launch a trial call.
+
 Unsupported-control codes: `reasoning_disabled`, `effort_control_unsupported`, `effort_value_unsupported`. Decisions refusals use `malformed_response`. A recorded classification attempt can have zero HTTP calls, for example when a key is missing.
 
 ## Subagents

@@ -172,6 +172,8 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | `use_target_model_context` | `false` | Include bounded target route/profile context when classifying a request |
 | `effort_models` | empty | Exact model IDs whose effort support the operator asserts |
 | `timeout_s` | `3.0` | Timeout in seconds for one scoring request |
+| `scorer_pause_failures` | `3` | Consecutive failed scorer calls (timeout, transport, HTTP, malformed, unexpected) before the selected scorer is paused; `0` disables the pause; negative or invalid values use the default |
+| `scorer_pause_s` | `60` | Seconds the paused scorer is skipped before one trial call; non-positive or invalid values use the default |
 | `prompt_chars` | `4000` | Maximum task characters sent; not a retention control |
 | `max_turns` | `64` | Capacity of each bounded turn/route decision ledger |
 | `show_tui_status` | `true` | Show terminal Effort status item |

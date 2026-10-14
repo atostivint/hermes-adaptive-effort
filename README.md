@@ -8,7 +8,7 @@ Your conversation model still answers the task. You choose the scorer: Jev (the 
 
 > **Preview:** v0.3.0 is a pre-release. Live effort acceptance is only partially validated; see the [release notes](docs/releases/v0.3.0.md#validation-status--read-before-relying-on-it).
 
-The plugin starts **off**. When you enable routing, it changes a supported effort field and can add a missing field on exact registered routes. If classification fails, the original request continues unchanged.
+The plugin starts **off**. When you enable routing, it changes a supported effort field and can add a missing field on exact registered routes. If classification fails, the original request continues unchanged. After three consecutive scorer failures (timeout, transport, HTTP or malformed answer) the selected scorer is paused for 60 seconds and requests skip it with `scorer_paused`; see `scorer_pause_failures` and `scorer_pause_s` in [Configuration](docs/CONFIGURATION.md). The saved latency is unmeasured.
 
 ## Quick start
 
