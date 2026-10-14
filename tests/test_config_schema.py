@@ -102,6 +102,8 @@ def test_config_schema_types_and_defaults_match_middleware():
     for key in ("show_tui_status", "show_desktop_popup"):
         assert schema[key]["type"] == "bool"
         assert schema[key]["default"] is middleware.DEFAULTS[key] is True
+    assert schema["debug"]["type"] == "bool"
+    assert schema["debug"]["default"] is middleware.DEFAULTS["debug"] is False
     assert schema["use_target_model_context"]["type"] == "bool"
     assert schema["use_target_model_context"]["default"] is False
     assert "observed effort" in schema["use_target_model_context"]["description"]

@@ -382,3 +382,12 @@ def test_status_on_the_canonical_endpoint_does_not_add_a_configured_note(monkeyp
     out = command.handle("status full")
     assert "https://api.typesafe.ai/v1/systemone" in out
     assert "configured" not in out
+
+
+def test_status_full_reports_the_debug_switch(monkeypatch):
+    out = command.handle("status full")
+    assert "Desktop popup=on · debug=off" in out
+    monkeypatch.setattr(middleware, "_settings_provider",
+                        lambda key, default=None: {"debug": True}.get(key, default))
+    out = command.handle("status full")
+    assert "Desktop popup=on · debug=on" in out

@@ -61,8 +61,11 @@ const MAX_LIVE_SESSIONS = 64
 const MAX_RETIRED_STREAMS = 64
 const MAX_SYNC_ATTEMPTS = 128
 const MAX_APPLIED_NOTICE_ATTEMPTS = 128
+const MAX_DEBUG_ENTRIES = 32
 let rest = null
 let showDesktopPopup = false
+let debugMode = false
+const debugLog = []
 const liveDecisions = new Map()
 const sessionIdentities = new Map()
 const activeStreams = new Map()
@@ -87,6 +90,25 @@ function emitLiveChange() {
 
 function effortNotice(input) {
   if (showDesktopPopup) host.notify(input)
+}
+
+function applyStatusSettings(data) {
+  if (typeof data?.settings?.show_desktop_popup === 'boolean') {
+    showDesktopPopup = data.settings.show_desktop_popup
+  }
+  if (typeof data?.settings?.debug === 'boolean') debugMode = data.settings.debug
+}
+
+// Debug diagnostics carry a stable code plus counts and flags only: never a
+// connection, profile, session or route identifier, prompt, path or host.
+function recordSyncDebug(code, details = {}) {
+  if (!debugMode) return ''
+  const entry = { at: Date.now(), code, ...details }
+  debugLog.push(entry)
+  if (debugLog.length > MAX_DEBUG_ENTRIES) debugLog.shift()
+  if (typeof console?.debug === 'function') console.debug(`[${ID}] selector sync`, entry)
+  const counts = Object.entries(details).map(([key, value]) => `${key}=${value}`).join(' ')
+  return ` [debug: ${counts ? `${code} ${counts}` : code}]`
 }
 
 function subscribeLive(listener) {
@@ -320,10 +342,11 @@ async function syncAppliedEffort(ctx, record) {
     latest.syncReason = message
     emitLiveChange()
   }
-  const reportSyncIssue = message => {
-    setSyncReason(message)
+  const reportSyncIssue = (message, code, details) => {
+    const text = message + recordSyncDebug(code, details)
+    setSyncReason(text)
     if (isFocusedFreshDecision(record)) {
-      effortNotice({ kind: 'warning', title: 'Effort applied', message })
+      effortNotice({ kind: 'warning', title: 'Effort applied', message: text })
     }
   }
 
@@ -332,29 +355,47 @@ async function syncAppliedEffort(ctx, record) {
   const eventOwnerKey = ownerKey(record.connectionId, record.profile)
   if (!record.selectorSyncSupported) {
     if (focused.conversationId === record.sessionId && focusedOwnerKey === eventOwnerKey) {
-      reportSyncIssue('Native selector sync is unavailable for isolated turns.')
+      reportSyncIssue('Native selector sync is unavailable for isolated turns.', 'selector_unsupported')
     }
     return
   }
-  if (!focused.sessionId || focused.conversationId !== record.sessionId || focusedOwnerKey !== eventOwnerKey) return
+  if (!focused.sessionId || focused.conversationId !== record.sessionId || focusedOwnerKey !== eventOwnerKey) {
+    recordSyncDebug('not_focused', {
+      session: Boolean(focused.sessionId),
+      conversation: focused.conversationId === record.sessionId,
+      owner: focusedOwnerKey === eventOwnerKey
+    })
+    return
+  }
   if (!focused.model || focused.model !== record.route.model) {
-    reportSyncIssue('The chat route changed; its reasoning selector was left unchanged.')
+    reportSyncIssue('The chat route changed; its reasoning selector was left unchanged.', 'route_changed')
     return
   }
 
   const currentRecord = liveFor(record.connectionId, record.profile, record.sessionId)
-  if (!latestStillMatchesApplication(record, currentRecord, appliedId, target)) return
+  if (!latestStillMatchesApplication(record, currentRecord, appliedId, target)) {
+    recordSyncDebug('superseded')
+    return
+  }
 
   if (typeof host.profileRoutes !== 'function' || typeof host.requestProfile !== 'function') {
-    reportSyncIssue('This Desktop version cannot route a selector update to this chat.')
+    reportSyncIssue('This Desktop version cannot route a selector update to this chat.', 'no_routing_api')
     return
   }
   let route = null
+  let ownerCode = 'route_none'
+  const ownerDetails = { inferred: record.localPrimaryInferred === true }
   try {
     let cancelDeadline
+    let timedOut = false
     const routes = await Promise.race([
       host.profileRoutes(),
-      new Promise(resolve => { cancelDeadline = ctx.setTimeout(() => resolve(null), Math.max(1, deadline - Date.now())) })
+      new Promise(resolve => {
+        cancelDeadline = ctx.setTimeout(() => {
+          timedOut = true
+          resolve(null)
+        }, Math.max(1, deadline - Date.now()))
+      })
     ])
     cancelDeadline?.()
     let matches = []
@@ -362,20 +403,33 @@ async function syncAppliedEffort(ctx, record) {
       matches = record.localPrimaryInferred
         ? routes.filter(candidate => candidate?.mode === 'local' && candidate?.profile === record.profile && candidate.primary === true)
         : routes.filter(candidate => candidate?.connectionId === record.connectionId && candidate?.profile === record.profile)
+      Object.assign(ownerDetails, {
+        routes: routes.length,
+        local: routes.filter(candidate => candidate?.mode === 'local').length,
+        primary: routes.filter(candidate => candidate?.primary === true).length,
+        owner: matches.length
+      })
       matches = matches.filter(candidate => typeof candidate?.targetProfile === 'string' && candidate.targetProfile.trim())
       if (record.localPrimaryInferred && matches.length === 0) {
         const localRoutes = routes.filter(candidate => candidate?.mode === 'local' && candidate?.profile === record.profile)
+        ownerDetails.fallback = localRoutes.length
         if (localRoutes.length === 1 && !routes.some(candidate => candidate?.primary === true)) {
           matches = localRoutes.filter(candidate => typeof candidate.targetProfile === 'string' && candidate.targetProfile.trim())
         }
       }
+      ownerDetails.targets = matches.length
+      if (matches.length > 1) ownerCode = 'route_ambiguous'
+    } else {
+      ownerCode = timedOut ? 'routes_timeout' : 'routes_invalid'
     }
     if (matches.length === 1) route = matches[0]
   } catch {
     route = null
+    ownerCode = 'routes_error'
   }
   if (!route) {
-    reportSyncIssue('The chat owner could not be resolved safely; its selector was left unchanged.')
+    reportSyncIssue('The chat owner could not be resolved safely; its selector was left unchanged.',
+      ownerCode, ownerDetails)
     return
   }
 
@@ -384,7 +438,10 @@ async function syncAppliedEffort(ctx, record) {
   if (latestFocus.sessionId !== focused.sessionId || latestFocus.conversationId !== record.sessionId ||
       ownerKey(latestFocus.connectionId, latestFocus.profile) !== eventOwnerKey ||
       latestFocus.model !== record.route.model || !latestRecord ||
-      !latestStillMatchesApplication(record, latestRecord, appliedId, target)) return
+      !latestStillMatchesApplication(record, latestRecord, appliedId, target)) {
+    recordSyncDebug('superseded')
+    return
+  }
 
   const remainingMs = Math.max(1, deadline - Date.now())
   const acknowledgment = waitForSessionInfo(ctx, {
@@ -405,13 +462,15 @@ async function syncAppliedEffort(ctx, record) {
     }, remainingMs)
   } catch {
     acknowledgment.cancel()
-    reportSyncIssue('Hermes could not update this chat’s reasoning selector.')
+    reportSyncIssue('Hermes could not update this chat’s reasoning selector.', 'request_failed')
     return
   }
   const acknowledged = await acknowledgment.promise
   if (!acknowledged) {
-    if (acknowledged === false) reportSyncIssue('The reasoning selector did not confirm the update.')
+    if (acknowledged === false) reportSyncIssue('The reasoning selector did not confirm the update.', 'not_confirmed')
+    else recordSyncDebug('ack_canceled')
   } else {
+    recordSyncDebug('synced')
     setSyncReason('Selector synced for this chat.')
   }
 }
@@ -901,9 +960,7 @@ function AdaptiveEffortChip() {
     retry: 1
   })
   const data = query.data
-  if (typeof data?.settings?.show_desktop_popup === 'boolean') {
-    showDesktopPopup = data.settings.show_desktop_popup
-  }
+  applyStatusSettings(data)
   const mode = typeof data?.mode === 'string' ? data.mode : null
   const settings = data?.settings || {}
   const scorerProvider = settings.scorer_provider || '…'
@@ -1077,11 +1134,7 @@ export default {
   defaultEnabled: false,
   register(ctx) {
     rest = ctx.rest
-    void rest('/status', { timeoutMs: 15000 }).then(data => {
-      if (typeof data?.settings?.show_desktop_popup === 'boolean') {
-        showDesktopPopup = data.settings.show_desktop_popup
-      }
-    }).catch(() => {})
+    void rest('/status', { timeoutMs: 15000 }).then(applyStatusSettings).catch(() => {})
     ctx.onEvent(DECISION_EVENT, event => handleDecisionEvent(ctx, event))
     ctx.onEvent(SESSION_INFO_EVENT, publishSessionInfo)
     ctx.onDispose(() => {
@@ -1099,6 +1152,7 @@ export default {
       retiredStreams.clear()
       syncAttempts.clear()
       appliedNoticeAttempts.clear()
+      debugLog.length = 0
       emitLiveChange()
     })
     ctx.register({

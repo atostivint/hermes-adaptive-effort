@@ -698,6 +698,7 @@ def test_classifier_guidance_and_display_flags_are_normalized(monkeypatch):
         "classification_instructions": guidance,
         "show_tui_status": "off",
         "show_desktop_popup": "true",
+        "debug": "on",
     })
 
     settings = middleware._settings()
@@ -705,6 +706,7 @@ def test_classifier_guidance_and_display_flags_are_normalized(monkeypatch):
     assert settings["classification_instructions"] == "x" * 2000
     assert settings["show_tui_status"] is False
     assert settings["show_desktop_popup"] is True
+    assert settings["debug"] is True
 
 
 @pytest.mark.parametrize("mode", [

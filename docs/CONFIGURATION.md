@@ -195,6 +195,7 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | `max_turns` | `64` | Capacity of each bounded turn/route decision ledger |
 | `show_tui_status` | `true` | Show terminal Effort status item |
 | `show_desktop_popup` | `true` | Show Desktop chip, popup and notifications |
+| `debug` | `false` | Append a diagnostic code and counts to Desktop selector-sync notices and log each sync step to the Desktop developer console |
 
 ### Default scoring deadline per provider
 

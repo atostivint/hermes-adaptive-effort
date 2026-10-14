@@ -67,7 +67,7 @@ function makeHarness(options = {}) {
     Tip: 'Tip',
     setTimeout,
     clearTimeout,
-    console,
+    console: options.console || console,
     Date,
     Promise,
     Map,
@@ -80,7 +80,8 @@ function makeHarness(options = {}) {
   vm.runInContext(`${source.slice(start, end)}\n;globalThis.api = {
     rememberDecision, handleDecisionEvent, publishSessionInfo, liveFor,
     syncAppliedEffort, AdaptiveEffortChip, ScorerEvaluation, evaluationRows, setPopup: value => { showDesktopPopup = value },
-    setRest: value => { rest = value }, getNotices: () => notices
+    setRest: value => { rest = value }, getNotices: () => notices,
+    applyStatusSettings, getDebugLog: () => debugLog
   }`, context, { filename: 'desktop/plugin.js' })
   context.api.setPopup(emptyStatus.settings?.show_desktop_popup !== false)
 
@@ -546,4 +547,83 @@ test('the evaluation is fetched only while the popup is open and is gated by sho
   assert.ok(String(evalQuery.queryFn).includes("rest('/eval'"))
   const hidden = makeHarness({ status: { mode: 'auto', settings: { show_desktop_popup: false }, sessions: [] } })
   assert.equal(hidden.api.AdaptiveEffortChip(), null)
+})
+
+const UNRESOLVED_OWNER = 'The chat owner could not be resolved safely; its selector was left unchanged.'
+const ambiguousRoutes = async () => [
+  { connectionId: 'conn-1', profile: 'work', targetProfile: 'work-target-a' },
+  { connectionId: 'conn-1', profile: 'work', targetProfile: 'work-target-b' }
+]
+
+test('debug off keeps the unresolved-owner notice unchanged and records nothing', async () => {
+  const debugLines = []
+  const h = makeHarness({ profileRoutes: ambiguousRoutes, console: { debug: (...args) => debugLines.push(args) } })
+  h.api.handleDecisionEvent(h.ctx, appliedDecision())
+  await flush()
+  assert.equal(h.calls.length, 0)
+  assert.equal(h.api.liveFor('conn-1', 'work', 'session-1').syncReason, UNRESOLVED_OWNER)
+  assert.equal(h.notices.at(-1).message, UNRESOLVED_OWNER)
+  assert.equal(h.api.getDebugLog().length, 0)
+  assert.equal(debugLines.length, 0)
+})
+
+test('debug on names an ambiguous owner with counts only, never identifiers', async () => {
+  const debugLines = []
+  const h = makeHarness({ profileRoutes: ambiguousRoutes, console: { debug: (...args) => debugLines.push(args) } })
+  h.api.applyStatusSettings({ settings: { debug: true } })
+  h.api.handleDecisionEvent(h.ctx, appliedDecision())
+  await flush()
+  const expected = `${UNRESOLVED_OWNER} [debug: route_ambiguous inferred=false routes=2 local=0 primary=0 owner=2 targets=2]`
+  assert.equal(h.calls.length, 0)
+  assert.equal(h.api.liveFor('conn-1', 'work', 'session-1').syncReason, expected)
+  assert.equal(h.notices.at(-1).message, expected)
+  const log = h.api.getDebugLog()
+  assert.equal(log.length, 1)
+  assert.equal(log[0].code, 'route_ambiguous')
+  assert.equal(debugLines.length, 1)
+  const serialized = JSON.stringify([...log, expected])
+  for (const identifier of ['conn-1', 'work', 'session-1', 'model-a', 'provider-a']) {
+    assert.ok(!serialized.includes(identifier), `debug output leaked ${identifier}`)
+  }
+})
+
+test('debug on separates a route-list timeout, an error and a missing owner', async () => {
+  const quiet = { debug: () => {} }
+  const timeout = makeHarness({ profileRoutes: () => new Promise(() => {}), console: quiet })
+  timeout.api.applyStatusSettings({ settings: { debug: true } })
+  timeout.api.handleDecisionEvent(timeout.ctx, appliedDecision())
+  await flush()
+  timeout.timers.find(timer => !timer.canceled && timer.ms > 1000).callback()
+  await flush()
+  assert.equal(timeout.api.getDebugLog().at(-1).code, 'routes_timeout')
+
+  const failing = makeHarness({ profileRoutes: async () => { throw new Error('boom') }, console: quiet })
+  failing.api.applyStatusSettings({ settings: { debug: true } })
+  failing.api.handleDecisionEvent(failing.ctx, appliedDecision())
+  await flush()
+  assert.equal(failing.api.getDebugLog().at(-1).code, 'routes_error')
+
+  const missing = makeHarness({ profileRoutes: async () => [
+    { connectionId: 'other', profile: 'work', targetProfile: 'x' }
+  ], console: quiet })
+  missing.api.applyStatusSettings({ settings: { debug: true } })
+  missing.api.handleDecisionEvent(missing.ctx, appliedDecision())
+  await flush()
+  assert.equal(missing.api.getDebugLog().at(-1).code, 'route_none')
+  assert.match(missing.api.liveFor('conn-1', 'work', 'session-1').syncReason,
+    /\[debug: route_none inferred=false routes=1 local=0 primary=0 owner=0 targets=0\]$/)
+})
+
+test('debug on records a successful sync without changing its message', async () => {
+  const h = makeHarness({ console: { debug: () => {} } })
+  h.api.applyStatusSettings({ settings: { debug: true } })
+  h.host.requestProfile = async (...args) => {
+    h.calls.push(args)
+    h.api.publishSessionInfo(sessionInfo())
+  }
+  h.api.handleDecisionEvent(h.ctx, appliedDecision())
+  await flush()
+  assert.equal(h.calls.length, 1)
+  assert.equal(h.api.liveFor('conn-1', 'work', 'session-1').syncReason, 'Selector synced for this chat.')
+  assert.equal(h.api.getDebugLog().at(-1).code, 'synced')
 })

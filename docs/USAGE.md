@@ -104,6 +104,8 @@ A fresh applied rewrite can also synchronize Hermes' native reasoning selector f
 
 Child-isolated sessions cannot be synchronized through the parent's session API. A rejected or unconfirmed selector update produces a notice; the model request already sent is unaffected.
 
+Set `debug: true` to see why a selector update was skipped. Each selector-sync notice and the **More** selector line gain a suffix such as `[debug: route_ambiguous inferred=false routes=2 local=0 primary=0 owner=2 targets=2]`, and every sync step is logged to the Desktop developer console (last 32 kept in memory). Codes: `route_none`, `route_ambiguous`, `routes_timeout`, `routes_error`, `routes_invalid` (chat owner not resolved), `route_changed`, `selector_unsupported`, `no_routing_api`, `request_failed`, `not_confirmed`, and console-only `not_focused`, `superseded`, `ack_canceled`, `synced`. Diagnostics carry counts and flags only, never connection, profile, session or model identifiers, prompts, paths or hosts. With `debug: false` the messages are unchanged.
+
 Set `show_desktop_popup: false` to hide the chip, popup and notifications. Session-scoped selector synchronization operates independently of that display switch. Set `show_tui_status: false` to hide the terminal status item; the terminal setting is read on the next outgoing request.
 
 The terminal can also report an applied transition such as `Effort changed: high -> low`. A matching target produces no rewrite and no change notification.

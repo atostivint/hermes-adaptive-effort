@@ -287,6 +287,8 @@ No RPC occurs for a replay, repeated marker, no-op, failure, unsupported result,
 
 Child-isolated sessions advertise `selector_sync_supported: false`; Desktop gives a notice instead of calling the parent's API. In supported sessions, a matching `session.info` must confirm owner, runtime session, stored conversation, model and effort within five seconds. Rejection or missing confirmation produces a concise notice without retry or global fallback; the already-applied request is unaffected.
 
+With the `debug` setting on, each selector-sync notice and `syncReason` gains a `[debug: <code> <key>=<count|flag> ...]` suffix and each step is written to the developer console and a bounded in-memory ring of 32 entries. Diagnostics contain a stable code, counts and booleans only; they never carry connection, profile, session, conversation or model identifiers, prompts, paths or hosts. With `debug` off the notice text is unchanged and nothing is recorded. Debug never changes routing, classification or the selector RPC.
+
 The [usage guide](USAGE.md#desktop-and-terminal) describes display behavior. Display switches do not alter classification; hiding the Desktop popup does not disable session-scoped selector synchronization.
 
 ## Privacy and transport evidence

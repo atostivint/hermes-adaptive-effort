@@ -51,5 +51,6 @@ config_schema:
   max_turns: {type: int, default: 64, label: Advanced — decision capacity, description: "Maximum retained entries in each bounded decision ledger", required: false}
   show_tui_status: {type: bool, default: true, label: Display — TUI effort status, description: "Show the Effort status item in the Hermes terminal interface", required: false}
   show_desktop_popup: {type: bool, default: true, label: Display — Desktop popup, description: "Show the bottom-right effort chip, mode-selection popup, and its change notifications in Hermes Desktop", required: false}
+  debug: {type: bool, default: false, label: Display — debug diagnostics, description: "Append a short diagnostic code and counts (no identifiers, prompts or paths) to Desktop selector-sync notices and log each sync step to the Desktop developer console", required: false}
 requires:
   - llm_request middleware (capability: registering llm_request and session lifecycle hooks)
