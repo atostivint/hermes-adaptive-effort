@@ -185,6 +185,7 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | `custom_auth` | `none` | `none` or `bearer` |
 | `classification_instructions` | empty | Extra guidance, capped at 2,000 characters |
 | `use_target_model_context` | `false` | Include bounded target route/profile context when classifying a request |
+| `dialogue_context_messages` | `0` | Earlier user/assistant text messages (0-6, each at most 1,200 characters) also sent to the scorer as untrusted context; `0` sends none, larger values clamp to 6, invalid or negative values mean `0` |
 | `effort_models` | empty | Exact model IDs whose effort support the operator asserts |
 | `timeout_s` | `0` | Timeout in seconds for one scoring request. `0`, a negative or an invalid value uses the selected provider's default deadline (table below); any positive value wins, including an explicit `3.0`. A timeout fails open |
 | `scorer_pause_failures` | `3` | Consecutive failed scorer calls (timeout, transport, HTTP, malformed, unexpected) before the selected scorer is paused; `0` disables the pause; negative or invalid values use the default |
@@ -215,11 +216,14 @@ These values are not measured on this plugin's traffic; the Jev/Clef figures com
 settings:
   classification_instructions: "Prefer low for short, clearly scoped requests; reserve high for ambiguous, multi-step work."
   use_target_model_context: false
+  dialogue_context_messages: 0
 ```
 
 Merge these fields into your scorer settings. Guidance supplements the fixed legacy score rubric and named-choice instructions; it cannot change the route's allowed values or output format. The evaluator considers complexity, ambiguity, scope, reasoning steps, tool/research depth and explicit speed/cost priorities. A longer prompt or technical subject alone is not a reason to select more effort.
 
 With `use_target_model_context: true`, a request classification also shares target provider, exact model, API mode, observed effort and any matching local model profile. The context has its own 1,400-character cap. The observed effort is reference context, not a desired score. Profiles use exact IDs and never grant route support. Probe remains typed text plus guidance, without target context.
+
+With `dialogue_context_messages: N` (1-6), a request classification also shares up to N user and assistant text messages that precede the latest user message, oldest first, each cut to 1,200 characters. It helps a follow-up ("now fix the tests") be judged with the task it refers to. `prompt_chars` still caps only the latest user text. System and developer messages, tool calls, tool results, images and other non-text parts are never included. Subagents (classified from the parent-written goal) and `probe` never carry dialogue context. The block format is in [Contracts](CONTRACTS.md#scorer-input-with-dialogue-context).
 
 ### Assert support for an exact model
 
@@ -235,9 +239,10 @@ This is an operator assertion. It cannot establish dynamic effort support, enabl
 | Eligible classification in an active mode | Bounded latest user text, optional guidance, and the route's allowed effort names when using named-choice classification |
 | Child classification with both gates enabled | Bounded parent-written goal, optional guidance, and allowed effort names on named-choice routes |
 | Request classification with target context enabled | The above task/guidance plus bounded target route/profile context |
+| Request classification with `dialogue_context_messages` above 0 | The above plus up to that many earlier user/assistant texts (each at most 1,200 characters); never for child classification or `probe` |
 | Explicit `probe`, including while `off` | Operator-typed text plus optional guidance; no target context |
 
-A reused decision makes no new scoring request. The plugin sends neither the whole conversation nor tool results as task text. The allowed-choice list is part of the question; model identity, observed effort and any local model profile remain governed by `use_target_model_context`. It excludes prompts, guidance contents and composed target context from logs, status and change feeds. Child goals exist transiently in bounded memory.
+A reused decision makes no new scoring request. The plugin sends neither the whole conversation nor tool results as task text; with `dialogue_context_messages` above 0 it adds only the bounded earlier user/assistant texts described above. The allowed-choice list is part of the question; model identity, observed effort and any local model profile remain governed by `use_target_model_context`. It excludes prompts, guidance contents, dialogue context and composed target context from logs, status and change feeds. Child goals exist transiently in bounded memory.
 
 These limits describe the plugin. They do not guarantee how an external service retains data:
 

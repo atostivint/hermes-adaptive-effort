@@ -105,6 +105,10 @@ def test_config_schema_types_and_defaults_match_middleware():
     assert schema["use_target_model_context"]["type"] == "bool"
     assert schema["use_target_model_context"]["default"] is False
     assert "observed effort" in schema["use_target_model_context"]["description"]
+    assert schema["dialogue_context_messages"]["type"] == "int"
+    assert schema["dialogue_context_messages"]["default"] == 0
+    assert middleware.DEFAULTS["dialogue_context_messages"] == 0
+    assert "1200" in schema["dialogue_context_messages"]["description"]
 
 
 def test_config_schema_declares_no_secret():

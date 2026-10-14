@@ -68,6 +68,7 @@ DEFAULTS: Dict[str, Any] = {
     "nace_model": _scorers.nace_client.MODEL,
     "classification_instructions": "",
     "use_target_model_context": False,
+    "dialogue_context_messages": 0,
     "show_tui_status": True,
     "show_desktop_popup": True,
 }
@@ -867,6 +868,8 @@ def _settings() -> Dict[str, Any]:
             _read_setting("classification_instructions", DEFAULTS["classification_instructions"])),
         "use_target_model_context": _bool(
             "use_target_model_context", DEFAULTS["use_target_model_context"]),
+        "dialogue_context_messages": _dialogue_message_count(
+            _read_setting("dialogue_context_messages", DEFAULTS["dialogue_context_messages"])),
         "show_tui_status": _bool("show_tui_status", DEFAULTS["show_tui_status"]),
         "show_desktop_popup": _bool(
             "show_desktop_popup", DEFAULTS["show_desktop_popup"]),
@@ -1153,6 +1156,73 @@ def run_probe(prompt: str,
 
 
 # ── request inspection ──────────────────────────────────────────────────────
+
+# ── bounded dialogue context ────────────────────────────────────────────────
+
+#: Hard ceiling of earlier messages and per-message length; fixed, not settings.
+DIALOGUE_MAX_MESSAGES = 6
+DIALOGUE_MESSAGE_CHARS = 1200
+_DIALOGUE_ROLES = ("user", "assistant")
+_DIALOGUE_TEXT_TYPES = ("text", "input_text", "output_text")
+
+
+def _dialogue_message_count(value: Any) -> int:
+    """Configured number of earlier messages: invalid or negative is 0, above 6 is 6."""
+    if isinstance(value, bool):
+        return 0
+    try:
+        count = int(float(value))
+    except Exception:
+        return 0
+    return max(0, min(count, DIALOGUE_MAX_MESSAGES))
+
+
+def _qualifying_text(item: Any) -> Optional[Tuple[str, str]]:
+    """``(role, text)`` of a user/assistant message's text parts, else ``None``.
+
+    System/developer messages, tool results, tool calls (a separate key or item) and every
+    non-text part (images, thinking, tool_result blocks) are dropped here, once.
+    """
+    if not isinstance(item, dict) or item.get("role") not in _DIALOGUE_ROLES:
+        return None
+    if item.get("type") not in (None, "message"):
+        return None
+    content = item.get("content")
+    if isinstance(content, str):
+        text = content
+    elif isinstance(content, list):
+        text = "".join(
+            block["text"] for block in content
+            if isinstance(block, dict) and block.get("type") in _DIALOGUE_TEXT_TYPES
+            and isinstance(block.get("text"), str))
+    else:
+        return None
+    return (item["role"], text) if text.strip() else None
+
+
+def _dialogue_context(request: Any, count: int) -> "List[Tuple[str, str]]":
+    """The last *count* user/assistant texts before the latest user message, oldest first.
+
+    Reads the same two carriers as :func:`_latest_user_prompt` (``messages`` first, then a
+    preflighted Responses ``input``). The latest user message is the task being classified and
+    is never repeated here. Each text is cut to :data:`DIALOGUE_MESSAGE_CHARS`.
+    """
+    if count <= 0 or not isinstance(request, dict):
+        return []
+    for key in ("messages", "input"):
+        items = request.get(key)
+        if not isinstance(items, list):
+            continue
+        qualifying = [found for found in (_qualifying_text(item) for item in items) if found]
+        latest = next((i for i in range(len(qualifying) - 1, -1, -1)
+                       if qualifying[i][0] == "user"), None)
+        if latest is None:
+            continue
+        earlier = qualifying[max(0, latest - count):latest]
+        return [(role, _jev_client.truncate_prompt(text.strip(), DIALOGUE_MESSAGE_CHARS))
+                for role, text in earlier]
+    return []
+
 
 def _latest_user_text(messages: Any) -> Optional[str]:
     """Latest user message: history and trailing tool results are not the new task."""
@@ -1953,18 +2023,24 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                 started = time.monotonic()
                 scoring_prompt = prompt
                 scoring_settings = settings
-                if settings["use_target_model_context"]:
+                # Subagents are classified from the goal their parent wrote: never from dialogue.
+                dialogue = (_dialogue_context(request, settings["dialogue_context_messages"])
+                            if child_goal is None else [])
+                if settings["use_target_model_context"] or dialogue:
                     try:
                         task_text = _jev_client.truncate_prompt(prompt, settings["prompt_chars"])
-                        context = _model_profiles.target_context(
+                        context = (_model_profiles.target_context(
                             provider, model, api_mode, slot[2] if slot is not None else None)
-                        scoring_prompt = _model_profiles.wrap_task(task_text, context)
+                            if settings["use_target_model_context"] else "")
+                        scoring_prompt = (
+                            _model_profiles.wrap_dialogue_task(task_text, context, dialogue)
+                            if dialogue else _model_profiles.wrap_task(task_text, context))
                         scoring_settings = dict(settings)
                         # Task text has its own cap; context is a separate, opt-in addition.
                         scoring_settings["prompt_chars"] = len(scoring_prompt)
                     except Exception:
                         logger.debug(
-                            "hermes-adaptive-effort: target context preparation failed; failing open",
+                            "hermes-adaptive-effort: scorer context preparation failed; failing open",
                             exc_info=True,
                         )
                         scoring_prompt = ""

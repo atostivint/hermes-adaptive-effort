@@ -513,6 +513,9 @@ def _status_full_text() -> str:
         f"task text limit: {settings['prompt_chars']} characters",
         f"Classifier guidance: {'configured' if settings.get('classification_instructions_configured') else 'default'} "
         f"(contents remain private; limit={_middleware._rubric.MAX_CLASSIFICATION_INSTRUCTION_CHARS} characters)",
+        *([f"Dialogue context: up to {settings['dialogue_context_messages']} earlier "
+           f"user/assistant messages, {_middleware.DIALOGUE_MESSAGE_CHARS} characters each "
+           "(contents remain private)"] if settings.get("dialogue_context_messages") else []),
         f"Display: TUI={'on' if settings['show_tui_status'] else 'off'} · "
         f"Desktop popup={'on' if settings['show_desktop_popup'] else 'off'}",
     ])

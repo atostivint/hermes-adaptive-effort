@@ -99,7 +99,7 @@ For exact registered routes, the selected scorer chooses directly from that rout
 
 When an already classified turn falls back to a request with no writable effort field, its request continues unchanged and status names that fallback route as `unsupported`. The turn's earlier decision remains available if a later request reaches an eligible route. The exact OpenCode Go `mimo-v2.6-flash` Chat Completions route is registered to inject top-level `reasoning_effort` (`low`, `medium`, or `high`) on a fallback without a field. Direct Go requests have accepted these values, but Xiaomi currently treats all non-`none` levels as enabled reasoning; no cost or reasoning-depth difference is established. See the [compatibility matrix](docs/MODEL_COMPATIBILITY.md).
 
-The scorer receives the latest user text, or the parent-written goal for a registered subagent. Scoring and answering are separate calls with separate costs. The allowed levels are included in the scorer question; model identity and observed effort are shared only when `use_target_model_context` is enabled.
+The scorer receives the latest user text, or the parent-written goal for a registered subagent. Scoring and answering are separate calls with separate costs. The allowed levels are included in the scorer question; model identity and observed effort are shared only when `use_target_model_context` is enabled, and earlier conversation text only when `dialogue_context_messages` is above 0.
 
 See [Design](docs/DESIGN.md) for the component diagram and [Contracts](docs/CONTRACTS.md) for the tool-loop sequence and failure rules.
 
@@ -128,6 +128,7 @@ The chip matches decisions to the chat's stored conversation ID; Desktop's tempo
 ## Data sharing and limits
 
 - Enabling routing sends at most `prompt_chars` task characters (default 4,000), plus optional classifier guidance and the allowed level names for named-choice routes, to the selected scorer. Target model context is a separate opt-in setting.
+- `dialogue_context_messages` (default `0`, maximum 6) is another opt-in: when above 0, enabling routing also shares up to that many earlier user and assistant text messages (each at most 1,200 characters, oldest first, labelled as untrusted context) with the selected scorer so a follow-up such as "yes, go ahead" is judged with the task it refers to. System and developer messages, tool calls, tool results and non-text parts are never included, and subagent classification and `/hae probe` never carry it. With the default the scorer request is unchanged.
 - `/hae probe <text>` explicitly scores the text you type, even while routing is off. It stores no decision and may incur charges.
 - The plugin excludes prompts and guidance from status, logs and change events. Provider retention is separate; see [data sharing](docs/CONFIGURATION.md#data-sharing).
 - Applied-change history stores only effort transitions, model names and bounded decision metadata in the active Hermes profile. It retains at most 64 changes per conversation and 64 conversations; a conversation reset clears its history. It never stores task or prompt text.
