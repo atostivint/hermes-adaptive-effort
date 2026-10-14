@@ -43,6 +43,7 @@ from . import jev_client as _jev_client
 from . import model_profiles as _model_profiles
 from . import rubric as _rubric
 from . import scorers as _scorers
+from . import tool_errors as _tool_errors
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ DEFAULTS: Dict[str, Any] = {
     "use_target_model_context": False,
     "dialogue_context_messages": 0,
     "continuation_downgrade_votes": 0,
+    "tool_error_escalation": True,
     "show_tui_status": True,
     "show_desktop_popup": True,
     "debug": False,
@@ -544,6 +546,7 @@ def _touch(key: str, settings: Dict[str, Any], mode: str,
                 "state": "new", "label": None, "target": None, "score": None,
                 "decision_type": None, "choices": [], "cache_behavior": None,
                 "continuation": None, "held": False,
+                "escalated": False, "escalation_reason": None,
                 "mode": mode, "provider": provider, "model": model,
                 "scope": "turn",
                 "scorer_provider": settings.get("scorer_provider", _scorers.JEV),
@@ -576,6 +579,7 @@ def _touch_pin(key: str, settings: Dict[str, Any], mode: str,
                 "state": "new", "label": None, "target": None, "score": None,
                 "decision_type": None, "choices": [], "cache_behavior": None,
                 "continuation": None, "held": False,
+                "escalated": False, "escalation_reason": None,
                 "mode": mode, "provider": provider, "model": model,
                 "scope": "session_route",
                 "api_mode": api_mode,
@@ -885,6 +889,8 @@ def _settings() -> Dict[str, Any]:
         "continuation_downgrade_votes": _downgrade_votes(
             _read_setting("continuation_downgrade_votes",
                           DEFAULTS["continuation_downgrade_votes"])),
+        "tool_error_escalation": _bool(
+            "tool_error_escalation", DEFAULTS["tool_error_escalation"]),
         "show_tui_status": _bool("show_tui_status", DEFAULTS["show_tui_status"]),
         "show_desktop_popup": _bool(
             "show_desktop_popup", DEFAULTS["show_desktop_popup"]),
@@ -1243,6 +1249,8 @@ def _dialogue_context(request: Any, count: int) -> "List[Tuple[str, str]]":
 # ── continuation hysteresis (issue #32) ──────────────────────────────────────
 
 CONTINUATION_MAX_VOTES = 5
+ESCALATION_REASON = "repeated_tool_error"
+_ESCALATION_SEEN_LIMIT = 64
 _LEVEL_RANK = {level: index for index, level in enumerate(_rubric.CHOICE_LEVELS)}
 
 
@@ -1906,6 +1914,30 @@ def _invalidate_claude_history(route_key: str) -> None:
             _CLAUDE_HISTORY.move_to_end(route_key)
 
 
+def _escalated_target(request: Dict[str, Any], turn_entry: Dict[str, Any], target: str,
+                      choices: Any) -> str:
+    """Raise *target* once per repeated tool error of this turn (issue #34); local only.
+
+    The state is a list of SHA-256 digests plus a step count on the turn record; the error
+    text itself is never kept. The raise is re-derived from the current route's own choices
+    on every request, so a route change within the turn re-clamps it like any other label.
+    """
+    fingerprints = _tool_errors.repeated_error_fingerprints(request)
+    with _lock:
+        state = turn_entry.setdefault("_escalation", {"seen": [], "steps": 0})
+        for digest in fingerprints:
+            if digest not in state["seen"]:
+                state["seen"].append(digest)
+                state["steps"] += 1
+        del state["seen"][:-_ESCALATION_SEEN_LIMIT]
+        steps = state["steps"]
+    raised = _effort.raise_choice_level(target, choices, steps) if steps else target
+    if raised != target:
+        with _lock:
+            turn_entry.update(escalated=True, escalation_reason=ESCALATION_REASON)
+    return raised
+
+
 def _copy_decision(source: Dict[str, Any], target: Dict[str, Any]) -> None:
     """Copy only prompt-free decision fields between the turn and route ledgers."""
     for field in ("state", "label", "target", "score", "failure", "elapsed_ms",
@@ -2316,6 +2348,15 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "source": PLUGIN_ID,
             "reason": f"{mode} {before} -> {target} ({entry.get('label')}, per-message)",
         }
+    escalated = False
+    if (settings["tool_error_escalation"] and dynamic_route and route_choices
+            and str(provider or "").strip().lower() != "anthropic"):
+        # Local signal, no scorer: only ever raises, only on cache-safe dynamic routes.
+        raised = _escalated_target(request, turn_entry, target, route_choices)
+        if raised != target:
+            target, escalated = raised, True
+            if entry is not turn_entry:
+                entry = dict(entry, escalated=True, escalation_reason=ESCALATION_REASON)
     before = slot[2] if slot is not None else "absent"
     if target == before:
         # The route already sits at the level the scorer picked: nothing to send, so we
@@ -2344,5 +2385,6 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {
         "request": new_request,
         "source": PLUGIN_ID,
-        "reason": f"{mode} {before} -> {target} ({entry.get('label')})",
+        "reason": f"{mode} {before} -> {target} ({entry.get('label')}"
+                  f"{', ' + ESCALATION_REASON if escalated else ''})",
     }

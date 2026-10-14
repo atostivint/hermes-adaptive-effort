@@ -62,7 +62,7 @@ PROBE_SCHEMA = "hermes-adaptive-effort.probe.v1"
 #: plugin-author payload), so prompt text and provider junk are filtered out.
 _ENTRY_FIELDS = (
     "conversation_id", "state", "score", "label", "target", "decision_type", "choices",
-    "cache_behavior", "continuation", "held", "mode", "provider", "model", "api_mode",
+    "cache_behavior", "continuation", "held", "escalated", "escalation_reason", "mode", "provider", "model", "api_mode",
     "scorer_provider", "scorer_model",
     "requests", "probes", "elapsed_ms", "failure", "updated_at",
 )
@@ -502,7 +502,7 @@ def _status_full_text() -> str:
     ]
     if entry:
         for field in ("provider", "model", "api_mode", "decision_type", "choices",
-                      "score", "label", "target", "continuation", "held",
+                      "score", "label", "target", "continuation", "held", "escalated", "escalation_reason",
                       "cache_behavior", "cache_verdict",
                       "requests", "probes", "elapsed_ms", "failure"):
             value = entry.get(field)
@@ -520,6 +520,7 @@ def _status_full_text() -> str:
            "(contents remain private)"] if settings.get("dialogue_context_messages") else []),
         *([f"Continuation: {settings['continuation']}"]
           if settings.get("continuation_downgrade_votes") else []),
+        f"Tool error escalation: {'on' if settings.get('tool_error_escalation') else 'off'}",
         f"Display: TUI={'on' if settings['show_tui_status'] else 'off'} · "
         f"Desktop popup={'on' if settings['show_desktop_popup'] else 'off'} · "
         f"debug={'on' if settings.get('debug') else 'off'}",

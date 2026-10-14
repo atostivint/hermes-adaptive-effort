@@ -7,7 +7,7 @@
  *
  * Backend is the sibling `dashboard/plugin_api.py` (`/api/plugins/hermes-adaptive-effort/`),
  * itself a thin wrapper around the agent half's command/middleware. Everything
- * fails open: backend disabled or unreachable renders `Effort: N/A`, actions toast.
+ * fails open: backend disabled or unreachable renders `N/A`, actions toast.
  */
 import {
   Codicon,
@@ -126,7 +126,7 @@ function publicStatus(entry) {
     'conversation_id', 'state', 'score', 'label', 'target', 'decision_type', 'choices',
     'cache_behavior', 'mode', 'provider', 'model',
     'api_mode', 'scorer_provider', 'scorer_model', 'requests', 'probes', 'elapsed_ms',
-    'failure', 'updated_at', 'continuation', 'held'
+    'failure', 'updated_at', 'continuation', 'held', 'escalated', 'escalation_reason'
   ]
   const result = {}
   for (const field of allowed) {
@@ -992,7 +992,7 @@ function AdaptiveEffortChip() {
   const conversationApplies = Boolean(conversation && scopeId &&
     (conversation.conversation_id == null || conversation.conversation_id === scopeId))
   const overridden = Boolean(conversationApplies && conversation.source === 'conversation' && conversationMode)
-  const label = overridden ? `Effort: ${effort} · ${conversationMode} (this chat)` : `Effort: ${effort}`
+  const label = overridden ? `${effort} · ${conversationMode} (this chat)` : effort
   const tone = toneFor(mode, query.isError)
 
   useEffect(() => subscribeLive(setLiveVersion), [])

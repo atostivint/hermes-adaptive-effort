@@ -28,7 +28,7 @@ _STORE_LOCK = threading.RLock()
 
 _DETAIL_FIELDS = (
     "state", "score", "label", "target", "decision_type", "choices",
-    "cache_behavior", "cache_verdict", "continuation", "held", "mode", "provider", "model", "api_mode",
+    "cache_behavior", "cache_verdict", "continuation", "held", "escalated", "escalation_reason", "mode", "provider", "model", "api_mode",
     "scorer_provider", "scorer_model", "requests", "probes", "elapsed_ms",
     "failure", "updated_at",
 )
