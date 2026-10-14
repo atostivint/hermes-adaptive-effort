@@ -11,6 +11,7 @@ from conftest import import_plugin
 jev = import_plugin("jev_client")
 decisions = import_plugin("openai_decision_client")
 cloudflare = import_plugin("cloudflare_client")
+nace = import_plugin("nace_client")
 openrouter = import_plugin("openrouter_client")
 custom = import_plugin("custom_client")
 
@@ -29,7 +30,7 @@ class FakeTransport:
 
 
 def response(provider, value):
-    if provider in {"jev", "custom-systemone"}:
+    if provider in {"jev", "nace", "custom-systemone"}:
         return {"answers": {"effort": {"type": "choice", "choice": value}}}
     if provider == "cloudflare":
         return {"success": True, "errors": [], "result": {
@@ -42,6 +43,8 @@ def response(provider, value):
 def make_client(provider, transport):
     if provider == "jev":
         return jev.JevClient(api_key="key", transport=transport)
+    if provider == "nace":
+        return nace.NaceClient(api_key="key", transport=transport)
     if provider == "decisions":
         return decisions.OpenAIDecisionClient(api_key="key", transport=transport)
     if provider == "cloudflare":
@@ -57,7 +60,7 @@ def make_client(provider, transport):
 
 
 @pytest.mark.parametrize("provider", [
-    "jev", "decisions", "cloudflare", "openrouter", "custom-systemone", "custom-chat",
+    "jev", "nace", "decisions", "cloudflare", "openrouter", "custom-systemone", "custom-chat",
 ])
 def test_provider_sends_only_route_choices_and_reads_named_response(provider):
     transport = FakeTransport(response(provider, "max"))
@@ -65,7 +68,7 @@ def test_provider_sends_only_route_choices_and_reads_named_response(provider):
 
     assert client.classify_effort_detail("bounded task", CHOICES) == ("max", None)
     body = json.loads(transport.calls[0].data.decode("utf-8"))
-    if provider in {"jev", "cloudflare", "custom-systemone"}:
+    if provider in {"jev", "nace", "cloudflare", "custom-systemone"}:
         question = body["questions"]["effort"]
         assert question["type"] == "choice"
         assert tuple(question["criteria"]) == CHOICES
@@ -80,7 +83,7 @@ def test_provider_sends_only_route_choices_and_reads_named_response(provider):
 
 
 @pytest.mark.parametrize("provider", [
-    "jev", "decisions", "cloudflare", "openrouter", "custom-systemone", "custom-chat",
+    "jev", "nace", "decisions", "cloudflare", "openrouter", "custom-systemone", "custom-chat",
 ])
 def test_provider_rejects_a_choice_outside_the_route_vocabulary(provider):
     transport = FakeTransport(response(provider, "medium"))

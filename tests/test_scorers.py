@@ -9,6 +9,7 @@ openrouter_client = import_plugin("openrouter_client")
 cloudflare_client = import_plugin("cloudflare_client")
 custom_client = import_plugin("custom_client")
 openai_decision_client = import_plugin("openai_decision_client")
+nace_client = import_plugin("nace_client")
 scorers = import_plugin("scorers")
 middleware = import_plugin("middleware")
 
@@ -105,6 +106,35 @@ def test_custom_provider_uses_configured_endpoint_model_format_and_auth():
     assert scorers.credential_required("custom", "none") is False
 
 
+def test_nace_defaults_to_pinned_drex_and_reports_endpoint_and_model(monkeypatch):
+    monkeypatch.delenv("NACE_BASE_URL", raising=False)
+    client, failure = scorers.build_client(settings(scorer_provider="nace"))
+    assert failure is None
+    assert isinstance(client, nace_client.NaceClient)
+    assert client.model == "drex-v2.0"
+    assert client.endpoint == "https://console.nace.ai/v1/systemone"
+    assert scorers.model_for("nace", "ignored") == "drex-v2.0"
+    assert scorers.model_for("nace", "ignored", nace_model="drex-latest") == "drex-latest"
+    assert scorers.endpoint_for("nace", "jev-endpoint") == (
+        "https://console.nace.ai", "https://console.nace.ai/v1/systemone")
+    assert scorers.credential_required("nace") is True
+    assert "nace" in scorers.PROVIDERS
+
+    client, _ = scorers.build_client(settings(scorer_provider="nace", nace_model="drex-latest"))
+    assert client.model == "drex-latest"
+    monkeypatch.setenv("NACE_BASE_URL", "http://127.0.0.1:9000/v1")
+    client, _ = scorers.build_client(settings(scorer_provider="nace"))
+    assert client.endpoint == "http://127.0.0.1:9000/v1/systemone"
+
+
+def test_nace_credential_presence_uses_the_nace_reader_only(monkeypatch):
+    monkeypatch.setattr(nace_client, "_default_key_reader", lambda: "")
+    monkeypatch.setattr(jev_client, "_default_key_reader", lambda: "jev-key")
+    assert scorers.credential_present("nace") is False
+    monkeypatch.setattr(nace_client, "_default_key_reader", lambda: "nace-key")
+    assert scorers.credential_present("nace") is True
+
+
 def test_unknown_provider_fails_open_without_jev_fallback():
     client, failure = scorers.build_client(settings(scorer_provider="another-provider"))
     assert client is None
@@ -122,6 +152,7 @@ def test_classifier_guidance_is_shared_by_every_provider():
         settings(**common, scorer_provider="custom", scorer_model="local-model",
                  custom_endpoint="http://127.0.0.1:8080/v1/systemone"),
         settings(**common, scorer_provider="openai_decision"),
+        settings(**common, scorer_provider="nace"),
     )
 
     for configured in configurations:

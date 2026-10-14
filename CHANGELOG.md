@@ -15,6 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Synthetic scorer evaluation: a 66-prompt corpus, a manual billed `scripts/run_scorer_eval.py` (accuracy, confusion matrix, p50/p95, failure codes per scorer) and a "Scorer evaluation" section in the Desktop popup backed by `GET /eval`
 - Scorer circuit breaker: after `scorer_pause_failures` consecutive scorer failures the selected scorer is paused for `scorer_pause_s` seconds (reason `scorer_paused`, `scorer_pause` in `status json`)
 - `/hae status` shows the selected scorer's p95 latency (`Scorer latency: p95 ≤ 350 ms (42 calls)`; `scorer_latency` in `status json`), from an in-process counts-only histogram
+- `nace` scorer provider for the Nace Drex model (System One on `https://console.nace.ai/v1/systemone`), with the new `nace_model` setting (default pinned `drex-v2.0`), `NACE_API_KEY` (legacy `DREX_API_KEY` accepted) and an optional `NACE_BASE_URL` base. It supports named effort choices and the legacy score rubric, fails open, and never falls back to Jev. Live behaviour, score quality and cost are unmeasured
+- `.env.example`; `.env` and `.env.*` are now git-ignored
 - Per-conversation mode override (`/hae <mode> here`, `/hae default here`, Desktop "This conversation"), stored in the profile history database and leaving the default mode and config untouched
 
 ## [0.3.1] - 2026-10-08

@@ -16,7 +16,7 @@ The maintainer built it for daily personal use and intends to maintain it throug
 flowchart TD
     H["Hermes request<br/>and lifecycle hooks"] --> M["middleware.py<br/>gates, memory, rewrite"]
     M --> S["scorers.py<br/>explicit provider registry"]
-    S --> A["Scorer adapters<br/>Jev, Decisions, OpenRouter,<br/>Cloudflare, custom"]
+    S --> A["Scorer adapters<br/>Jev, Decisions, OpenRouter,<br/>Cloudflare, Nace, custom"]
     A --> R["rubric.py<br/>route-limited choice and score validation"]
     M --> E["effort.py + cache_safety.py<br/>route values and<br/>dynamic eligibility"]
     M --> O["Status and change events<br/>terminal, dashboard, Desktop"]
@@ -28,7 +28,7 @@ Hermes enters through the registered middleware and lifecycle hooks. Middleware 
 
 ## Separate scoring from answering
 
-The scorer judges task complexity; the conversation model answers the task. The registry supports Jev, OpenAI Decisions, OpenRouter, Cloudflare and custom hosted/local endpoints. Jev is the default.
+The scorer judges task complexity; the conversation model answers the task. The registry supports Jev, OpenAI Decisions, OpenRouter, Cloudflare, Nace Drex and custom hosted/local endpoints. Jev is the default.
 
 There is no fallback between scorers. A failure should not send a task to a different provider or bill a model the user did not select. The [configuration guide](CONFIGURATION.md#configure-your-scorer) owns provider setup and credentials.
 

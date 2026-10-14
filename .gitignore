@@ -9,3 +9,8 @@ __pycache__/
 test-results.xml
 coverage.xml
 .coverage
+
+# Local secrets: never commit a real .env
+.env
+.env.*
+!.env.example

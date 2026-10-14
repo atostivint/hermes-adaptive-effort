@@ -18,6 +18,7 @@ PROVIDER_DEFAULTS = {
     "openrouter": 3.0,
     "cloudflare": 3.0,
     "openai_decision": 3.0,
+    "nace": 3.0,
     "custom": 10.0,
 }
 

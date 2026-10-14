@@ -38,6 +38,7 @@ Required keys resolve through Hermes' secret scope first, then the process envir
 | OpenAI Decisions | `OPENAI_API_KEY` | None; empty `scorer_model` uses `gpt-6-luna` |
 | OpenRouter | `OPENROUTER_API_KEY` | Explicit `scorer_model` slug |
 | Cloudflare | `CLOUDFLARE_AUTH_TOKEN` | 32-character hexadecimal `cloudflare_account_id` |
+| Nace | `NACE_API_KEY` (legacy `DREX_API_KEY` also accepted) | None; `nace_model` defaults to `drex-v2.0` |
 | Custom, `custom_auth: none` | No key lookup | Exact endpoint and explicit model |
 | Custom, `custom_auth: bearer` | `CUSTOM_SCORER_API_KEY` | Exact endpoint and explicit model |
 
@@ -129,6 +130,19 @@ settings:
 
 Provide the token as `CLOUDFLARE_AUTH_TOKEN`. Replace the account placeholder with 32 hexadecimal characters. Select `clef` or `clef-flash`; the plugin builds the corresponding account-scoped Workers AI endpoint.
 
+### Nace Drex
+
+Create a key in the [Nace console](https://console.nace.ai) and make it available as `NACE_API_KEY`. The legacy name `DREX_API_KEY` is still read; when both are set, `NACE_API_KEY` wins.
+
+```yaml
+settings:
+  mode: auto
+  scorer_provider: nace
+  nace_model: drex-v2.0
+```
+
+The plugin posts to `https://console.nace.ai/v1/systemone`. Set `NACE_BASE_URL` in the serving environment to use another base; a bare host or `/v1` base gets `/v1/systemone` appended. `drex-v2.0` is pinned; `drex-latest` is an alias that moves on dates Nace announces. Drex answers requests beyond its documented state limits with an older model at that model's price; the plugin does not retry or upgrade. Nace bills only successful (HTTP 200) answers. A missing key, no credit (402), rate limit (429) or server error fails open for that turn and never falls back to Jev.
+
 ### Custom hosted or local endpoint
 
 Supply the full endpoint URL, served model name and matching API format:
@@ -159,12 +173,13 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | --- | --- | --- |
 | `mode` | `off` | Main mode: `auto`, `once`, `always`, `off` |
 | `subagent_mode` | `off` | Independent child mode; the main mode must also be active |
-| `scorer_provider` | `jev` | `jev`, `openai_decision`, `openrouter`, `cloudflare`, `custom` |
+| `scorer_provider` | `jev` | `jev`, `openai_decision`, `openrouter`, `cloudflare`, `nace`, `custom` |
 | `jev_model` | `jev-latest` | Jev model name |
 | `endpoint` | `https://api.typesafe.ai/v1/systemone` | Jev endpoint; ignored by other scorers |
 | `scorer_model` | empty | Optional for OpenAI Decisions; required for OpenRouter/custom |
 | `cloudflare_account_id` | empty | Cloudflare account ID |
 | `cloudflare_model` | `clef` | `clef` or `clef-flash` |
+| `nace_model` | `drex-v2.0` | Nace Drex model name |
 | `custom_endpoint` | empty | Exact HTTP(S) scoring URL |
 | `custom_api_format` | `systemone` | `systemone` or `chat_completions`; exact-choice routes require named-choice support |
 | `custom_auth` | `none` | `none` or `bearer` |
@@ -189,6 +204,7 @@ When `timeout_s` is `0` (the default) the deadline follows the selected `scorer_
 | `openrouter` | 3.0 s |
 | `cloudflare` | 3.0 s |
 | `openai_decision` | 3.0 s |
+| `nace` | 3.0 s |
 | `custom` | 10.0 s (often fronts a local model that must load on its first call; a longer cold start still fails open on that call) |
 
 These values are not measured on this plugin's traffic; the Jev/Clef figures come from claude-router's synthetic probe. `/hae status` shows the effective value and whether it is a provider default or configured. Installs that never set `timeout_s` move to these values automatically; the plugin never rewrites configuration.
@@ -227,6 +243,6 @@ These limits describe the plugin. They do not guarantee how an external service 
 
 - OpenRouter requests require ZDR endpoints and deny data-collecting endpoints. OpenRouter still processes the input; see its [ZDR policy and routing controls](https://openrouter.ai/docs/guides/features/zdr).
 - OpenAI documents Decisions ZDR support for eligible customers. The plugin cannot verify account eligibility; see the [Decisions guide](https://developers.openai.com/api/docs/guides/decisions).
-- The plugin gives no ZDR guarantee for Jev, Cloudflare or custom endpoints.
+- The plugin gives no ZDR guarantee for Jev, Cloudflare, Nace or custom endpoints.
 
 No provider falls back to another scorer. Missing configuration, transport errors, timeouts or malformed scores leave requests unchanged and appear in status. See [troubleshooting](USAGE.md#troubleshooting).
