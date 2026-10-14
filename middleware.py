@@ -33,7 +33,7 @@ import threading
 import time
 import uuid
 from collections import OrderedDict, deque
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import cache_safety as _cache_safety
 from . import effort as _effort
@@ -50,8 +50,10 @@ VALID_MODES: Tuple[str, ...] = ("auto", "once", "always", "off")
 DEFAULTS: Dict[str, Any] = {
     "mode": "off",
     "subagent_mode": "off",
-    "timeout_s": _jev_client.DEFAULT_TIMEOUT_S,
+    "timeout_s": 0.0,
     "max_turns": 64,
+    "scorer_pause_failures": 3,
+    "scorer_pause_s": 60.0,
     "prompt_chars": _jev_client.DEFAULT_MAX_PROMPT_CHARS,
     "effort_models": "",
     "endpoint": _jev_client.DEFAULT_ENDPOINT,
@@ -112,6 +114,24 @@ _ROUTE_IN_FLIGHT: set = set()
 #: never parses the child's prompt. A child is its own agent with its own
 #: session_id, which is the only reliable way to tell a child's requests apart.
 _CHILD_GOALS: "OrderedDict[str, str]" = OrderedDict()
+#: Scorer circuit breaker: provider id -> {"failures": int, "paused_until": float | None}.
+#: Holds counters and a deadline only; never prompts, keys or session ids. Guarded by ``_lock``.
+_SCORER_BREAKER: Dict[str, Dict[str, Any]] = {}
+#: Clock seam for the breaker (monotonic seconds); tests replace it.
+_monotonic: Callable[[], float] = time.monotonic
+#: Failure codes that mean a scorer call was launched and did not produce a usable answer.
+#: Configuration problems (missing key/model/...) are never counted: retrying them is free
+#: and the operator fixes them, not time.
+_BREAKER_COUNTED_FAILURES = frozenset({
+    "timeout", "transport_error", "http_error", "malformed_response", "unexpected_error",
+})
+
+#: Scorer latency histogram: provider id -> bucket counts (one per ``_LATENCY_BUCKETS_MS`` bound,
+#: plus a trailing overflow bucket). Counts only; never prompts, session ids, keys, models or
+#: routes. Entries of other providers are kept. Guarded by ``_lock``.
+_SCORER_LATENCY: Dict[str, List[int]] = {}
+#: Upper bounds in ms; a value equal to a bound belongs to that bucket.
+_LATENCY_BUCKETS_MS = (100, 200, 350, 500, 750, 1000, 1500, 2000, 3000, 5000, 10000)
 
 
 # ── session state ───────────────────────────────────────────────────────────
@@ -132,6 +152,8 @@ def reset_state() -> None:
         _IN_FLIGHT.clear()
         _ROUTE_IN_FLIGHT.clear()
         _CHILD_GOALS.clear()
+        _SCORER_BREAKER.clear()
+        _SCORER_LATENCY.clear()
         _EFFORT_CHANGES.clear()
         _CHANGE_SEQUENCE = 0
         _CHANGE_STREAM_ID = uuid.uuid4().hex
@@ -742,6 +764,14 @@ def _settings() -> Dict[str, Any]:
         except Exception:
             return int(fallback)
 
+    def _nonneg_int(key: str, fallback: int) -> int:
+        # 0 is meaningful here (disables the breaker); negative or invalid -> default.
+        try:
+            value = int(float(_read_setting(key, fallback)))
+            return value if value >= 0 else int(fallback)
+        except Exception:
+            return int(fallback)
+
     def _bool(key: str, fallback: bool) -> bool:
         value = _read_setting(key, fallback)
         if isinstance(value, bool):
@@ -758,20 +788,36 @@ def _settings() -> Dict[str, Any]:
 
     effort_models = _read_setting("effort_models", DEFAULTS["effort_models"])
 
+    scorer_provider = str(_read_setting(
+        "scorer_provider", DEFAULTS["scorer_provider"]) or _scorers.JEV).strip().lower()
+    # 0, negative or invalid -> the selected provider's default deadline.
+    try:
+        timeout_configured = float(_read_setting("timeout_s", DEFAULTS["timeout_s"]))
+        if not timeout_configured > 0 or timeout_configured == float("inf"):
+            timeout_configured = 0.0
+    except Exception:
+        timeout_configured = 0.0
+    timeout_effective = (timeout_configured if timeout_configured > 0
+                         else _scorers.default_timeout_s(scorer_provider))
+
     settings = {
         "mode": mode,
         "mode_source": mode_source,
         "subagent_mode": subagent_mode,
-        "timeout_s": _num("timeout_s", DEFAULTS["timeout_s"]),
+        "timeout_s": timeout_effective,
+        "timeout_s_configured": timeout_configured,
+        "timeout_source": "configured" if timeout_configured > 0 else "provider_default",
         "max_turns": _int("max_turns", DEFAULTS["max_turns"]),
+        "scorer_pause_failures": _nonneg_int(
+            "scorer_pause_failures", DEFAULTS["scorer_pause_failures"]),
+        "scorer_pause_s": _num("scorer_pause_s", DEFAULTS["scorer_pause_s"]),
         "prompt_chars": _int("prompt_chars", DEFAULTS["prompt_chars"]),
         "effort_models": _normalize_forced_models(effort_models),
         "endpoint": str(_read_setting("endpoint", DEFAULTS["endpoint"])),
         # The URL the client will actually POST to: the setting above may name the
         # API base instead of the scoring route, and a mismatch is invisible until
         # every classification fails open. Reported so `status` shows the truth.
-        "scorer_provider": str(_read_setting(
-            "scorer_provider", DEFAULTS["scorer_provider"]) or _scorers.JEV).strip().lower(),
+        "scorer_provider": scorer_provider,
         "jev_model": str(_read_setting(
             "jev_model", DEFAULTS["jev_model"]) or DEFAULTS["jev_model"]).strip()
         or DEFAULTS["jev_model"],
@@ -917,6 +963,137 @@ def _classify(prompt: str, settings: Dict[str, Any],
     if isinstance(score, bool) or not isinstance(score, (int, float)):
         return None, "malformed_response"
     return score, None
+
+
+# ── scorer circuit breaker ──────────────────────────────────────────────────
+
+def _breaker_entry(provider: str) -> Dict[str, Any]:
+    """Entry for *provider*; entries of any other provider are dropped (caller holds ``_lock``)."""
+    for other in [key for key in _SCORER_BREAKER if key != provider]:
+        del _SCORER_BREAKER[other]
+    return _SCORER_BREAKER.setdefault(provider, {"failures": 0, "paused_until": None})
+
+
+def _scorer_paused_remaining(settings: Dict[str, Any]) -> float:
+    """Seconds left on the selected scorer's pause; 0.0 when it may be called."""
+    try:
+        if int(settings.get("scorer_pause_failures") or 0) <= 0:
+            return 0.0
+        provider = str(settings.get("scorer_provider") or _scorers.JEV)
+        with _lock:
+            entry = _breaker_entry(provider)
+            until = entry.get("paused_until")
+            if until is None:
+                return 0.0
+            return max(0.0, float(until) - float(_monotonic()))
+    except Exception:
+        return 0.0
+
+
+def _classify_timed(prompt: str, settings: Dict[str, Any], choices: Any) -> Tuple[Any, Any]:
+    """``_classify`` timed for the latency histogram (the breaker is recorded by the caller)."""
+    started = _monotonic()
+    result, failure = _classify(prompt, settings, choices)
+    _scorer_latency_record(
+        settings, (failure or "classifier_error") if (failure or result is None) else None,
+        (float(_monotonic()) - float(started)) * 1000.0)
+    return result, failure
+
+
+def _scorer_breaker_record(settings: Dict[str, Any], failure: Optional[str]) -> None:
+    """Count a launched scorer call: a usable answer resets, a counted failure may open the pause.
+
+    Once the failure count has reached the threshold, every further counted failure
+    re-opens the pause at once (the post-cooldown trial failed). Never raises.
+    """
+    try:
+        threshold = int(settings.get("scorer_pause_failures") or 0)
+        if threshold <= 0:
+            return
+        provider = str(settings.get("scorer_provider") or _scorers.JEV)
+        counted = failure in _BREAKER_COUNTED_FAILURES
+        if failure is not None and not counted:
+            return
+        with _lock:
+            entry = _breaker_entry(provider)
+            if failure is None:
+                entry["failures"] = 0
+                entry["paused_until"] = None
+                return
+            entry["failures"] = int(entry.get("failures") or 0) + 1
+            if entry["failures"] >= threshold:
+                entry["paused_until"] = float(_monotonic()) + float(settings["scorer_pause_s"])
+    except Exception:
+        logger.debug("hermes-adaptive-effort: scorer breaker bookkeeping failed", exc_info=True)
+
+
+def scorer_pause_state(settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Prompt-free view of the breaker for the selected scorer (status payload)."""
+    settings = settings if settings is not None else _settings()
+    provider = str(settings.get("scorer_provider") or _scorers.JEV)
+    remaining = _scorer_paused_remaining(settings)
+    with _lock:
+        entry = _SCORER_BREAKER.get(provider) or {}
+        failures = int(entry.get("failures") or 0)
+    return {
+        "provider": provider,
+        "failures": failures,
+        "paused": remaining > 0,
+        "remaining_s": int(round(remaining)) if remaining > 0 else 0,
+    }
+
+
+# ── scorer latency ──────────────────────────────────────────────────────────
+
+def _scorer_latency_record(settings: Dict[str, Any], failure: Optional[str],
+                           elapsed_ms: float) -> None:
+    """Count one launched scorer call in its provider's histogram. Never raises.
+
+    Successes and the launched failures the breaker counts are recorded; configuration
+    failures and ``classifier_error`` never reached the network and would skew low.
+    """
+    try:
+        if failure is not None and failure not in _BREAKER_COUNTED_FAILURES:
+            return
+        provider = str(settings.get("scorer_provider") or _scorers.JEV)
+        index = len(_LATENCY_BUCKETS_MS)
+        for position, bound in enumerate(_LATENCY_BUCKETS_MS):
+            if elapsed_ms <= bound:
+                index = position
+                break
+        with _lock:
+            counts = _SCORER_LATENCY.setdefault(provider, [0] * (len(_LATENCY_BUCKETS_MS) + 1))
+            counts[index] += 1
+    except Exception:
+        logger.debug("hermes-adaptive-effort: scorer latency bookkeeping failed", exc_info=True)
+
+
+def scorer_latency_state(settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Prompt-free p95 bound for the selected scorer (status payload).
+
+    ``p95_le_ms`` is the smallest bucket bound whose cumulative count reaches 95 % of the
+    samples; ``None`` with no samples or when the p95 falls in the overflow bucket
+    (``p95_over_max``).
+    """
+    settings = settings if settings is not None else _settings()
+    provider = str(settings.get("scorer_provider") or _scorers.JEV)
+    with _lock:
+        counts = list(_SCORER_LATENCY.get(provider) or [])
+    total = sum(counts)
+    p95: Optional[int] = None
+    over = False
+    if total:
+        threshold = 0.95 * total
+        cumulative = 0
+        for position, count in enumerate(counts):
+            cumulative += count
+            if cumulative >= threshold:
+                if position < len(_LATENCY_BUCKETS_MS):
+                    p95 = _LATENCY_BUCKETS_MS[position]
+                else:
+                    over = True
+                break
+    return {"provider": provider, "count": total, "p95_le_ms": p95, "p95_over_max": over}
 
 
 def run_probe(prompt: str,
@@ -1722,6 +1899,14 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             if persistent_scope:
                 pinned = _touch_pin(route_key, settings, mode, provider, model, api_mode, session_id)
                 _copy_decision(entry, pinned)
+        elif _scorer_paused_remaining(settings) > 0:
+            # The selected scorer is paused after repeated failures: no call is made, the
+            # request stays untouched. Only the turn memo records it; the route pin (and
+            # any decision it holds) is left alone so the route is scored once the pause ends.
+            turn_entry.update(state="failed", score=None, failure="scorer_paused",
+                              updated_at=time.time())
+            _publish_desktop_decision(session_id, provider, model, api_mode, turn_entry)
+            return None
         elif not _claim_scoring(
                 claim_key, route_key, persistent_scope, serialize_route=claude_per_message):
             # Another request of this same session is classifying right now:
@@ -1754,13 +1939,16 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                         scoring_settings = settings
                         result, failure = None, "classifier_error"
                     else:
-                        result, failure = _classify(
+                        result, failure = _classify_timed(
                             scoring_prompt, scoring_settings,
                             tuple(route_choices) if len(route_choices) > 1 else None)
                 else:
-                    result, failure = _classify(
+                    result, failure = _classify_timed(
                         scoring_prompt, scoring_settings,
                         tuple(route_choices) if len(route_choices) > 1 else None)
+                _scorer_breaker_record(
+                    settings, (failure or "classifier_error") if (failure or result is None)
+                    else None)
                 entry["elapsed_ms"] = (time.monotonic() - started) * 1000.0
                 entry["probes"] = int(entry.get("probes") or 0) + 1
                 entry["updated_at"] = time.time()

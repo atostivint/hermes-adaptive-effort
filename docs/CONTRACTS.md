@@ -134,9 +134,28 @@ Custom endpoints must be valid HTTP(S) URLs without embedded credentials or frag
 | Target already matches | Valid decision, no rewrite/event | Reused decision or one classification |
 | Internal plugin exception | Original request | No retry by the middleware |
 
+Scoring deadline: `timeout_s` of `0`, negative or invalid means the selected provider's default (`scorers.PROVIDER_TIMEOUT_S`); a positive value wins. `status` settings expose the effective `timeout_s`, `timeout_s_configured` (raw operator value, `0` when unset) and `timeout_source` (`provider_default` | `configured`), additively within status schema v2. A timeout still fails open with `timeout` and counts toward the circuit breaker.
+
 Stable scorer failure codes: `invalid_prompt`, `credential_missing`, `http_error`, `timeout`, `transport_error`, `malformed_response`, `unexpected_error`, `classifier_error`.
 
 Configuration codes: `model_missing`, `unsupported_provider`, `account_missing`, `account_invalid`, `endpoint_missing`, `endpoint_invalid`, `unsupported_api_format`, `unsupported_auth`.
+
+Pause code: `scorer_paused`.
+
+### Scorer circuit breaker
+
+After `scorer_pause_failures` consecutive counted failures (default 3; `0` disables) the selected provider is paused for `scorer_pause_s` seconds (default 60). Counted failures are scorer calls that were launched and failed: `timeout`, `transport_error`, `http_error`, `malformed_response`, `unexpected_error`. Never counted: missing or invalid credential, model, account or endpoint, `unsupported_provider`/`unsupported_api_format`/`unsupported_auth`, `invalid_prompt`, `classifier_error`, unsupported routes, busy/in-flight skips and fixed single-level routes.
+
+- While paused, no scorer call is made, the request is unchanged and the turn entry is `failed` with `scorer_paused`.
+- After the cooldown the next call is a trial: success resets the count; failure re-opens the pause at once.
+- A pause is a call that was not launched. It is not retained on the persistent auto/once route pin, so the route is scored on the first turn after the pause. There is still at most one scorer call per turn.
+- State is per provider and in memory only (counters and a deadline; no prompts, keys or session ids). Switching provider starts from a clean count; `reset_state()` clears it. Subagents share the parent's pause.
+- `/hae probe` bypasses the breaker and does not count toward it.
+- `status json` adds `scorer_pause: {provider, failures, paused, remaining_s}` under the unchanged status v2 schema; `status` text shows `Scorer paused: N s left (k failures)` only while paused.
+- `status json` also adds `scorer_latency: {provider, count, p95_le_ms, p95_over_max}` for the selected provider, still under status v2. It is an in-process histogram of counts only (no prompt, session id, key, model or route), cleared by `reset_state()`; other providers' histograms are kept but not shown. Upper bounds in ms: 100, 200, 350, 500, 750, 1000, 1500, 2000, 3000, 5000, 10000, plus one overflow bucket; a value equal to a bound belongs to that bucket. `p95_le_ms` is the smallest bound whose cumulative count reaches 95 % of the samples, and is `null` with no samples or when the p95 is in the overflow bucket (`p95_over_max: true`).
+- Latency counting rules: timed around the scorer call alone, only for successes and the launched failures the breaker counts (`timeout`, `transport_error`, `http_error`, `malformed_response`, `unexpected_error`). Never counted: configuration failures, `classifier_error`, `scorer_paused` skips, fixed single-level routes, in-flight skips, and `/hae probe` (stateless). `elapsed_ms` on a decision is unchanged.
+- `status` text adds `Scorer latency: p95 ≤ 350 ms (42 calls)` (or `p95 > 10000 ms`) only when at least one call was counted; `status full` shows the same line or `Scorer latency: no calls yet`.
+- Known limitation: the claim is per turn, so concurrent turns right after the cooldown may each launch a trial call.
 
 Unsupported-control codes: `reasoning_disabled`, `effort_control_unsupported`, `effort_value_unsupported`. Decisions refusals use `malformed_response`. A recorded classification attempt can have zero HTTP calls, for example when a key is missing.
 
@@ -160,6 +179,8 @@ Public schemas:
 | Probe | `hermes-adaptive-effort.probe.v1` |
 | Applied changes | `hermes-adaptive-effort.changes.v1` |
 | Conversation history | `hermes-adaptive-effort.history.v1` |
+| Scorer evaluation result (manual script, plugin data dir) | `hermes-adaptive-effort.scorer-eval.v1` |
+| Scorer evaluation summary (`GET /eval`) | `hermes-adaptive-effort.scorer-eval-summary.v1` |
 | Desktop decision event | `hermes-adaptive-effort.desktop-status.v2` |
 
 Status v2 adds `decision_type` (`native_choice`, `legacy_score` or `fixed`), the route's `choices`, and `cache_behavior`; named/fixed decisions report `score: null`, put the chosen level in `label`, and expose the sent value in `target`. Probe remains v1 and still returns its numeric score. The Desktop reader accepts both event v1 and v2 during transition. `command._ENTRY_FIELDS` is the sole rendered decision-field allowlist. Status includes route/scorer metadata, counters, `credential_required`, credential presence and Cloudflare account readiness. It reports only guidance presence/character count, not contents. Aggregates avoid double-counting a retained route decision and its turn memo.
@@ -178,6 +199,7 @@ Routes mount under `/api/plugins/hermes-adaptive-effort/`:
 | --- | --- |
 | `GET /status` | Status schema; 503 when the backend cannot provide status |
 | `GET /changes` | Changes schema; 503 when the backend cannot provide the feed |
+| `GET /eval` | Newest scorer-evaluation summary per scorer; empty list when none exist |
 | `GET /history?conversation_id=…&limit=10` | Bounded applied changes for that conversation in this profile |
 | `POST /mode` | JSON `{"mode":"auto","persist":false}`; runtime change by default |
 | `POST /probe` | JSON `{"text":"operator-typed task"}`; probe schema without prompt echo |
@@ -185,6 +207,8 @@ Routes mount under `/api/plugins/hermes-adaptive-effort/`:
 `POST /mode` accepts optional `persist`, default `false`. With `true`, it also saves `plugins.entries.hermes-adaptive-effort.settings.mode` through Hermes' settings writer. A successful result includes the applied mode/scope; an explicit persistence attempt includes `persisted`.
 
 `GET /history` returns `hermes-adaptive-effort.history.v1` with `conversation_id`, `available`, and events containing only `id`, timestamp, model, `from`, `to`, and cache verdict. It clamps the requested limit to 1–64 and never returns a conversation-wide list. A storage failure returns 503 without affecting request routing.
+
+`GET /eval` returns `hermes-adaptive-effort.scorer-eval-summary.v1` with `evaluations`: for each scorer (provider plus scorer model) the newest result written by `scripts/run_scorer_eval.py` into the profile's `plugin-data/<plugin>/scorer-eval/` directory, reduced to `provider`, `scorer_model`, `choices`, `items`, `accuracy`, `p50_ms`, `p95_ms`, `failures` (counts by reason code), `run_at` and `corpus_version`. Malformed or foreign files are skipped; a missing directory or no result yields an empty list, never an error. Per-item rows, confusion matrices and prompts are never served. The Desktop popup shows these rows only while `show_desktop_popup` is true. The numbers come from synthetic prompts and are not an answer-quality, cost or savings measure; see [Scorer evaluation](validation/SCORER_EVAL.md).
 
 Unknown modes return HTTP 400; unavailable middleware/mode application returns 503. A failed persistent write returns HTTP 500 with `persist_failed`, while the process-local mode change can already have succeeded. Public errors omit exception text. Blank probe text returns 400; host request validation can also reject malformed bodies.
 

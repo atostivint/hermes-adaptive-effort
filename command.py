@@ -329,6 +329,8 @@ def _status_payload() -> Dict[str, Any]:
         "credential_required": _scorers.credential_required(
             settings["scorer_provider"], settings["custom_auth"]),
         "cloudflare_account_ready": settings["cloudflare_account_ready"],
+        "scorer_pause": _middleware.scorer_pause_state(settings),
+        "scorer_latency": _middleware.scorer_latency_state(settings),
         "counts": counts,
         "sessions": sessions,
         "last": last,
@@ -408,8 +410,28 @@ def _status_text() -> str:
         lines.append(f"Latest applied change: {latest['from']} -> {latest['to']}")
     if entry.get("failure"):
         lines.append(f"Why unchanged: {entry['failure']}")
+    pause = payload.get("scorer_pause") or {}
+    if pause.get("paused"):
+        lines.append(f"Scorer paused: {pause.get('remaining_s', 0)} s left "
+                     f"({pause.get('failures', 0)} failures)")
+    latency_line = _latency_line(payload, always=False)
+    if latency_line:
+        lines.append(latency_line)
     lines.append("Use /hae history to see recent applied changes; /hae status full for details.")
     return "\n".join(lines)
+
+
+def _latency_line(payload: Dict[str, Any], *, always: bool) -> Optional[str]:
+    """One p95 line for the selected scorer; ``None`` without samples unless *always*."""
+    latency = payload.get("scorer_latency") or {}
+    count = int(latency.get("count") or 0)
+    if not count:
+        return "Scorer latency: no calls yet" if always else None
+    if latency.get("p95_over_max"):
+        bound = f"> {_middleware._LATENCY_BUCKETS_MS[-1]} ms"
+    else:
+        bound = f"\u2264 {latency.get('p95_le_ms')} ms"
+    return f"Scorer latency: p95 {bound} ({count} calls)"
 
 
 def _status_full_text() -> str:
@@ -436,7 +458,9 @@ def _status_full_text() -> str:
             if value is not None:
                 lines.append(f"{field.replace('_', ' ').title()}: {value}")
     lines.extend([
-        f"Timeout: {settings['timeout_s']} s · retained turns: {settings['max_turns']} · "
+        f"Timeout: {settings['timeout_s']} s "
+        f"({'configured' if settings.get('timeout_source') == 'configured' else 'provider default'})"
+        f" · retained turns: {settings['max_turns']} · "
         f"task text limit: {settings['prompt_chars']} characters",
         f"Classifier guidance: {'configured' if settings.get('classification_instructions_configured') else 'default'} "
         f"(contents remain private; limit={_middleware._rubric.MAX_CLASSIFICATION_INSTRUCTION_CHARS} characters)",
@@ -449,6 +473,7 @@ def _status_full_text() -> str:
         lines.append("OpenRouter routing: ZDR-only endpoints; data_collection=deny")
     elif settings.get("scorer_provider") == _scorers.CUSTOM:
         lines.append(f"Custom scorer: format={settings['custom_api_format']} auth={settings['custom_auth']}")
+    lines.append(_latency_line(payload, always=True))
     lines.append("History: " + ("available" if view.get("available") else "unavailable"))
     return "\n".join(lines)
 

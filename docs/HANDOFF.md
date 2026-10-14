@@ -25,6 +25,7 @@ Earlier "not pushed", "unpublished" or "local work in progress" statements about
 
 | Record | Evidence and boundary |
 | --- | --- |
+| Scorer evaluation tooling | Synthetic corpus, manual script and Desktop view; no live run recorded yet. [Guide](validation/SCORER_EVAL.md) |
 | Prior operator handoff | Iris/Windows rollout, recovery paths, process-reload caveats and test results recorded at their original revisions; [archive](handoff-snapshot-2026-10-07.md) |
 | Iris use cases, 2026-10-03 | Completed individual Codex/Go requests and request-field observations; [report](reviews/live-iris-use-cases-20261003.md) |
 | Local scorer trial, 2026-10-05 | Kev 0.8B/4B synthetic-label agreement and cold/warm behavior; [report](reviews/local-scorer-benchmark-20261005T090911Z.md) |
