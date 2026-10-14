@@ -517,3 +517,10 @@ def test_effort_questions_never_contain_the_continuation_question():
 
     jev_client.JevClient(api_key="k", transport=transport).classify_detail("task")
     assert list(seen["body"]["questions"]) == ["effort"]
+
+
+def test_continuation_noul_question_carries_documented_true_false_criteria():
+    question = rubric.continuation_questions()["continuation"]
+    assert question["type"] == "noul"
+    assert set(question["criteria"]) == {"true", "false"}
+    assert all(isinstance(text, str) and text for text in question["criteria"].values())
