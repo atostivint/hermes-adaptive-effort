@@ -15,6 +15,7 @@ import pytest
 from conftest import import_plugin
 
 client_module = import_plugin("openai_decision_client")
+scorer_retry = import_plugin("scorer_retry")
 
 
 class FakeResponse:
@@ -131,7 +132,7 @@ def test_credential_probe_does_not_make_a_request():
     assert transport.calls == []
 
 
-@pytest.mark.parametrize("status", [301, 302, 307, 401, 403, 429, 500, 503])
+@pytest.mark.parametrize("status", [301, 302, 307, 401, 403])
 def test_http_status_errors_fail_open_without_retry(status):
     response = FakeResponse(score_response(), status=status)
     transport = FakeTransport(response)
@@ -140,9 +141,19 @@ def test_http_status_errors_fail_open_without_retry(status):
     assert response.closed is True
 
 
+@pytest.mark.parametrize("status", [429, 500, 503])
+def test_transient_http_status_is_retried_once_then_fails_open(status, monkeypatch):
+    monkeypatch.setattr(scorer_retry.time, "sleep", lambda _seconds: None)
+    response = FakeResponse(score_response(), status=status)
+    transport = FakeTransport(response)
+    assert make_client(transport=transport).classify_detail("task") == (None, "http_error")
+    assert len(transport.calls) == 2
+    assert response.closed is True
+
+
 def test_http_error_and_timeout_fail_open_without_retry():
     http_error = urllib.error.HTTPError(
-        client_module.DEFAULT_ENDPOINT, 429, "rate limit", {}, io.BytesIO(b"private body"))
+        client_module.DEFAULT_ENDPOINT, 401, "unauthorized", {}, io.BytesIO(b"private body"))
     for error, expected in ((http_error, "http_error"),
                             (TimeoutError("private timeout detail"), "timeout"),
                             (urllib.error.URLError(TimeoutError("private detail")), "timeout"),

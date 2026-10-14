@@ -30,6 +30,7 @@ import urllib.request
 from typing import Any, Callable, Optional, Sequence
 
 from . import rubric
+from . import scorer_retry
 from .jev_client import (DEFAULT_MAX_PROMPT_CHARS, DEFAULT_TIMEOUT_S, normalize_endpoint
                          as _normalize_systemone_endpoint, truncate_prompt)
 
@@ -150,7 +151,8 @@ class NaceClient:
         )
         started = time.monotonic()
         try:
-            payload = (self._transport or _default_transport)(request, self.timeout)
+            payload = scorer_retry.send_with_retry(
+                lambda t: (self._transport or _default_transport)(request, t), self.timeout)
         except urllib.error.HTTPError as exc:
             # 401 key, 402 credit, 422 request, 429 rate limit, 5xx server: all fail
             # open for this turn; the scorer is not retried (see invariant 4).

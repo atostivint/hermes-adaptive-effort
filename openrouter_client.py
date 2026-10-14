@@ -19,6 +19,7 @@ from typing import Any, Callable, Optional, Sequence
 
 from .jev_client import DEFAULT_MAX_PROMPT_CHARS, DEFAULT_TIMEOUT_S, truncate_prompt
 from . import rubric
+from . import scorer_retry
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,8 @@ class OpenRouterClient:
         started = time.monotonic()
         transport = self._transport or _default_transport
         try:
-            payload = transport(request, self.timeout)
+            payload = scorer_retry.send_with_retry(
+                lambda t: transport(request, t), self.timeout)
         except urllib.error.HTTPError:
             logger.debug("hermes-adaptive-effort: OpenRouter request failed after %.0fms",
                          (time.monotonic() - started) * 1000)

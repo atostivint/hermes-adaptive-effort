@@ -11,6 +11,7 @@ import urllib.request
 from typing import Any, Callable, Optional, Sequence
 
 from . import rubric
+from . import scorer_retry
 from .jev_client import DEFAULT_MAX_PROMPT_CHARS, DEFAULT_TIMEOUT_S, truncate_prompt
 
 logger = logging.getLogger(__name__)
@@ -111,7 +112,8 @@ class OpenAIDecisionClient:
 
         started = time.monotonic()
         try:
-            payload = (self._transport or _default_transport)(request, self.timeout)
+            payload = scorer_retry.send_with_retry(
+                lambda t: (self._transport or _default_transport)(request, t), self.timeout)
         except urllib.error.HTTPError as exc:
             _close_response(exc)
             return None, "http_error"
