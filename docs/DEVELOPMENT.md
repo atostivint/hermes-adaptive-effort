@@ -81,7 +81,7 @@ Keep test counts in dated result records, alongside revision, platform and comma
   2. After merge to master, `./scripts/release.sh tag X.Y.Z` tags the commit and pushes the tag. The Release workflow then publishes the release.
 - **Pre-release convention**: versions with major version 0 or a prerelease suffix (e.g., `-rc.1`) are marked `--prerelease` on GitHub.
 - **Optional long-form notes**: if `docs/releases/vX.Y.Z.md` exists, the release notes helper appends a link to it. Validation limits and breaking changes are good candidates for that file.
-- **Deployment**: remains a manual operator step on each host (see [Handoff](HANDOFF.md)). Workflows do not deploy.
+- **Deployment**: remains a manual operator step on each host (see [Handoff](HANDOFF.md)). Workflows do not deploy. For a remote host whose plugin is a directory under its Hermes home, `HAE_REMOTE_HOST=<ssh destination> ./scripts/refresh_remote_plugin.sh [--dry-run] [REV]` ships a committed revision over SSH, restarts the gateway, rolls back if the unit does not come back up, and keeps the previous install in the host's scratch cache. Record each live refresh in Handoff.
 
 ### Real dispatcher integration
 
