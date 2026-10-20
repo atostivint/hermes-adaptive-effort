@@ -1,6 +1,6 @@
 {
   "schema": "hermes-adaptive-effort.scorer-eval-corpus.v1",
-  "version": "2026-10-14",
+  "version": "2026-10-20",
   "note": "Synthetic prompts written for this file; no real user text. Expected levels are a labelling judgement, not ground truth.",
   "items": [
     {
@@ -565,6 +565,171 @@
       "tags": [
         "fix_vs_explain",
         "multi_step"
+      ]
+    },
+    {
+      "id": "c067",
+      "prompt": "that didn't work, I forgot to save the file. try again",
+      "expected": "low",
+      "tags": [
+        "correction_or_replan"
+      ]
+    },
+    {
+      "id": "c068",
+      "prompt": "that didn't work, same error again: KeyError 'user_id'. try again",
+      "expected": "medium",
+      "tags": [
+        "correction_or_replan"
+      ]
+    },
+    {
+      "id": "c069",
+      "prompt": "that fix broke two other tests; redo it without touching the schema",
+      "expected": "high",
+      "tags": [
+        "correction_or_replan"
+      ]
+    },
+    {
+      "id": "c070",
+      "prompt": "scrap that plan, just do the rename in the first file only",
+      "expected": "low",
+      "tags": [
+        "correction_or_replan"
+      ]
+    },
+    {
+      "id": "c071",
+      "prompt": "change of approach: drop the cache and batch the writes in one transaction, keeping the retry semantics",
+      "expected": "high",
+      "tags": [
+        "correction_or_replan"
+      ]
+    },
+    {
+      "id": "c072",
+      "prompt": "no, use the other column",
+      "expected": "low",
+      "tags": [
+        "correction_or_replan",
+        "short_followup"
+      ]
+    },
+    {
+      "id": "c073",
+      "prompt": "that's not what I meant, I wanted the totals grouped by month instead of by week; redo the query",
+      "expected": "medium",
+      "tags": [
+        "correction_or_replan"
+      ]
+    },
+    {
+      "id": "c074",
+      "prompt": "the retry loop you wrote still times out after the change; try a different approach using a shorter backoff and a cap on attempts",
+      "expected": "medium",
+      "tags": [
+        "correction_or_replan"
+      ]
+    },
+    {
+      "id": "c075",
+      "prompt": "your last fix made the intermittent deadlock worse, not better. start over: find the actual lock ordering problem across the three services and propose a fix that holds under load",
+      "expected": "high",
+      "tags": [
+        "correction_or_replan",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c076",
+      "prompt": "change of plan: instead of a new endpoint, add an optional query parameter to the existing list endpoint and update the two tests",
+      "expected": "medium",
+      "tags": [
+        "correction_or_replan"
+      ]
+    },
+    {
+      "id": "c077",
+      "prompt": "emit exactly one JSON object {\"ok\": true} and nothing else",
+      "expected": "low",
+      "tags": [
+        "strict_format"
+      ]
+    },
+    {
+      "id": "c078",
+      "prompt": "rename the config key timeout to timeout_s in the three files listed below, no other change",
+      "expected": "low",
+      "tags": [
+        "mechanical_edit"
+      ]
+    },
+    {
+      "id": "c079",
+      "prompt": "reply with only the word YES or NO: is 17 a prime number?",
+      "expected": "low",
+      "tags": [
+        "strict_format"
+      ]
+    },
+    {
+      "id": "c080",
+      "prompt": "replace every tab in this snippet with four spaces and return it otherwise unchanged",
+      "expected": "low",
+      "tags": [
+        "mechanical_edit"
+      ]
+    },
+    {
+      "id": "c081",
+      "prompt": "call the provided create_event tool with these four fields (title, date, start, end), strict schema, no extra keys, then confirm in one line",
+      "expected": "medium",
+      "tags": [
+        "strict_format"
+      ]
+    },
+    {
+      "id": "c082",
+      "prompt": "apply this stated find/replace to the 12-line snippet below: replace 'colour' with 'color' only inside comments and leave string literals alone",
+      "expected": "medium",
+      "tags": [
+        "mechanical_edit"
+      ]
+    },
+    {
+      "id": "c083",
+      "prompt": "output a CSV with header id,name,total and one row per order from the list below, sorted by total descending, no commentary",
+      "expected": "medium",
+      "tags": [
+        "strict_format"
+      ]
+    },
+    {
+      "id": "c084",
+      "prompt": "produce the migration as strict JSON matching the schema below, but the schema forbids nullable columns while two existing columns must stay nullable for old clients; reconcile the conflict and justify each choice",
+      "expected": "high",
+      "tags": [
+        "strict_format",
+        "ambiguous"
+      ]
+    },
+    {
+      "id": "c085",
+      "prompt": "generate an OpenAPI document for these five endpoints that must validate against version 3.1, stay compatible with the undocumented behaviour old clients rely on, and satisfy both the rate-limit and the pagination requirements below, which interact",
+      "expected": "high",
+      "tags": [
+        "strict_format",
+        "multi_step"
+      ]
+    },
+    {
+      "id": "c086",
+      "prompt": "rename this method everywhere it is used, including the dynamic dispatch through string names and the reflection-based plugin loader, without breaking any of the callers in the six modules below",
+      "expected": "high",
+      "tags": [
+        "mechanical_edit",
+        "ambiguous"
       ]
     }
   ]

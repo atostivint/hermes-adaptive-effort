@@ -40,7 +40,7 @@ corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
 def test_corpus_shape():
     items = corpus["items"]
     assert corpus["version"]
-    assert 50 <= len(items) <= 70
+    assert 50 <= len(items) <= 90
     assert len({item["id"] for item in items}) == len(items)
     assert script.validate_corpus(corpus, effort.CHOICE_LEVELS) == []
     for level in effort.CHOICE_LEVELS:
