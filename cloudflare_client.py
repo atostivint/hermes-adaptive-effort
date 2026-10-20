@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import math
-import os
 import re
 import time
-import urllib.error
 import urllib.request
 from typing import Any, Callable, Optional, Sequence
 
 from . import rubric
-from . import scorer_retry
+from . import scorer_http
 from .jev_client import DEFAULT_MAX_PROMPT_CHARS, DEFAULT_TIMEOUT_S, truncate_prompt
 
 logger = logging.getLogger(__name__)
@@ -55,18 +52,11 @@ def endpoint_for(account_id: Any, model_selector: Any = DEFAULT_MODEL_SELECTOR) 
 
 
 def _default_key_reader() -> str:
-    try:
-        from agent.secret_scope import get_secret
-        value = get_secret(SENTINEL_ENV, "") or ""
-        if str(value).strip():
-            return str(value).strip()
-    except Exception:
-        pass
-    return (os.environ.get(SENTINEL_ENV) or "").strip()
+    return scorer_http.read_secret(SENTINEL_ENV)
 
 
 def _default_transport(request: urllib.request.Request, timeout: float):
-    return urllib.request.urlopen(request, timeout=timeout)
+    return scorer_http.default_transport(request, timeout)
 
 
 class CloudflareClient:
@@ -92,10 +82,12 @@ class CloudflareClient:
     def _key(self) -> str:
         if self.api_key:
             return self.api_key
-        try:
-            return str((self._key_reader or _default_key_reader)() or "").strip()
-        except Exception:
-            return ""
+        if self._key_reader is not None:
+            try:
+                return str(self._key_reader() or "").strip()
+            except Exception:
+                return ""
+        return scorer_http.resolve_key("cloudflare", _default_key_reader)
 
     def classify(self, prompt: Optional[str]) -> Optional[float]:
         return self.classify_detail(prompt)[0]
@@ -119,42 +111,16 @@ class CloudflareClient:
             "questions": (rubric.continuation_questions() if continuation else
                           rubric.questions_for(self.classification_instructions, choices)),
         }
-        request = urllib.request.Request(
-            self.endpoint,
-            data=json.dumps(body).encode("utf-8"),
-            headers={"Accept": "application/json", "Content-Type": "application/json",
-                     "Authorization": f"Bearer {key}",
-                     "User-Agent": "hermes-adaptive-effort/0.1"},
-            method="POST",
-        )
+        request = scorer_http.build_request(
+            self.endpoint, body, key=key, user_agent="hermes-adaptive-effort/0.1")
         started = time.monotonic()
-        try:
-            payload = scorer_retry.send_with_retry(
-                lambda t: (self._transport or _default_transport)(request, t), self.timeout)
-        except urllib.error.HTTPError:
-            return None, "http_error"
-        except urllib.error.URLError as exc:
-            return None, "timeout" if isinstance(getattr(exc, "reason", None), TimeoutError) else "transport_error"
-        except TimeoutError:
-            return None, "timeout"
-        except OSError:
-            return None, "transport_error"
-        except Exception:
-            return None, "unexpected_error"
-
-        status = getattr(payload, "status", None)
-        if isinstance(status, int) and not 200 <= status < 300:
-            return None, "http_error"
-        try:
-            if hasattr(payload, "__enter__"):
-                with payload as response:
-                    data = json.load(response) if hasattr(response, "read") else response
-            elif hasattr(payload, "read"):
-                data = json.load(payload)
-            else:
-                data = payload
-        except Exception:
-            return None, "malformed_response"
+        payload, failure = scorer_http.send(request, self._transport or _default_transport,
+                                            self.timeout)
+        if failure:
+            return None, failure
+        data, failure = scorer_http.read_json(payload)
+        if failure:
+            return None, failure
         if continuation:
             # Same REST wrapper as every Clef answer: only a successful envelope is read.
             if (not isinstance(data, dict) or data.get("success") is not True

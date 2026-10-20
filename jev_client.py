@@ -18,17 +18,15 @@ request untouched. The transport is injectable so unit tests never open a socket
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import time
-import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any, Callable, Optional, Sequence
 
 from . import rubric
-from . import scorer_retry
+from . import scorer_http
 
 logger = logging.getLogger(__name__)
 
@@ -78,19 +76,11 @@ QUESTIONS = rubric.QUESTIONS
 
 def _default_key_reader() -> str:
     """Resolve the TypeSafe credential through Hermes' secret scope, then the env."""
-    try:
-        from agent.secret_scope import get_secret
-        value = get_secret(SENTINEL_ENV, "") or ""
-        if str(value).strip():
-            return str(value).strip()
-    except Exception:
-        pass
-    import os
-    return (os.environ.get(SENTINEL_ENV) or "").strip()
+    return scorer_http.read_secret(SENTINEL_ENV)
 
 
 def _default_transport(request: urllib.request.Request, timeout: float):
-    return urllib.request.urlopen(request, timeout=timeout)
+    return scorer_http.default_transport(request, timeout)
 
 
 def truncate_prompt(text: str, limit: int) -> str:
@@ -137,11 +127,12 @@ class JevClient:
     def _key(self) -> str:
         if self.api_key:
             return self.api_key
-        reader = self._key_reader or _default_key_reader
-        try:
-            return str(reader() or "").strip()
-        except Exception:
-            return ""
+        if self._key_reader is not None:
+            try:
+                return str(self._key_reader() or "").strip()
+            except Exception:
+                return ""
+        return scorer_http.resolve_key("jev", _default_key_reader)
 
     def classify(self, prompt: Optional[str]) -> Optional[float]:
         """Rubric score for *prompt*, or ``None`` (fail-open) on any problem."""
@@ -181,62 +172,20 @@ class JevClient:
             "questions": (rubric.continuation_questions() if continuation else
                           rubric.questions_for(self.classification_instructions, choices)),
         }
-        request = urllib.request.Request(
-            self.endpoint,
-            data=json.dumps(body).encode("utf-8"),
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {key}",
-                "User-Agent": "hermes-hermes-adaptive-effort/0.1",
-            },
-            method="POST",
-        )
+        request = scorer_http.build_request(
+            self.endpoint, body, key=key, user_agent="hermes-hermes-adaptive-effort/0.1")
         started = time.monotonic()
-        transport = self._transport or _default_transport
-        try:
-            payload = scorer_retry.send_with_retry(
-                lambda t: transport(request, t), self.timeout)
-        except urllib.error.HTTPError:
+        payload, failure = scorer_http.send(request, self._transport or _default_transport,
+                                            self.timeout)
+        if failure:
             logger.debug("hermes-adaptive-effort: classification failed after %.0fms",
                          (time.monotonic() - started) * 1000)
-            return None, "http_error"
-        except urllib.error.URLError as exc:
-            reason = "timeout" if isinstance(getattr(exc, "reason", None), TimeoutError) \
-                else "transport_error"
-            logger.debug("hermes-adaptive-effort: classification failed after %.0fms",
+            return None, failure
+        data, failure = scorer_http.read_json(payload)
+        if failure:
+            logger.debug("hermes-adaptive-effort: no usable answer (%s, %.0fms)", failure,
                          (time.monotonic() - started) * 1000)
-            return None, reason
-        except TimeoutError:
-            logger.debug("hermes-adaptive-effort: classification failed after %.0fms",
-                         (time.monotonic() - started) * 1000)
-            return None, "timeout"
-        except OSError:
-            logger.debug("hermes-adaptive-effort: classification failed after %.0fms",
-                         (time.monotonic() - started) * 1000)
-            return None, "transport_error"
-        except Exception:
-            logger.debug("hermes-adaptive-effort: classification failed after %.0fms",
-                         (time.monotonic() - started) * 1000)
-            return None, "unexpected_error"
-
-        status = getattr(payload, "status", None)
-        if isinstance(status, int) and not 200 <= status < 300:
-            logger.debug("hermes-adaptive-effort: endpoint returned HTTP %d", status)
-            return None, "http_error"
-
-        try:
-            if hasattr(payload, "__enter__"):
-                with payload as resp:
-                    data = json.load(resp) if hasattr(resp, "read") else resp
-            elif hasattr(payload, "read"):
-                data = json.load(payload)
-            else:
-                data = payload
-        except Exception:
-            logger.debug("hermes-adaptive-effort: answer was not JSON (%.0fms)",
-                         (time.monotonic() - started) * 1000)
-            return None, "malformed_response"
+            return None, failure
 
         levels = rubric.normalize_effort_choices(choices)
         if continuation:

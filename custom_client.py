@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import time
-import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any, Callable, Optional, Sequence, Tuple
 
 from . import rubric
-from . import scorer_retry
+from . import scorer_http
 from .jev_client import DEFAULT_MAX_PROMPT_CHARS, DEFAULT_TIMEOUT_S, truncate_prompt
 
 logger = logging.getLogger(__name__)
@@ -56,26 +53,16 @@ def safe_endpoint_display(value: Any) -> str:
 
 def _default_key_reader() -> str:
     """Resolve the optional custom bearer key through secret scope, then env."""
-    try:
-        from agent.secret_scope import get_secret
-        value = get_secret(SENTINEL_ENV, "") or ""
-        if str(value).strip():
-            return str(value).strip()
-    except Exception:
-        pass
-    return (os.environ.get(SENTINEL_ENV) or "").strip()
+    return scorer_http.read_secret(SENTINEL_ENV)
 
 
-class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
+_NoRedirectHandler = scorer_http.NoRedirectHandler
 
 
 def _default_transport(request: urllib.request.Request, timeout: float):
-    # The standard urlopen opener follows redirects. A provider endpoint must be
-    # called exactly as configured, especially when its URL contains a query key.
-    opener = urllib.request.build_opener(_NoRedirectHandler())
-    return opener.open(request, timeout=timeout)
+    # A provider endpoint must be called exactly as configured, especially when its
+    # URL contains a query key: no redirect is followed.
+    return scorer_http.default_transport(request, timeout)
 
 
 class CustomClient:
@@ -102,11 +89,12 @@ class CustomClient:
     def _key(self) -> str:
         if self.api_key:
             return self.api_key
-        reader = self._key_reader or _default_key_reader
-        try:
-            return str(reader() or "").strip()
-        except Exception:
-            return ""
+        if self._key_reader is not None:
+            try:
+                return str(self._key_reader() or "").strip()
+            except Exception:
+                return ""
+        return scorer_http.resolve_key("custom", _default_key_reader)
 
     def classify(self, prompt: Optional[str]) -> Optional[float]:
         return self.classify_detail(prompt)[0]
@@ -136,43 +124,17 @@ class CustomClient:
                 "model": self.model,
                 "questions": (rubric.continuation_questions() if continuation else
                               rubric.questions_for(self.classification_instructions, choices))}
-        headers = {"Accept": "application/json", "Content-Type": "application/json",
-                   "User-Agent": "hermes-adaptive-effort/0.1"}
-        if self.auth == "bearer":
-            headers["Authorization"] = f"Bearer {key}"
-        request = urllib.request.Request(
-            endpoint, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
+        request = scorer_http.build_request(
+            endpoint, body, key=key, user_agent="hermes-adaptive-effort/0.1")
 
         started = time.monotonic()
-        try:
-            payload = scorer_retry.send_with_retry(
-                lambda t: (self._transport or _default_transport)(request, t), self.timeout)
-        except urllib.error.HTTPError:
-            return None, "http_error"
-        except urllib.error.URLError as exc:
-            reason = "timeout" if isinstance(getattr(exc, "reason", None), TimeoutError) \
-                else "transport_error"
-            return None, reason
-        except TimeoutError:
-            return None, "timeout"
-        except OSError:
-            return None, "transport_error"
-        except Exception:
-            return None, "unexpected_error"
-
-        status = getattr(payload, "status", None)
-        if isinstance(status, int) and not 200 <= status < 300:
-            return None, "http_error"
-        try:
-            if hasattr(payload, "__enter__"):
-                with payload as response:
-                    data = json.load(response) if hasattr(response, "read") else response
-            elif hasattr(payload, "read"):
-                data = json.load(payload)
-            else:
-                data = payload
-        except Exception:
-            return None, "malformed_response"
+        payload, failure = scorer_http.send(request, self._transport or _default_transport,
+                                            self.timeout)
+        if failure:
+            return None, failure
+        data, failure = scorer_http.read_json(payload)
+        if failure:
+            return None, failure
 
         levels = rubric.normalize_effort_choices(choices)
         if continuation:

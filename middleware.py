@@ -43,6 +43,7 @@ from . import jev_client as _jev_client
 from . import model_profiles as _model_profiles
 from . import route_trial as _route_trial
 from . import rubric as _rubric
+from . import scorer_http as _scorer_http
 from . import scorers as _scorers
 from . import tool_errors as _tool_errors
 
@@ -177,6 +178,7 @@ def reset_state() -> None:
         _CLI_STATUS_TEXT = "N/A"
         _MODE_OVERRIDE = None
     _route_trial.reset()
+    _scorer_http.clear_key_cache()
 
 
 # ── runtime mode override (``/hae auto|once|always|off``) ────────────────────

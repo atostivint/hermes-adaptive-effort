@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- Jev, OpenRouter, Cloudflare and Nace scorer calls no longer follow HTTP redirects (OpenAI and custom already refused them), so the `Authorization` header cannot be forwarded to another host; a redirect now fails open as `http_error`
+
+### Fixed
+
+- Scorer error responses (non-2xx, unreadable or malformed bodies) are now always closed on every adapter, ending a socket leak on Jev, OpenRouter, Cloudflare and Nace
+
+### Changed
+
+- Resolved scorer API keys are reused for 30 seconds per provider instead of being read from the secret scope and environment on every scorer call; a rotated or removed key can lag by up to 30 seconds, a newly added key is picked up at once, and `/hae status` credential checks never use the cache
+
 ## [0.4.0] - 2026-10-20
 
 ### Changed
