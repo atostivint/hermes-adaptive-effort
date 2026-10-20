@@ -83,6 +83,10 @@ DEFAULTS: Dict[str, Any] = {
 
 # Injected by register(ctx); None until a PluginContext exists (and in tests).
 _settings_provider: Optional[Callable[[str, Any], Any]] = None
+# The ``ctx.get_config`` the provider above was taken from, so ``_settings`` may read the whole
+# settings table in one pass instead of once per key. Any other provider (a test fake) is still
+# asked key by key.
+_settings_ctx_reader: Optional[Callable[[str, Any], Any]] = None
 # Injected by tests so classification never reaches the network.
 _classifier_factory: Optional[Callable[..., Any]] = None
 # Config source seam. ``None`` in production: the plugin reads the operator's
@@ -179,6 +183,8 @@ def reset_state() -> None:
         _MODE_OVERRIDE = None
     _route_trial.reset()
     _scorer_http.clear_key_cache()
+    _effort.clear_caches()
+    _tool_errors.clear_memo()
 
 
 # ── runtime mode override (``/hae auto|once|always|off``) ────────────────────
@@ -471,10 +477,10 @@ def _transition_text(previous: Any, decided: Any) -> str:
     return f"{shown(previous)} -> {shown(decided)}"
 
 
-def _update_cli_status(value: str) -> None:
+def _update_cli_status(value: str, settings: Optional[Dict[str, Any]] = None) -> None:
     global _CLI_STATUS_TEXT
     _CLI_STATUS_TEXT = value
-    _sync_cli_status()
+    _sync_cli_status(settings)
 
 
 def _notify_cli(text: str) -> None:
@@ -806,13 +812,40 @@ def _read_setting_if_present(key: str) -> Tuple[bool, Any]:
     return True, settings[key]
 
 
+def _settings_reader() -> Callable[[str, Any], Any]:
+    """A ``read(key, default)`` that costs one config lookup for the whole ``_settings`` call.
+
+    The config is still read on every call (an edit is picked up at once; nothing is cached
+    between calls). A provider that is not the context facade keeps its per-key contract.
+    """
+    provider = _settings_provider
+    if provider is not None and not (
+            _settings_ctx_reader is not None and provider == _settings_ctx_reader):
+        return _read_setting
+    entry = ((_live_config().get("plugins") or {}).get("entries") or {}).get(PLUGIN_ID) or {}
+    settings = entry.get("settings")
+    legacy = entry.get("config") if provider is not None else None  # ctx.get_config fallback
+
+    def read(key: str, default: Any = None) -> Any:
+        if isinstance(settings, dict) and key in settings:
+            value = settings[key]
+        elif isinstance(legacy, dict) and key in legacy:
+            value = legacy[key]
+        else:
+            return default
+        return default if value in (None, "") else value
+
+    return read
+
+
 def _canonical_mode(raw: Any) -> str:
     value = str(raw or "").strip().lower()
     return value if value in VALID_MODES else "off"
 
 
 def _settings() -> Dict[str, Any]:
-    mode = _canonical_mode(_read_setting("mode", DEFAULTS["mode"]))
+    read_setting = _settings_reader()  # one config read for every key below
+    mode = _canonical_mode(read_setting("mode", DEFAULTS["mode"]))
     mode_source = "config"
     override = mode_override()
     if override is not None:
@@ -823,18 +856,18 @@ def _settings() -> Dict[str, Any]:
     # this one allow it, so opting into session routing never silently starts
     # rewriting subagent effort.
     subagent_mode = _canonical_mode(
-        _read_setting("subagent_mode", DEFAULTS["subagent_mode"]))
+        read_setting("subagent_mode", DEFAULTS["subagent_mode"]))
 
     def _num(key: str, fallback: float) -> float:
         try:
-            value = float(_read_setting(key, fallback))
+            value = float(read_setting(key, fallback))
             return value if value > 0 else float(fallback)
         except Exception:
             return float(fallback)
 
     def _int(key: str, fallback: int) -> int:
         try:
-            value = int(float(_read_setting(key, fallback)))
+            value = int(float(read_setting(key, fallback)))
             return value if value > 0 else int(fallback)
         except Exception:
             return int(fallback)
@@ -842,13 +875,13 @@ def _settings() -> Dict[str, Any]:
     def _nonneg_int(key: str, fallback: int) -> int:
         # 0 is meaningful here (disables the breaker); negative or invalid -> default.
         try:
-            value = int(float(_read_setting(key, fallback)))
+            value = int(float(read_setting(key, fallback)))
             return value if value >= 0 else int(fallback)
         except Exception:
             return int(fallback)
 
     def _bool(key: str, fallback: bool) -> bool:
-        value = _read_setting(key, fallback)
+        value = read_setting(key, fallback)
         if isinstance(value, bool):
             return value
         if isinstance(value, (int, float)):
@@ -861,13 +894,13 @@ def _settings() -> Dict[str, Any]:
                 return False
         return fallback
 
-    effort_models = _read_setting("effort_models", DEFAULTS["effort_models"])
+    effort_models = read_setting("effort_models", DEFAULTS["effort_models"])
 
-    scorer_provider = str(_read_setting(
+    scorer_provider = str(read_setting(
         "scorer_provider", DEFAULTS["scorer_provider"]) or _scorers.JEV).strip().lower()
     # 0, negative or invalid -> the selected provider's default deadline.
     try:
-        timeout_configured = float(_read_setting("timeout_s", DEFAULTS["timeout_s"]))
+        timeout_configured = float(read_setting("timeout_s", DEFAULTS["timeout_s"]))
         if not timeout_configured > 0 or timeout_configured == float("inf"):
             timeout_configured = 0.0
     except Exception:
@@ -888,37 +921,37 @@ def _settings() -> Dict[str, Any]:
         "scorer_pause_s": _num("scorer_pause_s", DEFAULTS["scorer_pause_s"]),
         "prompt_chars": _int("prompt_chars", DEFAULTS["prompt_chars"]),
         "effort_models": _normalize_forced_models(effort_models),
-        "endpoint": str(_read_setting("endpoint", DEFAULTS["endpoint"])),
+        "endpoint": str(read_setting("endpoint", DEFAULTS["endpoint"])),
         # The URL the client will actually POST to: the setting above may name the
         # API base instead of the scoring route, and a mismatch is invisible until
         # every classification fails open. Reported so `status` shows the truth.
         "scorer_provider": scorer_provider,
-        "jev_model": str(_read_setting(
+        "jev_model": str(read_setting(
             "jev_model", DEFAULTS["jev_model"]) or DEFAULTS["jev_model"]).strip()
         or DEFAULTS["jev_model"],
-        "scorer_model": str(_read_setting(
+        "scorer_model": str(read_setting(
             "scorer_model", DEFAULTS["scorer_model"]) or "").strip(),
-        "custom_endpoint": str(_read_setting(
+        "custom_endpoint": str(read_setting(
             "custom_endpoint", DEFAULTS["custom_endpoint"]) or "").strip(),
-        "custom_api_format": str(_read_setting(
+        "custom_api_format": str(read_setting(
             "custom_api_format", DEFAULTS["custom_api_format"]) or "systemone").strip().lower(),
-        "custom_auth": str(_read_setting(
+        "custom_auth": str(read_setting(
             "custom_auth", DEFAULTS["custom_auth"]) or "none").strip().lower(),
-        "cloudflare_account_id": str(_read_setting(
+        "cloudflare_account_id": str(read_setting(
             "cloudflare_account_id", DEFAULTS["cloudflare_account_id"]) or "").strip(),
         "cloudflare_model": _scorers.cloudflare_client.normalize_model_selector(
-            _read_setting("cloudflare_model", DEFAULTS["cloudflare_model"])),
-        "nace_model": str(_read_setting(
+            read_setting("cloudflare_model", DEFAULTS["cloudflare_model"])),
+        "nace_model": str(read_setting(
             "nace_model", DEFAULTS["nace_model"]) or DEFAULTS["nace_model"]).strip()
         or DEFAULTS["nace_model"],
         "classification_instructions": _rubric.normalize_classification_instructions(
-            _read_setting("classification_instructions", DEFAULTS["classification_instructions"])),
+            read_setting("classification_instructions", DEFAULTS["classification_instructions"])),
         "use_target_model_context": _bool(
             "use_target_model_context", DEFAULTS["use_target_model_context"]),
         "dialogue_context_messages": _dialogue_message_count(
-            _read_setting("dialogue_context_messages", DEFAULTS["dialogue_context_messages"])),
+            read_setting("dialogue_context_messages", DEFAULTS["dialogue_context_messages"])),
         "continuation_downgrade_votes": _downgrade_votes(
-            _read_setting("continuation_downgrade_votes",
+            read_setting("continuation_downgrade_votes",
                           DEFAULTS["continuation_downgrade_votes"])),
         "tool_error_escalation": _bool(
             "tool_error_escalation", DEFAULTS["tool_error_escalation"]),
@@ -1455,7 +1488,8 @@ def _latest_user_prompt(request: Dict[str, Any]) -> Optional[str]:
 
 
 def _effort_slot(request: Dict[str, Any], provider: Any = None, model: Any = None,
-                 api_mode: Any = None, base_url: Any = None
+                 api_mode: Any = None, base_url: Any = None,
+                 route_choices: Optional[Tuple[str, ...]] = None
                  ) -> Optional[Tuple[Dict[str, Any], str, str]]:
     """Locate an *existing* effort field to rewrite: ``(container, key, old)``.
 
@@ -1491,8 +1525,9 @@ def _effort_slot(request: Dict[str, Any], provider: Any = None, model: Any = Non
         if (isinstance(value, str) and value.strip()
                 and value.strip().lower() != "none"):
             return reasoning, "effort", value.strip().lower()
-    if (str(provider or "").strip().lower() == "anthropic"
-            and _effort.route_choice_levels(provider, model, api_mode, base_url)):
+    if str(provider or "").strip().lower() == "anthropic" and (
+            route_choices if route_choices is not None
+            else _effort.route_choice_levels(provider, model, api_mode, base_url)):
         output_config = request.get("output_config")
         if isinstance(output_config, dict) and "effort" in output_config:
             value = output_config.get("effort")
@@ -1570,7 +1605,8 @@ _MUSE_GO_PROVIDERS = frozenset({"opencode-go", "opencode_go", "go", "opencode-go
 
 def _injection_path(request: Dict[str, Any], provider: Any, model: Any,
                     api_mode: Any, forced_models: Tuple[str, ...] = (),
-                    base_url: Any = None) -> Optional[str]:
+                    base_url: Any = None,
+                    route_choices: Optional[Tuple[str, ...]] = None) -> Optional[str]:
     """Verified provider/model/API combinations; never use the generic fallback.
 
     The registry binds exact provider-family routes to a writable field shape.
@@ -1579,8 +1615,10 @@ def _injection_path(request: Dict[str, Any], provider: Any, model: Any,
     provider_name = str(provider or "").strip().lower()
     bare_model = str(model or "").strip().lower().rsplit("/", 1)[-1]
     api = str(api_mode or "").strip().lower()
-    claude_choices = (_effort.route_choice_levels(provider_name, model, api, base_url)
-                      if provider_name == "anthropic" else ())
+    claude_choices = (
+        (route_choices if route_choices is not None
+         else _effort.route_choice_levels(provider_name, model, api, base_url))
+        if provider_name == "anthropic" else ())
     if claude_choices:
         output_config = request.get("output_config")
         if output_config is not None and not isinstance(output_config, dict):
@@ -1645,7 +1683,8 @@ def _inject(request: Dict[str, Any], path: str, target: str) -> Dict[str, Any]:
     return new
 
 def _target_for_route(entry: Dict[str, Any], provider: Any, model: Any,
-                      api_mode: Any = None, base_url: Any = None) -> Optional[str]:
+                      api_mode: Any = None, base_url: Any = None,
+                      route_choices: Optional[Tuple[str, ...]] = None) -> Optional[str]:
     """The wire target *entry* gets on the CURRENT route, or ``None``.
 
     A stored target is only legal for the route that produced it. A provider
@@ -1668,7 +1707,8 @@ def _target_for_route(entry: Dict[str, Any], provider: Any, model: Any,
         target = entry.get("target")
         if isinstance(target, str) and target:
             return target
-    choices = _effort.route_choice_levels(provider, model, api_mode, base_url)
+    choices = (route_choices if route_choices is not None
+               else _effort.route_choice_levels(provider, model, api_mode, base_url))
     if entry.get("decision_type") == "native_choice" and choices:
         target = _effort.map_named_choice(label, choices)
         entry["choices"] = list(choices)
@@ -1732,7 +1772,8 @@ def _with_anthropic_effort_beta(request: Dict[str, Any]) -> Optional[Dict[str, A
 
 
 def _dynamic_effort_route(provider: Any, model: Any, api_mode: Any,
-                          request: Any = None, base_url: Any = None) -> bool:
+                          request: Any = None, base_url: Any = None,
+                          route_choices: Optional[Tuple[str, ...]] = None) -> bool:
     """True only for exact model/API routes with explicit effort and cache evidence."""
     route = _route_identity(provider, model, api_mode)
     provider_name, model_id, api = route
@@ -1740,7 +1781,8 @@ def _dynamic_effort_route(provider: Any, model: Any, api_mode: Any,
     if provider_name == "anthropic" and api == "anthropic_messages":
         return (
             bare_model in _effort.ANTHROPIC_PER_MESSAGE_MODELS
-            and bool(_effort.route_choice_levels(provider_name, model_id, api, base_url))
+            and bool(route_choices if route_choices is not None
+                     else _effort.route_choice_levels(provider_name, model_id, api, base_url))
             and _anthropic_beta_ready(request)
             and isinstance(request, dict)
             and isinstance(request.get("messages"), list)
@@ -1761,13 +1803,19 @@ def _dynamic_effort_route(provider: Any, model: Any, api_mode: Any,
 
 
 def _dynamic_info(settings: Dict[str, Any], provider: Any, model: Any, api_mode: Any,
-                  request: Any, base_url: Any, has_effort_field: bool) -> Dict[str, Any]:
+                  request: Any, base_url: Any, has_effort_field: bool,
+                  dynamic_route: Optional[bool] = None,
+                  route_choices: Optional[Tuple[str, ...]] = None) -> Dict[str, Any]:
     """Whether this route changes effort every turn, and why (stable ``dynamic_reason`` code).
 
     Fail-open: any error reports nothing and leaves the route pinned.
     """
     try:
-        if _dynamic_effort_route(provider, model, api_mode, request=request, base_url=base_url):
+        if dynamic_route is None:
+            dynamic_route = _dynamic_effort_route(
+                provider, model, api_mode, request=request, base_url=base_url,
+                route_choices=route_choices)
+        if dynamic_route:
             return {"dynamic": True, "dynamic_reason": _route_trial.LISTED, "trial_progress": None}
         route = _route_identity(provider, model, api_mode)
         if route[0] == "anthropic" or not _cache_safety.effort_is_cache_safe(*route):
@@ -1776,7 +1824,8 @@ def _dynamic_info(settings: Dict[str, Any], provider: Any, model: Any, api_mode:
         if not settings.get("dynamic_trial"):
             return {"dynamic": False, "dynamic_reason": _route_trial.TRIAL_DISABLED,
                     "trial_progress": None}
-        choices = _effort.route_choice_levels(provider, model, api_mode, base_url)
+        choices = (route_choices if route_choices is not None
+                   else _effort.route_choice_levels(provider, model, api_mode, base_url))
         return _route_trial.status(route, choices, has_effort_field)
     except Exception:
         logger.debug("hermes-adaptive-effort: dynamic status unavailable", exc_info=True)
@@ -2013,13 +2062,17 @@ def on_llm_request(**kwargs: Any) -> Optional[Dict[str, Any]]:
         _note_trial_request(kwargs, result)
         return result
     except Exception:
-        session_id = str(kwargs.get("session_id") or "")
-        if (session_id and str(kwargs.get("provider") or "").lower() == "anthropic"
-                and str(kwargs.get("api_mode") or "").lower() == "anthropic_messages"):
-            _invalidate_claude_history(_pin_key(
-                session_id, _route_identity(kwargs.get("provider"), kwargs.get("model"),
-                                            kwargs.get("api_mode"))))
         logger.debug("hermes-adaptive-effort: middleware error; failing open", exc_info=True)
+        # Cleanup is best effort: a failure here must never replace the fail-open return.
+        try:
+            session_id = str(kwargs.get("session_id") or "")
+            if (session_id and str(kwargs.get("provider") or "").lower() == "anthropic"
+                    and str(kwargs.get("api_mode") or "").lower() == "anthropic_messages"):
+                _invalidate_claude_history(_pin_key(
+                    session_id, _route_identity(kwargs.get("provider"), kwargs.get("model"),
+                                                kwargs.get("api_mode"))))
+        except Exception:
+            logger.debug("hermes-adaptive-effort: error cleanup failed", exc_info=True)
         return None
     finally:
         _TLS.dynamic = None
@@ -2032,9 +2085,12 @@ def _note_trial_request(kwargs: Dict[str, Any], result: Optional[Dict[str, Any]]
     if not trial:
         return
     try:
-        request = result["request"] if result else kwargs.get("request")
-        slot = _effort_slot(request, kwargs.get("provider"), kwargs.get("model"),
-                            kwargs.get("api_mode"), kwargs.get("base_url"))
+        if result:
+            slot = _effort_slot(result["request"], kwargs.get("provider"), kwargs.get("model"),
+                                kwargs.get("api_mode"), kwargs.get("base_url"),
+                                trial.get("choices"))
+        else:
+            slot = trial.get("slot")  # the request is unchanged: the slot found for it stands
         if slot is not None:
             _route_trial.note_request(
                 kwargs.get("session_id"), trial["route"], kwargs.get("api_request_id"),
@@ -2068,11 +2124,22 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     settings = _settings()
     _sync_cli_status(settings)
     session_id = str(kwargs.get("session_id") or "")
+    provider = kwargs.get("provider")
+    model = kwargs.get("model")
+    api_mode = kwargs.get("api_mode")
+    base_url = kwargs.get("base_url")
+    # The route facts are computed once per request and passed down.
+    route_choices = _effort.route_choice_levels(provider, model, api_mode, base_url)
+    raw_slot = _effort_slot(request, provider, model, api_mode, base_url, route_choices)
+    try:
+        dynamic_route: Optional[bool] = _dynamic_effort_route(
+            provider, model, api_mode, request=request, base_url=base_url,
+            route_choices=route_choices)
+    except Exception:
+        dynamic_route = None  # _dynamic_info retries it under its own fail-open guard
     dynamic_info = _dynamic_info(
-        settings, kwargs.get("provider"), kwargs.get("model"), kwargs.get("api_mode"), request,
-        kwargs.get("base_url"),
-        _effort_slot(request, kwargs.get("provider"), kwargs.get("model"),
-                     kwargs.get("api_mode"), kwargs.get("base_url")) is not None)
+        settings, provider, model, api_mode, request, base_url, raw_slot is not None,
+        dynamic_route=dynamic_route, route_choices=route_choices)
     _TLS.dynamic = dynamic_info
     # A conversation override replaces the default mode for a parent session only;
     # children keep subagent_mode. The store is read outside _lock and fails open.
@@ -2110,10 +2177,6 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         logger.debug("hermes-adaptive-effort: no session id; failing open")
         return None
 
-    provider = kwargs.get("provider")
-    model = kwargs.get("model")
-    api_mode = kwargs.get("api_mode")
-
     # A subagent is classified from the goal its PARENT wrote, not from its own
     # first prompt. subagent_mode is a second, independent gate: the session mode
     # alone never starts rewriting children's effort.
@@ -2123,16 +2186,16 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if child_goal is not None:
         mode = settings["subagent_mode"]
 
-    base_url = kwargs.get("base_url")
-    slot = _effort_slot(request, provider, model, api_mode, base_url)
+    slot = raw_slot
     injection_path = None
     if slot is None and mode in ("auto", "once", "always"):
         injection_path = _injection_path(
-            request, provider, model, api_mode, settings["effort_models"], base_url)
+            request, provider, model, api_mode, settings["effort_models"], base_url,
+            route_choices)
     thinking = request.get("thinking")
     if (str(provider or "").strip().lower() == "anthropic"
             and str(api_mode or "").strip().lower() == "anthropic_messages"
-            and _effort.route_choice_levels(provider, model, api_mode, base_url)
+            and route_choices
             and isinstance(thinking, dict) and thinking.get("type") == "between_tools"):
         slot = None
         injection_path = None
@@ -2157,9 +2220,10 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     turn_id = kwargs.get("turn_id")
     turn_key = _decision_key(session_id, turn_id)
     route = _route_identity(provider, model, api_mode)
-    route_choices = _effort.route_choice_levels(provider, model, api_mode, base_url)
-    dynamic_route = _dynamic_effort_route(
-        provider, model, api_mode, request=request, base_url=base_url)
+    if dynamic_route is None:
+        dynamic_route = _dynamic_effort_route(
+            provider, model, api_mode, request=request, base_url=base_url,
+            route_choices=route_choices)
     # An unlisted cache-safe route earns dynamic status only from a trial (in progress or
     # observed); the trial changes an existing field and never injects one.
     trial_route = (
@@ -2168,7 +2232,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if trial_route:
         dynamic_route = True
         if dynamic_info["dynamic_reason"] == _route_trial.TRIAL and mode in ("auto", "always"):
-            _TLS.trial = {"route": route}
+            _TLS.trial = {"route": route, "choices": route_choices, "slot": raw_slot}
     persistent_scope = (
         mode == "once"
         or (mode == "auto" and not dynamic_route)
@@ -2406,7 +2470,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                 _release_scoring(
                     claim_key, route_key, persistent_scope, serialize_route=claude_per_message)
 
-    target = _target_for_route(entry, provider, model, api_mode, base_url)
+    target = _target_for_route(entry, provider, model, api_mode, base_url, route_choices)
     if target is None:
         entry["state"] = "unsupported"
         entry["failure"] = "effort_value_unsupported"
@@ -2447,14 +2511,14 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         _publish_desktop_decision(
             session_id, provider, model, api_mode, entry, applied=applied)
         if new_request is request:
-            _update_cli_status(_transition_text(before, target))
+            _update_cli_status(_transition_text(before, target), settings)
             return None
         if event is not None:
             try:
                 logger.info("Effort changed: %s -> %s", event["from"], event["to"])
             except Exception:
                 pass
-            _update_cli_status(_transition_text(event["from"], event["to"]))
+            _update_cli_status(_transition_text(event["from"], event["to"]), settings)
             _notify_cli(f"Effort changed: {event['from']} -> {event['to']}")
         return {
             "request": new_request,
@@ -2476,7 +2540,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         # The route already sits at the level the scorer picked: nothing to send, so we
         # report no decision at all rather than a rewrite identical to the input.
         # The display (not the change feed) still shows the kept level as ``high → high``.
-        _update_cli_status(_transition_text(before, target))
+        _update_cli_status(_transition_text(before, target), settings)
         _publish_desktop_decision(session_id, provider, model, api_mode, entry)
         return None
     if (dynamic_info.get("dynamic_reason") == _route_trial.REJECTED_LEVEL
@@ -2501,7 +2565,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         except Exception:
             # A logging handler must never turn an optional rewrite into a failure.
             pass
-        _update_cli_status(_transition_text(event["from"], event["to"]))
+        _update_cli_status(_transition_text(event["from"], event["to"]), settings)
         _notify_cli(f"Effort changed: {event['from']} -> {event['to']}")
     return {
         "request": new_request,

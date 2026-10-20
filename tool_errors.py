@@ -23,6 +23,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import threading
+from collections import OrderedDict
 from typing import Any, List, Optional, Tuple
 
 #: Hermes' own file-mutating tools (``agent/tool_result_classification.py``).
@@ -132,6 +134,33 @@ def result_error_text(content: Any, flagged: bool = False) -> Optional[str]:
 _EDIT = "edit"
 _RESULT = "result"
 
+#: Fingerprint per tool-result text, keyed by the SHA-256 of that text (never the text itself),
+#: so a tool loop that re-sends the same results does not re-parse and re-normalise them.
+_FINGERPRINT_MEMO: "OrderedDict[str, Optional[str]]" = OrderedDict()
+_FINGERPRINT_MEMO_LIMIT = 256
+_memo_lock = threading.Lock()
+
+
+def _result_fingerprint(content: Any, flagged: bool = False) -> Optional[str]:
+    """``fingerprint(result_error_text(content, flagged))``, memoised on the text's SHA-256."""
+    text = _flatten(content)
+    key = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest() + ("!" if flagged else "")
+    with _memo_lock:
+        if key in _FINGERPRINT_MEMO:
+            _FINGERPRINT_MEMO.move_to_end(key)
+            return _FINGERPRINT_MEMO[key]
+    digest = fingerprint(result_error_text(text, flagged))
+    with _memo_lock:
+        _FINGERPRINT_MEMO[key] = digest
+        while len(_FINGERPRINT_MEMO) > _FINGERPRINT_MEMO_LIMIT:
+            _FINGERPRINT_MEMO.popitem(last=False)
+    return digest
+
+
+def clear_memo() -> None:
+    with _memo_lock:
+        _FINGERPRINT_MEMO.clear()
+
 
 def _is_turn_boundary(message: dict) -> bool:
     """A user message that is not purely tool-result blocks starts a new turn."""
@@ -144,54 +173,78 @@ def _is_turn_boundary(message: dict) -> bool:
     return True
 
 
-def _events_from_messages(messages: List[Any]) -> List[Tuple[str, Optional[str]]]:
-    start = 0
-    for index, message in enumerate(messages):
-        if isinstance(message, dict) and _is_turn_boundary(message):
-            start = index + 1
-    events: List[Tuple[str, Optional[str]]] = []
-    for message in messages[start:]:
-        if not isinstance(message, dict):
-            continue
-        role = message.get("role")
-        if role == "tool":
-            events.append((_RESULT, result_error_text(message.get("content"))))
-            continue
-        if role == "assistant":
-            calls = message.get("tool_calls")
-            for call in calls if isinstance(calls, list) else []:
-                function = call.get("function") if isinstance(call, dict) else None
-                name = (function or {}).get("name") if isinstance(function, dict) else None
-                if name in EDIT_TOOL_NAMES:
-                    events.append((_EDIT, None))
-        content = message.get("content")
-        if isinstance(content, list):
-            for block in content:
-                if not isinstance(block, dict):
-                    continue
-                if block.get("type") == "tool_use" and block.get("name") in EDIT_TOOL_NAMES:
-                    events.append((_EDIT, None))
-                elif block.get("type") == "tool_result":
-                    flagged = block.get("is_error") is True
-                    events.append((_RESULT, result_error_text(block.get("content"), flagged)))
+def _message_events(message: dict) -> List[Tuple[str, Any, bool]]:
+    """``(kind, raw content, flagged)`` for one message, in the order the forward scan used."""
+    events: List[Tuple[str, Any, bool]] = []
+    role = message.get("role")
+    if role == "tool":
+        return [(_RESULT, message.get("content"), False)]
+    if role == "assistant":
+        calls = message.get("tool_calls")
+        for call in calls if isinstance(calls, list) else []:
+            function = call.get("function") if isinstance(call, dict) else None
+            name = (function or {}).get("name") if isinstance(function, dict) else None
+            if name in EDIT_TOOL_NAMES:
+                events.append((_EDIT, None, False))
+    content = message.get("content")
+    if isinstance(content, list):
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_use" and block.get("name") in EDIT_TOOL_NAMES:
+                events.append((_EDIT, None, False))
+            elif block.get("type") == "tool_result":
+                events.append((_RESULT, block.get("content"), block.get("is_error") is True))
     return events
+
+
+def _scan_backwards(items: List[Any], is_boundary, item_events) -> List[Tuple[str, Optional[str]]]:
+    """The last ``LOOKBACK_RESULTS`` results of the current turn (plus the edits between them).
+
+    Walks from the newest item and stops at the turn boundary or once the 20th result from the
+    end is in hand, so a long conversation costs only its current tail. Error text is turned
+    into a fingerprint only for the results that are kept.
+    """
+    chunks: List[List[Tuple[str, Any, bool]]] = []
+    results = 0
+    for index in range(len(items) - 1, -1, -1):
+        item = items[index]
+        if not isinstance(item, dict):
+            continue
+        if is_boundary(item):
+            break
+        events = item_events(item)
+        if not events:
+            continue
+        chunks.append(events)
+        results += sum(1 for event in events if event[0] == _RESULT)
+        if results >= LOOKBACK_RESULTS:
+            break
+    if results < 2:
+        return []  # a repeat needs two results
+    flat = [event for chunk in reversed(chunks) for event in chunk]
+    positions = [i for i, event in enumerate(flat) if event[0] == _RESULT]
+    if len(positions) > LOOKBACK_RESULTS:
+        flat = flat[positions[-LOOKBACK_RESULTS]:]
+    return [(kind, _result_fingerprint(content, flagged) if kind == _RESULT else None)
+            for kind, content, flagged in flat]
+
+
+def _events_from_messages(messages: List[Any]) -> List[Tuple[str, Optional[str]]]:
+    return _scan_backwards(messages, _is_turn_boundary, _message_events)
+
+
+def _input_events(item: dict) -> List[Tuple[str, Any, bool]]:
+    kind = item.get("type")
+    if kind == "function_call" and item.get("name") in EDIT_TOOL_NAMES:
+        return [(_EDIT, None, False)]
+    if kind == "function_call_output":
+        return [(_RESULT, item.get("output"), False)]
+    return []
 
 
 def _events_from_input(items: List[Any]) -> List[Tuple[str, Optional[str]]]:
-    start = 0
-    for index, item in enumerate(items):
-        if isinstance(item, dict) and item.get("role") == "user":
-            start = index + 1
-    events: List[Tuple[str, Optional[str]]] = []
-    for item in items[start:]:
-        if not isinstance(item, dict):
-            continue
-        kind = item.get("type")
-        if kind == "function_call" and item.get("name") in EDIT_TOOL_NAMES:
-            events.append((_EDIT, None))
-        elif kind == "function_call_output":
-            events.append((_RESULT, result_error_text(item.get("output"))))
-    return events
+    return _scan_backwards(items, lambda item: item.get("role") == "user", _input_events)
 
 
 def repeated_error_fingerprints(request: Any) -> List[str]:
@@ -208,17 +261,13 @@ def repeated_error_fingerprints(request: Any) -> List[str]:
         events = _events_from_input(request["input"])
     else:
         return []
-    result_positions = [i for i, (kind, _) in enumerate(events) if kind == _RESULT]
-    if len(result_positions) > LOOKBACK_RESULTS:
-        events = events[result_positions[-LOOKBACK_RESULTS]:]
     last_seen: dict = {}
     last_edit = -1
     repeated: List[str] = []
-    for index, (kind, text) in enumerate(events):
+    for index, (kind, digest) in enumerate(events):
         if kind == _EDIT:
             last_edit = index
             continue
-        digest = fingerprint(text)
         if digest is None:
             continue
         previous = last_seen.get(digest)

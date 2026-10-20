@@ -13,9 +13,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Scorer error responses (non-2xx, unreadable or malformed bodies) are now always closed on every adapter, ending a socket leak on Jev, OpenRouter, Cloudflare and Nace
+- A failure while cleaning up after a middleware error (Claude history invalidation) can no longer escape `on_llm_request`; the request still fails open unchanged
 
 ### Changed
 
+- Lower per-request overhead in the middleware: settings are read from the config once per request, route lookups and tool-result fingerprints are memoised, and the tool-error scan only walks the current turn's last 20 results (behaviour unchanged)
 - Resolved scorer API keys are reused for 30 seconds per provider instead of being read from the secret scope and environment on every scorer call; a rotated or removed key can lag by up to 30 seconds, a newly added key is picked up at once, and `/hae status` credential checks never use the cache
 
 ## [0.4.0] - 2026-10-20

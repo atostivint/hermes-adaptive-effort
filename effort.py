@@ -102,6 +102,35 @@ def score_to_label(score) -> Optional[str]:
     return "high"
 
 
+#: Memo of the static registry lookups below. Only a lookup that really finished is stored: a
+#: failed lazy ``agent.*`` import is never cached, because Hermes may be importable later.
+_CACHE_LIMIT = 512
+_WIRE_CACHE: dict = {}
+_CHOICE_CACHE: dict = {}
+
+
+def clear_caches() -> None:
+    """Drop the memoised route lookups (``reset_state`` and tests)."""
+    _WIRE_CACHE.clear()
+    _CHOICE_CACHE.clear()
+
+
+def _memo(cache: dict, key: tuple, compute):
+    """``compute()`` returns ``(value, cacheable)``; only a cacheable value is remembered."""
+    try:
+        return cache[key]
+    except KeyError:
+        pass
+    except TypeError:  # unhashable argument: no memo, same answer
+        return compute()[0]
+    value, cacheable = compute()
+    if cacheable:
+        if len(cache) >= _CACHE_LIMIT:
+            cache.clear()
+        cache[key] = value
+    return value
+
+
 def wire_efforts(provider: Optional[str], model: Optional[str]) -> tuple[str, ...]:
     """Wire vocabulary the (provider, model) route *really* accepts, when it is narrow.
 
@@ -114,30 +143,35 @@ def wire_efforts(provider: Optional[str], model: Optional[str]) -> tuple[str, ..
     when the route has no narrower declared set — the caller then falls back to
     Hermes' route data.
     """
+    return _memo(_WIRE_CACHE, (provider, model), lambda: _wire_efforts(provider, model))
+
+
+def _wire_efforts(provider: Optional[str], model: Optional[str]) -> tuple[tuple[str, ...], bool]:
+    """``(vocabulary, cacheable)``; not cacheable when the Hermes core could not be read."""
     bare = (model or "").strip().lower().rsplit("/", 1)[-1]
     if not bare:
-        return ()
+        return (), True
     if bare in MUSE_INJECTION_EFFORTS:
-        return MUSE_INJECTION_EFFORTS[bare]
+        return MUSE_INJECTION_EFFORTS[bare], True
     if (provider or "").strip().lower() in _OPEN_CODE_GO_PROVIDERS:
         for route in OPEN_CODE_GO_INJECTION_ROUTES.values():
             declared = route.get(bare)
             if declared:
-                return declared[1]
+                return declared[1], True
     try:
         from agent import reasoning_effort as _core
     except Exception:
-        return ()
+        return (), False
     try:
         if "kimi" in bare or "moonshot" in bare or _core._KIMI_K3_SLUG_RE.search(bare):
             # K3 = low/high/max, K2-era = low/medium/high (host-side detection reused).
-            return tuple(_core.kimi_supported_efforts(bare))
+            return tuple(_core.kimi_supported_efforts(bare)), True
         for prefix, attribute in (("glm-5.2", "GLM52_EFFORTS"), ("glm-5.3", "GLM53_EFFORTS")):
             if bare.startswith(prefix):
-                return tuple(getattr(_core, attribute))
+                return tuple(getattr(_core, attribute)), True
     except Exception:
-        return ()
-    return ()
+        return (), False
+    return (), True
 
 
 def wire_overrides(vocabulary: Sequence[str]) -> Optional[dict]:
@@ -200,6 +234,14 @@ def route_choice_levels(provider: Optional[str], model: Optional[str], api_mode:
     This intentionally does not use Hermes' generic OpenAI-compatible fallback
     or model-profile documentation as route evidence.
     """
+    return _memo(_CHOICE_CACHE, (provider, model, api_mode, base_url),
+                 lambda: _route_choice_levels(provider, model, api_mode, base_url))
+
+
+def _route_choice_levels(provider: Optional[str], model: Optional[str], api_mode: Optional[str],
+                         base_url: Optional[str]) -> tuple[tuple[str, ...], bool]:
+    """``(levels, cacheable)``; not cacheable when a lazy Hermes import failed."""
+    cacheable = True
     provider_name = (provider or "").strip().lower()
     api = (api_mode or "").strip().lower()
     model_id = (model or "").strip().lower()
@@ -219,10 +261,11 @@ def route_choice_levels(provider: Optional[str], model: Optional[str], api_mode:
             levels = codex_supported_efforts(model_id)
         except Exception:
             levels = ()
+            cacheable = False
     elif (provider_name == "anthropic" and api == "anthropic_messages"
           and _native_anthropic_host(base_url)):
         levels = ANTHROPIC_EFFORT_ROUTES.get(bare, ())
-    return tuple(level for level in levels if level in CHOICE_LEVELS)
+    return tuple(level for level in levels if level in CHOICE_LEVELS), cacheable
 
 
 def _native_anthropic_host(base_url: Optional[str]) -> bool:

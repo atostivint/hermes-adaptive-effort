@@ -29,6 +29,7 @@ def register(ctx: Any) -> None:
     # edit is picked up per call rather than frozen at import time.
     if hasattr(ctx, "get_config"):
         _middleware._settings_provider = ctx.get_config
+        _middleware._settings_ctx_reader = ctx.get_config
     state = getattr(ctx, "state", None)
     if state is not None:
         _middleware.set_history_path_provider(
