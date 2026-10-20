@@ -37,6 +37,7 @@ RESULT_DIR_NAME = "scorer-eval"
 REPO_COPY_DIR = ROOT / "docs" / "validation" / "runs"
 KNOWN_TAGS = frozenset({
     "short_followup", "fix_vs_explain", "trivial_vs_architectural", "multi_step", "ambiguous",
+    "correction_or_replan", "strict_format", "mechanical_edit",
 })
 
 
