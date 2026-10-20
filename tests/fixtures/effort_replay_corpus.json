@@ -1,0 +1,498 @@
+{
+  "schema": "hermes-adaptive-effort.replay-corpus.v1",
+  "version": "2026-10-20.1",
+  "note": "Synthetic prompts with machine-checkable outcomes. No real user text. Check types: exact, regex, json_schema, numeric.",
+  "items": [
+    {
+      "id": "r001",
+      "prompt": "A crate holds 12 bottles. A shop buys 7 crates, sells 58 bottles and then receives 3 more crates. How many bottles does it have now? Finish with the final number alone on the last line.",
+      "expected": "medium",
+      "tags": [
+        "multi_step"
+      ],
+      "check": {
+        "type": "numeric",
+        "answer": 62,
+        "tolerance": 0
+      }
+    },
+    {
+      "id": "r002",
+      "prompt": "What is 17 + 26? Finish with the final number alone on the last line.",
+      "expected": "low",
+      "tags": [
+        "trivial_vs_architectural"
+      ],
+      "check": {
+        "type": "numeric",
+        "answer": 43,
+        "tolerance": 0
+      }
+    },
+    {
+      "id": "r003",
+      "prompt": "A train travels 84 km in 70 minutes. At the same speed, how many kilometres does it travel in 3 hours? Finish with the final number alone on the last line.",
+      "expected": "medium",
+      "tags": [
+        "multi_step"
+      ],
+      "check": {
+        "type": "numeric",
+        "answer": 216.0,
+        "tolerance": 0
+      }
+    },
+    {
+      "id": "r004",
+      "prompt": "Compute (35 * 12) - (240 / 8) + 19. Finish with the final number alone on the last line.",
+      "expected": "medium",
+      "tags": [
+        "multi_step"
+      ],
+      "check": {
+        "type": "numeric",
+        "answer": 409.0,
+        "tolerance": 0
+      }
+    },
+    {
+      "id": "r005",
+      "prompt": "Three pipes fill a tank. Pipe A alone takes 12 hours, pipe B alone takes 6 hours, pipe C alone takes 4 hours. Working together, how many minutes to fill the tank? Finish with the final number alone on the last line.",
+      "expected": "high",
+      "tags": [
+        "multi_step"
+      ],
+      "check": {
+        "type": "numeric",
+        "answer": 120.0,
+        "tolerance": 0.01
+      }
+    },
+    {
+      "id": "r006",
+      "prompt": "Add the numbers 3, 7, 12, 19, 24, 31, 38 and 45, then subtract 11 and multiply the result by 3. Finish with the final number alone on the last line.",
+      "expected": "medium",
+      "tags": [
+        "multi_step"
+      ],
+      "check": {
+        "type": "numeric",
+        "answer": 504,
+        "tolerance": 0
+      }
+    },
+    {
+      "id": "r007",
+      "prompt": "How many positive integers below 200 are divisible by 3 or by 5 but not by 15? Finish with the final number alone on the last line.",
+      "expected": "high",
+      "tags": [
+        "multi_step"
+      ],
+      "check": {
+        "type": "numeric",
+        "answer": 79,
+        "tolerance": 0
+      }
+    },
+    {
+      "id": "r008",
+      "prompt": "The sum of two numbers is 91 and their difference is 17. What is the product of the two numbers? Finish with the final number alone on the last line.",
+      "expected": "high",
+      "tags": [
+        "multi_step"
+      ],
+      "check": {
+        "type": "numeric",
+        "answer": 1998,
+        "tolerance": 0
+      }
+    },
+    {
+      "id": "r009",
+      "prompt": "What is the greatest common divisor of 462 and 1071? Finish with the final number alone on the last line.",
+      "expected": "medium",
+      "tags": [
+        "ambiguous"
+      ],
+      "check": {
+        "type": "numeric",
+        "answer": 21,
+        "tolerance": 0
+      }
+    },
+    {
+      "id": "r010",
+      "prompt": "How many distinct arrangements are there of the letters in the word BANANA? Finish with the final number alone on the last line.",
+      "expected": "high",
+      "tags": [
+        "multi_step"
+      ],
+      "check": {
+        "type": "numeric",
+        "answer": 60,
+        "tolerance": 0
+      }
+    },
+    {
+      "id": "r011",
+      "prompt": "What is the 12th term of the sequence that starts 2, 5, 8, 11 and continues with the same step? Finish with the final number alone on the last line.",
+      "expected": "low",
+      "tags": [
+        "short_followup"
+      ],
+      "check": {
+        "type": "numeric",
+        "answer": 35,
+        "tolerance": 0
+      }
+    },
+    {
+      "id": "r012",
+      "prompt": "Reverse the word 'planet'. Reply with the reversed word only.",
+      "expected": "low",
+      "tags": [
+        "trivial_vs_architectural"
+      ],
+      "check": {
+        "type": "exact",
+        "answer": "tenalp"
+      }
+    },
+    {
+      "id": "r013",
+      "prompt": "Sort the letters of the word 'orchid' alphabetically. Reply with the resulting letters only, no spaces.",
+      "expected": "low",
+      "tags": [
+        "trivial_vs_architectural"
+      ],
+      "check": {
+        "type": "exact",
+        "answer": "cdhior"
+      }
+    },
+    {
+      "id": "r014",
+      "prompt": "How many vowels (a, e, i, o, u) are in the word 'encyclopaedia'? Reply with the digit only.",
+      "expected": "medium",
+      "tags": [
+        "multi_step"
+      ],
+      "check": {
+        "type": "exact",
+        "answer": "6"
+      }
+    },
+    {
+      "id": "r015",
+      "prompt": "Write the capital letters of the phrase 'quiet river bend near oaks' joined in order. Reply with the letters only.",
+      "expected": "low",
+      "tags": [
+        "short_followup"
+      ],
+      "check": {
+        "type": "exact",
+        "answer": "QRBNO"
+      }
+    },
+    {
+      "id": "r016",
+      "prompt": "Caesar-shift the word 'delta' forward by 3 letters. Reply with the shifted word only, in lowercase.",
+      "expected": "medium",
+      "tags": [
+        "multi_step"
+      ],
+      "check": {
+        "type": "exact",
+        "answer": "ghowd"
+      }
+    },
+    {
+      "id": "r017",
+      "prompt": "Convert the binary number 101101 to decimal. Reply with the number only.",
+      "expected": "low",
+      "tags": [
+        "short_followup"
+      ],
+      "check": {
+        "type": "exact",
+        "answer": "45"
+      }
+    },
+    {
+      "id": "r018",
+      "prompt": "Convert the decimal number 300 to hexadecimal. Reply with the hexadecimal digits only, lowercase, no prefix.",
+      "expected": "medium",
+      "tags": [
+        "ambiguous"
+      ],
+      "check": {
+        "type": "exact",
+        "answer": "12c"
+      }
+    },
+    {
+      "id": "r019",
+      "prompt": "This function is meant to return the largest of three numbers but returns the wrong one for some inputs:\n\ndef largest(a, b, c):\n    if a > b and a > c:\n        return a\n    if b > c:\n        return b\n    return a\n\nFix the last line. Reply with the single corrected line of code only.",
+      "expected": "medium",
+      "tags": [
+        "fix_vs_explain"
+      ],
+      "check": {
+        "type": "regex",
+        "pattern": "^\\s*return\\s+c\\s*$"
+      }
+    },
+    {
+      "id": "r020",
+      "prompt": "In Python, which single built-in function returns the number of items in a list? Reply with the function name only.",
+      "expected": "low",
+      "tags": [
+        "trivial_vs_architectural"
+      ],
+      "check": {
+        "type": "regex",
+        "pattern": "^\\W*len\\W*(\\(\\))?\\W*$"
+      }
+    },
+    {
+      "id": "r021",
+      "prompt": "Write one regular expression that matches exactly a five-digit postal code such as 48201 (digits only, anchored at both ends). Reply with the pattern only.",
+      "expected": "medium",
+      "tags": [
+        "multi_step"
+      ],
+      "check": {
+        "type": "regex",
+        "pattern": "^\\W*\\^\\s*(\\\\d\\{5\\}|\\[0-9\\]\\{5\\})\\s*\\$\\W*$"
+      }
+    },
+    {
+      "id": "r022",
+      "prompt": "What is the SQL keyword that removes duplicate rows from a SELECT result? Reply with the keyword only.",
+      "expected": "low",
+      "tags": [
+        "short_followup"
+      ],
+      "check": {
+        "type": "regex",
+        "pattern": "^\\W*distinct\\W*$"
+      }
+    },
+    {
+      "id": "r023",
+      "prompt": "The loop below should print 0 to 4 but prints 0 to 5. Which single comparison operator should replace <= ?\n\nfor (let i = 0; i <= 5; i++) { console.log(i); }\n\nReply with the operator only.",
+      "expected": "low",
+      "tags": [
+        "fix_vs_explain"
+      ],
+      "check": {
+        "type": "regex",
+        "pattern": "^\\W*<\\W*$"
+      }
+    },
+    {
+      "id": "r024",
+      "prompt": "Name the HTTP status code that means a resource was created. Reply with the three digits only.",
+      "expected": "low",
+      "tags": [
+        "short_followup"
+      ],
+      "check": {
+        "type": "regex",
+        "pattern": "^\\W*201\\W*$"
+      }
+    },
+    {
+      "id": "r025",
+      "prompt": "Extract the fields from this record and reply with a JSON object only. Record: order 4821 was placed by Mira Vance for 3 items totalling 59.90 EUR. Use the keys order_id (integer), customer (string), items (integer), total (number), currency (string).",
+      "expected": "medium",
+      "tags": [
+        "multi_step"
+      ],
+      "check": {
+        "type": "json_schema",
+        "schema": {
+          "type": "object",
+          "required": [
+            "order_id",
+            "customer",
+            "items",
+            "total",
+            "currency"
+          ],
+          "properties": {
+            "order_id": {
+              "const": 4821
+            },
+            "customer": {
+              "const": "Mira Vance"
+            },
+            "items": {
+              "const": 3
+            },
+            "total": {
+              "const": 59.9
+            },
+            "currency": {
+              "const": "EUR"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "r026",
+      "prompt": "Reply with a JSON object only, with the key \"primes\" holding the array of all prime numbers between 20 and 50 in increasing order.",
+      "expected": "medium",
+      "tags": [
+        "multi_step"
+      ],
+      "check": {
+        "type": "json_schema",
+        "schema": {
+          "type": "object",
+          "required": [
+            "primes"
+          ],
+          "properties": {
+            "primes": {
+              "const": [
+                23,
+                29,
+                31,
+                37,
+                41,
+                43,
+                47
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "r027",
+      "prompt": "Reply with a JSON object only with two keys: \"count\" (the number of words in 'the quick brown fox jumps') and \"longest\" (the longest word in it; the first one if tied).",
+      "expected": "low",
+      "tags": [
+        "short_followup"
+      ],
+      "check": {
+        "type": "json_schema",
+        "schema": {
+          "type": "object",
+          "required": [
+            "count",
+            "longest"
+          ],
+          "properties": {
+            "count": {
+              "const": 5
+            },
+            "longest": {
+              "enum": [
+                "quick",
+                "brown",
+                "jumps"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "r028",
+      "prompt": "A library has 4 shelves with 18, 25, 9 and 31 books. Reply with a JSON object only with keys \"total\" (all books), \"fullest_shelf\" (1-based index of the shelf with most books) and \"average\" (mean books per shelf as a number).",
+      "expected": "medium",
+      "tags": [
+        "multi_step"
+      ],
+      "check": {
+        "type": "json_schema",
+        "schema": {
+          "type": "object",
+          "required": [
+            "total",
+            "fullest_shelf",
+            "average"
+          ],
+          "properties": {
+            "total": {
+              "const": 83
+            },
+            "fullest_shelf": {
+              "const": 4
+            },
+            "average": {
+              "const": 20.75
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "r029",
+      "prompt": "Schedule: task A takes 3 days, task B takes 2 days and needs A done first, task C takes 4 days and can start at day 0, task D takes 1 day and needs both B and C done first. Reply with a JSON object only with keys \"project_days\" (the shortest total duration) and \"critical_path\" (array of task letters on the longest chain, in order).",
+      "expected": "max",
+      "tags": [
+        "multi_step",
+        "ambiguous"
+      ],
+      "check": {
+        "type": "json_schema",
+        "schema": {
+          "type": "object",
+          "required": [
+            "project_days",
+            "critical_path"
+          ],
+          "properties": {
+            "project_days": {
+              "const": 6
+            },
+            "critical_path": {
+              "const": [
+                "A",
+                "B",
+                "D"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "r030",
+      "prompt": "Three people, Ana, Ben and Cleo, each own exactly one of a cat, a dog and a fish. Ana does not own the dog. Ben owns neither the dog nor the fish. Reply with a JSON object only mapping each person to their pet, using the keys \"Ana\", \"Ben\" and \"Cleo\".",
+      "expected": "high",
+      "tags": [
+        "multi_step",
+        "ambiguous"
+      ],
+      "check": {
+        "type": "json_schema",
+        "schema": {
+          "type": "object",
+          "required": [
+            "Ana",
+            "Ben",
+            "Cleo"
+          ],
+          "properties": {
+            "Ana": {
+              "const": "fish"
+            },
+            "Ben": {
+              "const": "cat"
+            },
+            "Cleo": {
+              "const": "dog"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

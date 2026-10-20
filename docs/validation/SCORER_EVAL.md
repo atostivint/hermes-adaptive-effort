@@ -19,7 +19,7 @@ export HERMES_SOURCE_ROOT=/path/to/hermes-agent
 .venv/bin/python scripts/run_scorer_eval.py --provider openrouter --scorer-model <decision-model-id> --send --limit 10
 ```
 
-Flags: `--provider`, `--scorer-model`, `--jev-model`, `--endpoint`, `--cloudflare-account-id`, `--cloudflare-model`, `--custom-endpoint`, `--custom-api-format`, `--custom-auth`, `--timeout-s` (0 = provider default), `--choices`, `--instructions-file`, `--limit N`, `--out-dir`, `--repo-copy`.
+Flags: `--corpus PATH` (default: the scorer corpus; use `tests/fixtures/effort_replay_corpus.json` to compare with an [effort replay](EFFORT_REPLAY.md)), `--provider`, `--scorer-model`, `--jev-model`, `--endpoint`, `--cloudflare-account-id`, `--cloudflare-model`, `--custom-endpoint`, `--custom-api-format`, `--custom-auth`, `--timeout-s` (0 = provider default), `--choices`, `--instructions-file`, `--limit N`, `--out-dir`, `--repo-copy`.
 
 `--choices` takes any subset of the six levels (default: all). Each expectation is clamped onto that subset with `effort.map_named_choice`, the clamp the plugin applies on a route; items record both `expected` and `expected_clamped`. Use `--choices low,medium,high` to evaluate a three-level route.
 

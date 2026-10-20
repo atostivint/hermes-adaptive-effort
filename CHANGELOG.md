@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Manual, billed effort replay tooling (`scripts/run_effort_replay.py`, `scripts/compare_replay.py`, `tests/fixtures/effort_replay_corpus.json`) that derives the cheapest passing effort per synthetic item from a target model's own answers and compares it with hand labels and scorer choices; `run_scorer_eval.py` gains `--corpus` (default unchanged). Tooling only, no runtime change; see `docs/validation/EFFORT_REPLAY.md` (#71)
+
 ### Security
 
 - Jev, OpenRouter, Cloudflare and Nace scorer calls no longer follow HTTP redirects (OpenAI and custom already refused them), so the `Authorization` header cannot be forwarded to another host; a redirect now fails open as `http_error`

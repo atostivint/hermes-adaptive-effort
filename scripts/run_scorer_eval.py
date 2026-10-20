@@ -249,6 +249,9 @@ def make_parser(providers: Sequence[str]) -> argparse.ArgumentParser:
     parser.add_argument("--instructions-file",
                         help="optional classification guidance file (never echoed)")
     parser.add_argument("--limit", type=int, help="evaluate only the first N prompts")
+    parser.add_argument("--corpus", default=str(CORPUS_PATH),
+                        help="corpus JSON to evaluate (default: the scorer evaluation corpus; "
+                             "use tests/fixtures/effort_replay_corpus.json to compare with a replay)")
     parser.add_argument("--send", action="store_true",
                         help="actually call the scorer (billed); without it nothing is sent")
     parser.add_argument("--out-dir", help="override the plugin data directory (tests/offline)")
@@ -272,7 +275,11 @@ def main(argv: Optional[Sequence[str]] = None, *, out: Any = None,
     except ValueError as exc:
         print(f"error: {exc}", file=out)
         return 2
-    corpus, digest = load_corpus()
+    try:
+        corpus, digest = load_corpus(Path(args.corpus))
+    except (OSError, ValueError) as exc:
+        print(f"error: corpus unreadable: {type(exc).__name__}", file=out)
+        return 2
     problems = validate_corpus(corpus, levels)
     if problems:
         print("error: corpus invalid: " + "; ".join(problems[:5]), file=out)
