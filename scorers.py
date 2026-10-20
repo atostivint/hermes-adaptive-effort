@@ -6,10 +6,24 @@ falls back to a different scorer when the selected provider fails.
 
 from __future__ import annotations
 
+import importlib
 from typing import Any, Dict, Optional, Tuple
 
-from . import (cloudflare_client, custom_client, jev_client, nace_client,
-               openai_decision_client, openrouter_client)
+# jev, cloudflare and nace stay eager: middleware reads their constants and validators when
+# it builds its defaults and on every settings read. The other adapters load on first use
+# (PEP 562 ``__getattr__`` below), so a profile that never selects them never imports them.
+from . import cloudflare_client, jev_client, nace_client
+
+_LAZY_ADAPTERS = frozenset({"custom_client", "openai_decision_client", "openrouter_client"})
+
+
+def __getattr__(name: str) -> Any:
+    if name in _LAZY_ADAPTERS:
+        module = importlib.import_module(f".{name}", __package__)
+        globals()[name] = module
+        return module
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 JEV = "jev"
 OPENROUTER = "openrouter"
@@ -58,6 +72,7 @@ def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]
         if not model:
             return None, "model_missing"
         try:
+            openrouter_client = __getattr__("openrouter_client")
             return openrouter_client.OpenRouterClient(
                 model=model,
                 timeout=settings["timeout_s"],
@@ -68,6 +83,7 @@ def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]
             return None, "classifier_error"
     if provider == OPENAI_DECISION:
         try:
+            openai_decision_client = __getattr__("openai_decision_client")
             return openai_decision_client.OpenAIDecisionClient(
                 model=settings.get("scorer_model") or openai_decision_client.DEFAULT_MODEL,
                 timeout=settings["timeout_s"],
@@ -107,6 +123,7 @@ def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]
         if not model:
             return None, "model_missing"
         try:
+            custom_client = __getattr__("custom_client")
             return custom_client.CustomClient(
                 endpoint=settings.get("custom_endpoint", ""),
                 model=model,
@@ -127,15 +144,15 @@ def credential_present(provider: Any = JEV, custom_auth: Any = "none") -> bool:
     if selected == JEV:
         return jev_client.credential_present()
     if selected == OPENROUTER:
-        return openrouter_client.credential_present()
+        return __getattr__("openrouter_client").credential_present()
     if selected == OPENAI_DECISION:
-        return openai_decision_client.credential_present()
+        return __getattr__("openai_decision_client").credential_present()
     if selected == CLOUDFLARE:
         return cloudflare_client.credential_present()
     if selected == NACE:
         return nace_client.credential_present()
     if selected == CUSTOM and str(custom_auth or "none").strip().lower() == "bearer":
-        return custom_client.credential_present()
+        return __getattr__("custom_client").credential_present()
     return False
 
 
@@ -153,10 +170,10 @@ def endpoint_for(provider: Any, jev_endpoint: Any, cloudflare_account_id: Any = 
     """Return the raw and effective endpoint for the selected scorer."""
     selected = str(provider or JEV).strip().lower()
     if selected == OPENROUTER:
-        endpoint = openrouter_client.DEFAULT_ENDPOINT
+        endpoint = __getattr__("openrouter_client").DEFAULT_ENDPOINT
         return endpoint, endpoint
     if selected == OPENAI_DECISION:
-        endpoint = openai_decision_client.DEFAULT_ENDPOINT
+        endpoint = __getattr__("openai_decision_client").DEFAULT_ENDPOINT
         return endpoint, endpoint
     if selected == NACE:
         raw = nace_client.configured_base_url()
@@ -184,11 +201,11 @@ def model_for(provider: Any, configured_model: Any,
     if selected == NACE:
         return str(nace_model or nace_client.MODEL).strip() or nace_client.MODEL
     if selected == OPENAI_DECISION:
-        return str(configured_model or openai_decision_client.DEFAULT_MODEL).strip() \
-            or openai_decision_client.DEFAULT_MODEL
+        default_model = __getattr__("openai_decision_client").DEFAULT_MODEL
+        return str(configured_model or default_model).strip() or default_model
     return str(configured_model or "").strip()
 
 
 def safe_endpoint_display(value: Any) -> str:
     """Return the URL suitable for status output without query parameter values."""
-    return custom_client.safe_endpoint_display(value)
+    return __getattr__("custom_client").safe_endpoint_display(value)

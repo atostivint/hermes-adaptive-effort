@@ -180,7 +180,8 @@ def test_real_dispatcher_routes_through_openai_decisions_adapter(dispatched, no_
     settings = {"mode": "auto", "scorer_provider": "openai_decision", "scorer_model": ""}
     monkeypatch.setattr(
         middleware, "_settings_provider", lambda key, default=None: settings.get(key, default))
-    client = _payload_module(dispatched["home"], ".openai_decision_client")
+    # The adapter loads lazily; resolve it through the payload's own scorers module.
+    client = _payload_module(dispatched["home"], ".scorers").openai_decision_client
     monkeypatch.setattr(client, "_default_key_reader", lambda: "test-openai-key")
     requests = []
 

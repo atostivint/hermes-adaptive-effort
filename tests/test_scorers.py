@@ -175,3 +175,47 @@ def test_status_endpoint_and_model_follow_selected_scorer():
     account_id = "0123456789abcdef0123456789abcdef"
     endpoint, effective = scorers.endpoint_for("cloudflare", "jev-endpoint", account_id)
     assert endpoint == effective == cloudflare_client.endpoint_for(account_id)
+
+
+def test_importing_scorers_does_not_import_unselected_adapters():
+    import subprocess
+    import sys
+    from conftest import PLUGIN_DIR
+    code = (
+        "import importlib, sys, types\n"
+        "pkg = types.ModuleType('hpae'); pkg.__path__ = [sys.argv[1]]; sys.modules['hpae'] = pkg\n"
+        "s = importlib.import_module('hpae.scorers')\n"
+        "names = lambda: sorted(m for m in sys.modules\n"
+        "                       if m.startswith('hpae.') and m.endswith('_client'))\n"
+        "print(','.join(names()))\n"
+        "client, failure = s.build_client({'scorer_provider': 'openai_decision', 'timeout_s': 1,\n"
+        "                                  'prompt_chars': 100})\n"
+        "assert failure is None, failure\n"
+        "print(','.join(names()))\n"
+    )
+    out = subprocess.run([sys.executable, "-I", "-c", code, str(PLUGIN_DIR)],
+                         capture_output=True, text=True, check=True).stdout.splitlines()
+    before, after = out
+    for lazy in ("custom_client", "openai_decision_client", "openrouter_client"):
+        assert lazy not in before
+    assert "openai_decision_client" in after
+    assert "custom_client" not in after and "openrouter_client" not in after
+
+
+def test_build_client_returns_the_right_client_for_every_provider():
+    expected = {
+        "jev": jev_client.JevClient,
+        "openrouter": openrouter_client.OpenRouterClient,
+        "cloudflare": cloudflare_client.CloudflareClient,
+        "custom": custom_client.CustomClient,
+        "openai_decision": openai_decision_client.OpenAIDecisionClient,
+        "nace": nace_client.NaceClient,
+    }
+    assert set(expected) == set(scorers.PROVIDERS)
+    for provider, cls in expected.items():
+        client, failure = scorers.build_client(settings(
+            scorer_provider=provider, scorer_model="m/x",
+            cloudflare_account_id="0" * 32, custom_endpoint="https://example.test/v1/systemone"))
+        assert failure is None, (provider, failure)
+        assert isinstance(client, cls), provider
+    assert scorers.build_client(settings(scorer_provider="nope")) == (None, "unsupported_provider")
