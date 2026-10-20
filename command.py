@@ -372,6 +372,7 @@ def _status_payload(conversation_id: Optional[str] = None) -> Dict[str, Any]:
         "cloudflare_account_ready": settings["cloudflare_account_ready"],
         "scorer_pause": _middleware.scorer_pause_state(settings),
         "scorer_latency": _middleware.scorer_latency_state(settings),
+        "label_distribution": _middleware.label_distribution_state(settings),
         "counts": counts,
         "sessions": sessions,
         "last": last,
@@ -505,6 +506,7 @@ def _status_text() -> str:
     latency_line = _latency_line(payload, always=False)
     if latency_line:
         lines.append(latency_line)
+    lines.extend(_distribution_lines(payload, entry, limit=1))
     lines.append("Use /hae history to see recent applied changes; /hae status full for details.")
     return "\n".join(lines)
 
@@ -520,6 +522,29 @@ def _latency_line(payload: Dict[str, Any], *, always: bool) -> Optional[str]:
     else:
         bound = f"\u2264 {latency.get('p95_le_ms')} ms"
     return f"Scorer latency: p95 {bound} ({count} calls)"
+
+
+def _distribution_lines(payload: Dict[str, Any], entry: Dict[str, Any],
+                        *, limit: int) -> List[str]:
+    """Compact scorer-label count lines, the entry's own route first; informational only."""
+    routes = list((payload.get("label_distribution") or {}).get("routes") or [])
+    own = (entry.get("provider"), entry.get("model"), entry.get("api_mode"))
+    def route_key(route):
+        return (route.get("provider"), route.get("model"), route.get("api_mode"))
+
+    routes = ([r for r in routes if route_key(r) == own]
+              + [r for r in reversed(routes) if route_key(r) != own])
+    lines = []
+    for route in routes[:limit]:
+        counts = route.get("counts") or {}
+        text = " \u00b7 ".join(f"{name} {counts[name]}" for name in sorted(counts))
+        line = f"Effort labels ({route.get('model') or 'unknown'}): {text}"
+        dominant = route.get("dominant")
+        if dominant:
+            line += (f" \u00b7 {dominant['label']} dominates "
+                     f"({round(dominant['share'] * 100)}% of {route.get('total')})")
+        lines.append(line)
+    return lines
 
 
 def _status_full_text() -> str:
@@ -572,6 +597,7 @@ def _status_full_text() -> str:
     elif settings.get("scorer_provider") == _scorers.CUSTOM:
         lines.append(f"Custom scorer: format={settings['custom_api_format']} auth={settings['custom_auth']}")
     lines.append(_latency_line(payload, always=True))
+    lines.extend(_distribution_lines(payload, entry, limit=5) or ["Effort labels: none yet"])
     lines.append("History: " + ("available" if view.get("available") else "unavailable"))
     return "\n".join(lines)
 

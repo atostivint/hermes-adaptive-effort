@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `/hae status` and `status json` show a per-route count of the labels the scorer chose (`label_distribution`, additive under status v2, in memory, counts only) and note informationally when one label is at least 90% of at least 30 answers, so a collapsed scorer is visible
+
 ### Security
 
 - Jev, OpenRouter, Cloudflare and Nace scorer calls no longer follow HTTP redirects (OpenAI and custom already refused them), so the `Authorization` header cannot be forwarded to another host; a redirect now fails open as `http_error`
