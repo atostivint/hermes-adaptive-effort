@@ -1,62 +1,79 @@
-# Draft: add Hermes Adaptive Effort to the plugin catalog
+# Catalog submission: bump Hermes Adaptive Effort to 0.4.0
 
-> Submitted as [NousResearch/hermes-agent#135532](https://github.com/NousResearch/hermes-agent/pull/135532) on 2026-10-09 and kept here as the record of what was proposed. Original draft note: submission text for `NousResearch/hermes-agent`, pinned to `master` right after the v0.3.1 pre-release. The entry file is [entry.yaml](entry.yaml); copy it to `plugin-catalog/hermes-adaptive-effort.yaml`. Recheck the pin and the validation lines below if a newer release is chosen before opening the PR.
+> Submitted as [NousResearch/hermes-agent#142092](https://github.com/NousResearch/hermes-agent/pull/142092) on 2026-10-20 and kept here as the record of what was proposed. The entry file is [entry.yaml](entry.yaml), a copy of the submitted `plugin-catalog/hermes-adaptive-effort.yaml`. The first submission (0.3.1, pinned to `0998a08`) was [NousResearch/hermes-agent#135532](https://github.com/NousResearch/hermes-agent/pull/135532), merged on 2026-10-10; its text is in this file's git history. For a later release, update `sha`, `version` and every pinned URL together and open a new catalog PR (catalog rule 4).
 
-## What it does
+## What does this PR do?
 
-Hermes Adaptive Effort asks a separately selected scorer to judge the current task, then sets the reasoning effort of the outgoing request when the selected mode allows it. Jev is the default scorer; users can instead choose OpenAI Decisions, an OpenRouter model, Cloudflare Clef / Clef Flash, or a custom hosted or local endpoint (System One or Chat Completions format). The scorer does not replace the model that answers the conversation.
+Bumps the `hermes-adaptive-effort` catalog entry from `0.3.1` to `0.4.0`. One data-only file changes. I am the repository owner (admission rule 5).
 
-On exact registered routes the scorer picks from that route's own effort levels; other routes use a numeric `0..2` score mapped to `low/medium/high`. The plugin starts in `off` mode for both parent and child sessions and fails open: configuration, transport, timeout or validation failures leave the request unchanged.
+- Old pin: `0998a083d85ea52fbef38427b44a54d27332358a` (0.3.1)
+- New pin: `c84f1389670cdd5ec4607b13bd32c4809878c415`, the [`v0.4.0` tag](https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v0.4.0) commit
+- Commit range for review (rule 4): [0998a08...c84f138](https://github.com/atostivint/hermes-adaptive-effort/compare/0998a083d85ea52fbef38427b44a54d27332358a...c84f1389670cdd5ec4607b13bd32c4809878c415) (26 commits)
+- Release notes: [CHANGELOG 0.4.0](https://github.com/atostivint/hermes-adaptive-effort/blob/c84f1389670cdd5ec4607b13bd32c4809878c415/CHANGELOG.md#040---2026-10-20)
 
-This entry pins version `0.3.1` (a GitHub pre-release) at `0998a083d85ea52fbef38427b44a54d27332358a`. That commit is on `master` after the `v0.3.1` tag (`f2d56a47fdf264f6eedd1afd277f4062d6902877`) and differs from it only in documentation, screenshots and the release workflow: the plugin payload is byte-identical. It is pinned there so the catalog page renders a README that includes the Desktop screenshots. v0.3.1 adds the OpenCode Go MiMo routing fix (#11) to 0.3.0. The payload is the repository root, so the entry has no `subdir`.
+## Related Issue
 
-The maintainer is the repository owner. The idea follows Alexei Ledenev's Jev-based model router for the Pi agent; this plugin is a separate implementation for Hermes, not a fork of a catalog entry.
+None. Follows #135532, which added the entry.
 
-## Compatibility
+## Type of Change
 
-The entry declares `requires_hermes: ">=0.21.6"`. That is the release it was developed and tested against (`v0.21.6+122`, upstream `cbe5e53e`), and CI runs against upstream `0a374d1`. Older releases were not tested, so the floor is deliberately conservative. The plugin imports `agent.reasoning_effort` and `agent.secret_scope` lazily and fails open when they are missing.
+- [x] ✨ New feature (catalog SHA bump; no change to Hermes code)
 
-## Related plugins
+## Changes Made
 
-Similar plugins exist and share this plugin's goal:
+`plugin-catalog/hermes-adaptive-effort.yaml`:
 
-- `jev-effort-router` (catalog) routes the model and the effort with Jev through OpenRouter Decisions.
-- `jev-adaptive-effort` (#119031) chooses among cache-safe effort levels with Jev through OpenRouter Decisions and depends on core middleware changes.
-- Core PRs on adaptive reasoning effort (#109044, #82578, #88522) approach the same goal inside Hermes.
+- `sha`, `version`, `docs_url` and the four screenshot URLs move to the new pin.
+- `capabilities.provides_hooks` adds `post_api_request` and `api_request_error`, which 0.4.0 registers (see below).
+- The `description` disclosure adds the Nace scorer (`console.nace.ai`), the opt-in context settings, the optional continuation call and the per-route cache verdicts kept in plugin data.
+- `known_issues` adds one line for the 0.4.0 breaking removal of the custom `chat_completions` scorer format.
+- `requires_hermes` stays `">=0.21.6"`: both new hooks are already in `VALID_HOOKS` at the `v0.21.6` tag (`hermes_cli/plugins.py`).
 
-This plugin never changes the model. It differs by letting the operator pick the scorer (Jev, OpenAI Decisions, OpenRouter, Cloudflare Clef, or a custom or local endpoint), by asking the scorer to choose from each exact route's own effort levels, by gating changes on route-level cache-safety evidence, and by shipping status, history and Desktop controls. It does not depend on any unmerged Hermes change. If a core feature supersedes it, delisting is straightforward.
+## What changed in the plugin (0.3.1 → 0.4.0)
 
-## Hermes surfaces
+- **New hooks `post_api_request` / `api_request_error`.** With `dynamic_trial` (default on, only in `auto`/`always` mode, which is opt-in; the plugin still starts `off`), an unlisted cache-safe route that already carries an effort field is trialled: the hooks read the provider's own cache token counters and HTTP status after each request to decide whether changing effort keeps the prompt cache. Only token counts, effort values and request ids are kept in memory; verdicts persist in the plugin's own SQLite file (`route_verdicts`, at most 128 rows). No text is read or stored. Any hook error leaves requests unchanged.
+- **New scorer provider: Nace Drex** (`https://console.nace.ai/v1/systemone`, `NACE_API_KEY`). Only used when selected.
+- **Opt-in scorer context, off by default:** `dialogue_context_messages` (0-6 earlier user/assistant text messages, 1,200 characters each, never system/developer messages or tool calls/results) and `continuation_downgrade_votes` (a separate yes/no continuation question to the same scorer). With the defaults, every scorer request body is byte-identical to 0.3.1.
+- **Local-only behaviour:** `tool_error_escalation` raises effort one level after a repeated tool error, on exact dynamic routes only; it compares a SHA-256 of the normalised error and sends nothing. Also: a scorer circuit breaker, one bounded retry of transient HTTP statuses inside the existing deadline, per-provider default timeouts, and per-conversation mode overrides stored in the plugin's SQLite file (never in config).
+- **Breaking:** the custom `chat_completions` scorer format and OpenRouter chat-model scoring are removed. OpenRouter now uses the Decisions API. Affected configurations fail open (effort unchanged) and make no network call.
 
-- `llm_request` middleware
-- Session lifecycle hooks: `on_session_end`, `on_session_finalize`, `on_session_reset`, `subagent_start`, `subagent_stop`
-- `/hae` chat command (modes, status, history, probe)
-- Optional Dashboard routes: `GET /status`, `GET /changes`, `GET /history`, `POST /mode`, `POST /probe`
-- Optional Desktop extension (`desktop/plugin.js`) using the plugin SDK: effort chip, routing-mode popup, focused-chat history
+No new `requires_env`, Python dependencies, tools, shell commands, background processes, telemetry or self-update. Credentials are still read through `agent.secret_scope` and then the environment.
 
-## Disclosures
+## How to Test
 
-- **Network and prompt data:** enabling a routing mode authorizes sending the latest user task text (at most `prompt_chars`, default 4,000 characters), optional operator guidance and the route's allowed effort level names to the selected scorer. Target model identity and observed effort are added only when `use_target_model_context` is enabled. `/hae probe <text>` sends the operator-typed text even while routing is off. Destinations: TypeSafe (Jev), OpenAI, OpenRouter, Cloudflare Workers AI, or the operator's exact custom endpoint, including a local server. OpenRouter requests ask for ZDR-only routing with data collection denied; the plugin cannot guarantee retention behavior for the other providers.
-- **Request changes:** the plugin rewrites a supported effort field and, on exact registered routes, can add a missing one. On exact native Anthropic routes with an already exposed `anthropic-beta` header, it appends Anthropic's dated per-message effort beta value to that header and inserts effort marker messages before matching user turns. Explicitly disabled or malformed reasoning controls are left untouched.
-- **Local storage:** a bounded SQLite history in the plugin's Hermes data directory (`plugin-data/hermes-adaptive-effort/effort-history.sqlite3`) records applied effort changes: from/to levels, model names, cache verdict and allowlisted decision metadata, at most 64 changes per conversation and 64 conversations. To follow one conversation across ID rotations it also keeps lookup aliases, including `HERMES_SESSION_KEY` when present. It never stores prompt or task text; a conversation reset clears that conversation. Persisting a mode from the Dashboard or Desktop writes `plugins.entries.hermes-adaptive-effort.settings.mode` through Hermes' settings API.
-- **Credentials:** the selected scorer reads only its own credential, through Hermes secret scope first and then the process environment: `TYPESAFE_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `CLOUDFLARE_AUTH_TOKEN` or `CUSTOM_SCORER_API_KEY`. A local custom endpoint can use `custom_auth: none`. No other application's credential store is read.
-- **Shell/background activity:** normal operation launches no shell commands or background processes. The repository's `scripts/` directory holds operator tools (local scorer setup and benchmark, model-validation runner, Codex probe); installation and request handling never invoke them. One of them, `scripts/hermes_codex_probe.py`, replaces a few Hermes module attributes inside its own process so an operator can drive a request offline; `hermes plugins validate` reports it as an informational isolation note, not a failure. The plugin never imports it, and nothing under `scripts/` is loaded by Hermes.
-- **Self-update:** none. Updates arrive only through `hermes plugins update` at a new pin.
-- **Telemetry:** none. Desktop decision events are broadcast locally to the Desktop extension and contain no prompt text.
+1. `python scripts/validate_plugin_catalog.py plugin-catalog/` passes with this file (`OK: 705 file(s) valid`; the warnings are about other entries).
+2. Export the plugin at the pin (`git archive c84f1389670cdd5ec4607b13bd32c4809878c415`) and run `hermes plugins validate <dir>`.
+3. `hermes plugins update hermes-adaptive-effort`. The plugin keeps `off` as the default mode.
+
+## Checklist
+
+### Code
+
+- [x] I've read the Contributing Guide and the catalog submission guide
+- [x] Conventional Commit title
+- [x] I searched for existing PRs; there is no open PR for this entry
+- [x] This PR contains only the one catalog file
+- [ ] `pytest tests/ -q`: not run, since the PR adds no code; I ran the catalog validator and the plugin validation instead
+- [ ] `python scripts/check`: not run, data-only change
+- [ ] Tests for my changes: N/A (data-only entry); the plugin's own suite has 1,067 tests and passes in its CI (Ubuntu Python 3.11/3.12/3.14, Windows 3.12)
+- [x] Tested on Windows 11
+
+### Documentation & Housekeeping
+
+- [x] Documentation: the plugin README and CHANGELOG at the pinned SHA
+- [ ] `cli-config.yaml.example`: N/A
+- [ ] `CONTRIBUTING.md` / `AGENTS.md`: N/A
 
 ## Validation
 
-At the pinned commit:
+At the pinned commit, on a clean `git archive` export, `hermes plugins validate` with Hermes `v0.22.2+2563` (upstream `1f91fb38`) reported **Validation passed**:
 
-- `hermes_cli.plugin_validate.validate_plugin_dir()` on a clean `git archive` export passed all checks: manifest, config schema, `requires_env`, loadable entries, capability probe, declared tools/hooks/middleware, security scan (`safe`), no core override and desktop surface.
-- `hermes plugins validate <export> --install-deps` with Hermes `v0.21.6+122` passed every check: `requires_hermes`, config schema, `requires_env`, loadable entries, capability probe, declared tools/hooks/middleware, security scan (`safe`), no core override and desktop surface. The only extra output is the isolation note about `scripts/hermes_codex_probe.py` described above.
-- `scripts/validate_plugin_catalog.py` reported the entry file valid.
-- The project's GitHub CI passed (Python 3.11, 3.12 and 3.14 on Ubuntu, 3.12 on Windows, Node Desktop scenarios, Ruff) along with CodeQL and dependency/secret checks.
+- ✓ manifest, manifest fields, config schema, `requires_env`, oauth, loadable (`__init__.py`, `desktop/plugin.js`), python dependencies (none)
+- ✓ capability probe, declared tools / **declared hooks** / declared middleware match registrations
+- ✓ security scan `safe`, no core override, desktop surface
+- ⚠ private core imports (warning): `agent.reasoning_effort`, `gateway.session_context`, `hermes_cli.plugins_state` and the operator-only `scripts/hermes_codex_probe.py`. These are lazy, fail-open imports; a public seam would be welcome for the reasoning-effort clamp.
+- ◇ Isolation note: `scripts/hermes_codex_probe.py` patches Hermes module attributes inside its own process only. It is an operator tool that Hermes never loads, as disclosed in #135532.
 
-Catalog CI should repeat its own validation at this pin.
+I did not run `--install-deps` (the plugin declares no Python dependencies) or the validation against Hermes `v0.21.6` itself; that floor relies on the hook list at that tag.
 
-Live validation is limited and the release is marked as a pre-release. Live checks used deterministic local scores rather than a real scorer; only `gpt-6.1-sol` showed `low`, `medium` and `high` accepted end to end, other routes are partial or untested, and no cost, cache or quality gain has been measured. The [v0.3.0 release notes](https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v0.3.0) give the per-route table. The entry's `known_issues` line repeats this at install time.
-
-## Screenshots
-
-The entry links four screenshots, all pinned to the same commit as the entry: the expanded Routing mode popup, the route and scorer details, the plugin settings page with its scorer provider list, and a compact view of the mode selector. The captures are from a French-language Desktop and show no keys, prompts or personal paths.
+Live validation remains limited, which is why the release is still a pre-release (see `known_issues`). Cost, cache and quality effects of the route trial are unmeasured beyond the single bounded cache miss documented in the README.
