@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The history store no longer opens SQLite several times per request: the schema is created once per database file, an unchanged status snapshot is not rewritten (nothing is written in `off` mode), per-conversation mode overrides are cached for one second and invalidated at once by `/hae <mode> here` and session reset, commits use `synchronous=NORMAL`, and the request path no longer waits on a locked store. Measured on one Windows machine with a fake scorer: 14 ms to 0.2 ms median per `off` request and about 40 ms to 28 ms per `auto`/`always` request
+
 ## [0.4.0] - 2026-10-20
 
 ### Changed
