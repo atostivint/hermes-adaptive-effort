@@ -149,6 +149,8 @@ L'interface distingue une décision prise d'un changement réellement appliqué.
 
 Les tests sans réseau vérifient notamment les modifications de requête, la réutilisation des décisions, les erreurs et le chargement du plugin par Hermes. Ils ne prouvent pas la disponibilité d'un fournisseur, la qualité d'une réponse ou une économie réelle.
 
+L'économie attendue dépend de la part de tâches faciles par rapport à l'effort par défaut du modèle : une charge de travail composée de tâches difficiles économise peu. Des systèmes publiés rapportent des réductions de longueur de sortie d'environ 13 % à 76 % selon le benchmark ([Learning When to Think](https://arxiv.org/html/2608.20256) : 76 % sur GSM8K, 41 % sur MATH-500, environ 13 % sur AIME, par rapport au modèle de base non entraîné ; [Ares](https://arxiv.org/html/2603.07915v1) : d'environ 35 % à 53 % de tokens de raisonnement en moins sur des benchmarks d'agents, par rapport à un effort « high » fixe). Ce sont d'autres systèmes, et non des comparaisons avec ou sans ce plugin ; ce plugin n'a pas été mesuré. Un effort excessif peut aussi coûter en qualité : Ares observe « medium » devant « high » sur un benchmark (42,0 % contre 38,0 %).
+
 Le plugin dépend aussi de certaines fonctions internes de Hermes, chargées au moment où elles sont nécessaires. Une mise à jour de Hermes demande donc de revérifier la compatibilité.
 
 Cette version française explique le fonctionnement actuel ; les règles détaillées restent dans les [contrats](CONTRACTS.md), les paramètres dans la [configuration](CONFIGURATION.md) et les observations de routes dans la [compatibilité](MODEL_COMPATIBILITY.md).

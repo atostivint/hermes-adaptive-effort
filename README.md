@@ -213,6 +213,14 @@ See the [interface guide](docs/USAGE.md#desktop-and-terminal) for notifications,
 
 The chip matches decisions to the chat's stored conversation ID; Desktop's temporary runtime ID is used only for session actions. Both live events and status polling follow this distinction.
 
+## What to expect
+
+How much effort routing saves depends on how many of your tasks are easy compared with the effort your model uses by default. A workload made of hard tasks saves little, because most requests keep a high level.
+
+Published adaptive-effort systems report output-length reductions from about 13% to 76% depending on the benchmark. [Learning When to Think](https://arxiv.org/html/2608.20256) measured 76% on GSM8K, 41% on MATH-500 and about 13% on AIME, where the router sends nearly everything to the long mode; these reductions are against the untrained base model. [Ares](https://arxiv.org/html/2603.07915v1) reports from about 35% to 53% fewer reasoning tokens on agent benchmarks, against fixed high effort. These are other systems on other benchmarks, not comparisons with or without this plugin. This plugin has not been measured, and no saving is promised.
+
+Too much effort can also cost quality, not only money: Ares found medium effort ahead of high on one benchmark (42.0% against 38.0% on TAU-Bench Airline). Treat that as a reason to compare, not as a guarantee.
+
 ## Data sharing and limits
 
 - Enabling routing sends at most `prompt_chars` task characters (default 4,000), plus optional classifier guidance and the allowed level names for named-choice routes, to the selected scorer. Target model context is a separate opt-in setting.

@@ -62,7 +62,7 @@ This protects against scorer and plugin failures. It cannot prevent a vendor fro
 
 Transport cache safety and exact dynamic capability are separate requirements. API family, an existing field and an operator assertion cannot independently grant dynamic status.
 
-Retaining a decision limits changes on routes without that evidence. Memory is bounded and process-local, so this retention ends on eviction/reset/reload. Net savings and cache-hit effects require live A/B measurements; local routing tests cannot establish them.
+Retaining a decision limits changes on routes without that evidence. Memory is bounded and process-local, so this retention ends on eviction/reset/reload. Net savings and cache-hit effects require live A/B measurements; local routing tests cannot establish them. Savings also depend on workload difficulty; see [What to expect](../README.md#what-to-expect).
 
 ## Observe decisions without retaining prompts
 
