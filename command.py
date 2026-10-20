@@ -534,10 +534,14 @@ def _distribution_lines(payload: Dict[str, Any], entry: Dict[str, Any],
 
     routes = ([r for r in routes if route_key(r) == own]
               + [r for r in reversed(routes) if route_key(r) != own])
+    levels = _middleware._rubric.CHOICE_LEVELS
+    def level_order(name):
+        return (levels.index(name) if name in levels else len(levels), name)
+
     lines = []
     for route in routes[:limit]:
         counts = route.get("counts") or {}
-        text = " \u00b7 ".join(f"{name} {counts[name]}" for name in sorted(counts))
+        text = " \u00b7 ".join(f"{name} {counts[name]}" for name in sorted(counts, key=level_order))
         line = f"Effort labels ({route.get('model') or 'unknown'}): {text}"
         dominant = route.get("dominant")
         if dominant:

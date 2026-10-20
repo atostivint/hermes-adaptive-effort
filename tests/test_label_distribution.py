@@ -168,11 +168,10 @@ def test_status_json_and_text(monkeypatch):
     assert dist["truncated"] == 0
     assert dist["routes"][0]["counts"] == {"high": 1, "low": 1}
     assert "Rename" not in json.dumps(dist) and "s1" not in json.dumps(dist)
-    assert payload["schema"] == "hermes-adaptive-effort.status.v2" if "schema" in payload else True
-    assert "Effort labels (gpt-5.6-terra): high 1 · low 1" in command._status_full_text()
+    assert payload["schema"] == "hermes-adaptive-effort.status.v2"
+    assert "Effort labels (gpt-5.6-terra): low 1 · high 1" in command._status_full_text()
 
 
 def test_text_line_only_with_data():
-    assert "Effort labels" not in command._status_text() if hasattr(command, "_status_text") \
-        else True
+    assert "Effort labels" not in command._status_text()
     assert "Effort labels: none yet" in command._status_full_text()
