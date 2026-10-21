@@ -32,6 +32,33 @@ Each run writes `scorer-eval-<provider>-<UTC timestamp>.json` (schema `hermes-ad
 - `p50_ms`, `p95_ms`: nearest-rank latency over all calls, including failures and timeouts.
 - `failures`: counts by reason code (`timeout`, `malformed_response`, `scorer_paused` and so on).
 
+## Recorded runs
+
+### 2026-10-21: rubric wording campaign (issues #72 and #75)
+
+Four rubric wordings were compared on corpus `2026-10-20` (SHA-256 `77340aa3...1406c`, 86 prompts), all on the same day with the same flags: `master`, the #72 sentence and `high` clause only (`72`), the #75 sentence only (`75`), and both (`72-75`). Gating scorer: Nace `drex-v2.0`, two repeats per arm. Jev and OpenAI Decisions ran once per arm and are reported, not gating. Raw results (ids and numbers only) are in `runs/rubric-campaign-20261021/`.
+
+Nace, correct answers of 86 (two repeats) and the quantities the ship rule checks:
+
+| Arm | Accuracy | Recall on `high`/`xhigh`/`max` (of 39) | `correction_or_replan` (of 10) | `strict_format` (of 6) | `mechanical_edit` (of 4) | p95 ms | Failures |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| master | 39, 38 | 5, 4 | 7, 7 | 4, 4 | 3, 3 | 391, 390 | 0 |
+| #72 | 37, 38 | 6, 6 | 7, 7 | 4, 4 | 3, 3 | 391, 391 | 0 |
+| #75 | 38, 37 | 5, 4 | 8, 8 | 4, 4 | 3, 3 | 407, 391 | 0 |
+| #72+#75 | 36, 37 | 5, 6 | 7, 7 | 4, 4 | 3, 3 | 421, 406 | 0 |
+
+- Noise: the two master repeats differ by 1 item in accuracy (4 of 86 answers changed), so the tolerance is 1 item.
+- **#72: meets the ship rule, at the edge.** Mean accuracy is 1.0 below master (the tolerance), recall on the upper levels is 1.5 items above master, its new-case subset ties and p95 is equal. The gain is within the measured noise: this is "not worse", not "better".
+- **#75: does not meet the rule.** Mean accuracy is also 1.0 below master, but p95 is 8.5 ms above master (p50 is equal), so "p95 not worse" is not met on a strict reading. The margin is small. The claim behind #75, that excess effort lowers correctness, is not measured here: this corpus measures agreement with labels only.
+- **#72+#75: does not meet the rule** (mean accuracy 2.0 below master, p95 above master).
+- Jev (one run each): 40, 41, 43 and 42 of 86 for `master`, #72, #75 and #72+#75. OpenAI Decisions (one run each): 18, 19, 19 and 17 of 86, close to chance for six levels (it never answered `xhigh` or `max` and labelled every `medium` item `low` on `master`). Neither can separate the wordings.
+
+Not measured: the 0..2 score contract (unknown vocabularies, `probe`), dialogue-context cases, answer quality, cost or savings.
+
+Run validity: a first pass of the Nace runs, fired back to back without a pause, returned `http_error` on 10 to 61 of 86 calls in 7 of 8 runs and was discarded; it is not committed. The failing calls were not random, so partial results could not be compared. The recorded Nace runs were repeated with a 75 s pause between runs and all 8 completed with no failures. The cause was not established (throttling is the likely one); a 5-call check showed the key and endpoint were fine. Jev and OpenAI runs were complete in the first pass.
+
+The `endpoint` field in a result is the generic `endpoint` setting echoed by the script, not the URL of the provider that was called: Nace and OpenAI results show the Jev default. The adapters build their own endpoints, and the Nace answers differ from Jev's on 40 of 86 `master` prompts, so the runs reached different services.
+
 ## What the numbers do not mean
 
 - The prompts are synthetic and few. One run on one day is a sample, not a benchmark; a scorer, network or price can change tomorrow.

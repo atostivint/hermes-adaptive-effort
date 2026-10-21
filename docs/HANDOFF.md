@@ -25,7 +25,8 @@ Earlier "not pushed", "unpublished" or "local work in progress" statements about
 
 | Record | Evidence and boundary |
 | --- | --- |
-| Scorer evaluation tooling | Synthetic corpus, manual script and Desktop view; no live run recorded yet. [Guide](validation/SCORER_EVAL.md) |
+| Scorer evaluation tooling | Synthetic corpus, manual script and Desktop view. [Guide](validation/SCORER_EVAL.md) |
+| Rubric wording campaign, 2026-10-21 | Four wordings (#72, #75, both, master) on corpus `2026-10-20`; gating scorer Nace `drex-v2.0`, two repeats; label agreement only, no quality, cost or savings claim. [Results](validation/SCORER_EVAL.md#2026-10-21-rubric-wording-campaign-issues-72-and-75) |
 | Prior operator handoff | Iris/Windows rollout, recovery paths, process-reload caveats and test results recorded at their original revisions; [archive](handoff-snapshot-2026-10-07.md) |
 | Iris use cases, 2026-10-03 | Completed individual Codex/Go requests and request-field observations; [report](reviews/live-iris-use-cases-20261003.md) |
 | Local scorer trial, 2026-10-05 | Kev 0.8B/4B synthetic-label agreement and cold/warm behavior; [report](reviews/local-scorer-benchmark-20261005T090911Z.md) |
