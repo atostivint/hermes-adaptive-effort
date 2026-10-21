@@ -18,7 +18,8 @@ QUESTIONS: Dict[str, Dict[str, Any]] = {
             "repeat it unless the task independently warrants that level. Vendor documentation "
             "does not verify the current route or proxy; do not infer undocumented support, "
             "defaults, or behavior. Do not treat a long prompt or a subject area by itself as "
-            "proof that the task is difficult."
+            "proof that the task is difficult. "
+            "Judge the difficulty of the immediate next step, not the overall topic. A request in the task text to redo or correct a previous attempt, or to change the plan, raises the level only when that next step is itself difficult, for example an unexplained failure or an open-ended new approach; a retry or small adjustment of a simple step does not."
         ),
         "criteria": [
             "Low: a short, scoped task such as a direct lookup, simple factual answer, "
@@ -30,7 +31,7 @@ QUESTIONS: Dict[str, Dict[str, Any]] = {
             "High: extra reasoning is likely to materially improve correctness for a task with "
             "substantial ambiguity, interacting constraints, difficult debugging, architecture, "
             "complex mathematics, detailed research, consequential analysis, or a long-horizon "
-            "sequence of actions.",
+            "sequence of actions, or a correction or change of approach whose next step is hard.",
         ],
     },
 }
@@ -42,7 +43,7 @@ _CHOICE_DESCRIPTIONS = {
     "minimal": "The lowest available effort. Use only when the task is exceptionally simple and the user clearly prioritizes minimal cost or latency.",
     "low": "For short, scoped tasks with an obvious answer or one straightforward step.",
     "medium": "For a well-defined task with several steps and some judgment; a balanced level.",
-    "high": "For substantial ambiguity, interacting constraints, difficult debugging, or work where more reasoning is likely to improve correctness.",
+    "high": "For substantial ambiguity, interacting constraints, difficult debugging, a correction or change of approach whose next step is hard, or work where more reasoning is likely to improve correctness.",
     "xhigh": "For especially difficult or long-horizon work where extended reasoning is likely to materially improve correctness.",
     "max": "For rare tasks where the additional effort beyond xhigh is likely to improve correctness enough to justify its cost.",
 }

@@ -104,3 +104,37 @@ def test_native_choice_parsers_reject_refusal_extra_fields_and_unlisted_levels()
         "choice": "high"}]}, choices) == ("high", None)
     assert rubric.decisions_choice({"answers": [{"name": "effort", "type": "refusal"}]},
                                    choices) == (None, "malformed_response")
+
+
+def test_effort_rubric_judges_the_next_step_and_corrections_in_every_contract():
+    sentence = "Judge the difficulty of the immediate next step, not the overall topic."
+    clause = "a correction or change of approach whose next step is hard"
+    levels = ("low", "medium", "high")
+
+    for instructions in (
+        rubric.QUESTIONS["effort"]["instructions"],
+        rubric.questions_for()["effort"]["instructions"],
+        rubric.decisions_question()["instructions"],
+        rubric.questions_for(choices=levels)["effort"]["instructions"],
+        rubric.decisions_question(choices=levels)["instructions"],
+    ):
+        assert sentence in instructions
+        assert "a retry or small adjustment of a simple step does not" in instructions
+        # the guards that were already there stay
+        assert "Do not treat a long prompt or a subject area by itself" in instructions
+        assert "do not anchor" in instructions or "A long prompt or a technical subject" in instructions
+
+    assert clause in rubric.QUESTIONS["effort"]["criteria"][2]
+    assert clause not in rubric.QUESTIONS["effort"]["criteria"][0]
+    assert clause in rubric.questions_for(choices=levels)["effort"]["criteria"]["high"]
+    assert clause in rubric._CHOICE_DESCRIPTIONS["high"]
+    assert clause not in rubric._CHOICE_DESCRIPTIONS["low"]
+
+
+def test_effort_rubric_wording_does_not_change_the_contracts_or_the_guidance_cap():
+    assert rubric.MAX_CLASSIFICATION_INSTRUCTION_CHARS == 2000
+    assert len(rubric.QUESTIONS["effort"]["criteria"]) == 3
+    assert rubric.CHOICE_LEVELS == ("minimal", "low", "medium", "high", "xhigh", "max")
+    assert [level["label"] for level in rubric.decisions_question()["levels"]] == [
+        "low", "medium", "high"]
+
