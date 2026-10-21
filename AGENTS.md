@@ -13,6 +13,7 @@ of a request. Fail-open by contract: any error leaves the request untouched.
   effort.py               pure route-choice/score -> wire-effort mapping (no I/O, no Hermes import at top level)
   jev_client.py           Jev adapter + credential probe (lazy core import)
   openai_decision_client.py OpenAI Decisions adapter (fixed endpoint, secret-scope key lookup)
+  scorer_http.py          shared scorer transport: no-redirect opener, reason ladder, response close, 30 s key cache (stdlib only)
   scorer_retry.py         one bounded retry of a transient scorer HTTP status within the deadline (stdlib only)
   rubric.py               shared choice/score questions, pure rubric and strict response validation
   openrouter_client.py    OpenRouter Decisions API adapter; requires explicit decision model + OPENROUTER_API_KEY

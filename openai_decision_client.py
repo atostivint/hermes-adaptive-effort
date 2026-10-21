@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import time
-import urllib.error
 import urllib.request
 from typing import Any, Callable, Optional, Sequence
 
 from . import rubric
-from . import scorer_retry
+from . import scorer_http
 from .jev_client import DEFAULT_MAX_PROMPT_CHARS, DEFAULT_TIMEOUT_S, truncate_prompt
 
 logger = logging.getLogger(__name__)
@@ -23,34 +20,16 @@ SENTINEL_ENV = "OPENAI_API_KEY"
 
 def _default_key_reader() -> str:
     """Resolve the OpenAI credential from Hermes secret scope, then environment."""
-    try:
-        from agent.secret_scope import get_secret
-        value = get_secret(SENTINEL_ENV, "") or ""
-        if str(value).strip():
-            return str(value).strip()
-    except Exception:
-        pass
-    return (os.environ.get(SENTINEL_ENV) or "").strip()
+    return scorer_http.read_secret(SENTINEL_ENV)
 
 
-class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
+_NoRedirectHandler = scorer_http.NoRedirectHandler
+_close_response = scorer_http.close_response
 
 
 def _default_transport(request: urllib.request.Request, timeout: float):
     """POST once to the fixed API endpoint without following redirects."""
-    opener = urllib.request.build_opener(_NoRedirectHandler())
-    return opener.open(request, timeout=timeout)
-
-
-def _close_response(response: Any) -> None:
-    close = getattr(response, "close", None)
-    if callable(close):
-        try:
-            close()
-        except Exception:
-            pass
+    return scorer_http.default_transport(request, timeout)
 
 
 class OpenAIDecisionClient:
@@ -75,10 +54,12 @@ class OpenAIDecisionClient:
     def _key(self) -> str:
         if self.api_key:
             return self.api_key
-        try:
-            return str((self._key_reader or _default_key_reader)() or "").strip()
-        except Exception:
-            return ""
+        if self._key_reader is not None:
+            try:
+                return str(self._key_reader() or "").strip()
+            except Exception:
+                return ""
+        return scorer_http.resolve_key("openai_decision", _default_key_reader)
 
     def classify(self, prompt: Optional[str]) -> Optional[float]:
         return self.classify_detail(prompt)[0]
@@ -100,50 +81,17 @@ class OpenAIDecisionClient:
             "questions": [rubric.continuation_decisions_question() if continuation else
                           rubric.decisions_question(self.classification_instructions, choices)],
         }
-        request = urllib.request.Request(
-            self.endpoint,
-            data=json.dumps(body).encode("utf-8"),
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {key}",
-                "User-Agent": "hermes-adaptive-effort/0.1",
-            },
-            method="POST",
-        )
+        request = scorer_http.build_request(
+            self.endpoint, body, key=key, user_agent="hermes-adaptive-effort/0.1")
 
         started = time.monotonic()
-        try:
-            payload = scorer_retry.send_with_retry(
-                lambda t: (self._transport or _default_transport)(request, t), self.timeout)
-        except urllib.error.HTTPError as exc:
-            _close_response(exc)
-            return None, "http_error"
-        except urllib.error.URLError as exc:
-            reason = "timeout" if isinstance(getattr(exc, "reason", None), TimeoutError) \
-                else "transport_error"
-            return None, reason
-        except TimeoutError:
-            return None, "timeout"
-        except OSError:
-            return None, "transport_error"
-        except Exception:
-            return None, "unexpected_error"
-
-        status = getattr(payload, "status", None)
-        if isinstance(status, int) and not 200 <= status < 300:
-            _close_response(payload)
-            return None, "http_error"
-        try:
-            if hasattr(payload, "__enter__"):
-                with payload as response:
-                    data = json.load(response) if hasattr(response, "read") else response
-            elif hasattr(payload, "read"):
-                data = json.load(payload)
-            else:
-                data = payload
-        except Exception:
-            return None, "malformed_response"
+        payload, failure = scorer_http.send(request, self._transport or _default_transport,
+                                            self.timeout)
+        if failure:
+            return None, failure
+        data, failure = scorer_http.read_json(payload)
+        if failure:
+            return None, failure
 
         levels = rubric.normalize_effort_choices(choices)
         if continuation:

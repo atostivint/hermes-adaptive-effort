@@ -38,6 +38,7 @@ These plans preserve their implementation rationale. They are not pending provid
 
 | Record | Boundary |
 | --- | --- |
+| [Per-step effort in the tool loop](plans/per-step-effort.md) | Desk analysis for issue #70: latency, cache, local signals and contract impact; recommends no runtime change, nothing measured live |
 | [Live model effort validation plan](plans/live-model-effort-validation.md) | Campaign design, guards and spending envelopes |
 | [Live campaign report, 2026-10-07](validation/runs/live-20261007/report.md) | Partially executed Codex campaign with deterministic local scores; complete `low/medium/high` evidence only for `gpt-6.1-sol`; OpenRouter/Go cases blocked before send |
 | [Codex quota and catalog audit, 2026-10-07](validation/runs/codex-zero-send-audit-20261007/report.md) | Access and quota record; no compatibility result |

@@ -4,7 +4,7 @@ A manual, **billed** measurement of how one selected scorer answers the named-ch
 
 ## What it is
 
-- Corpus: `tests/fixtures/scorer_eval_corpus.json`, 66 prompts written for this file (no real user text), about 11 per level on the full scale `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. The weight is on boundary cases, tagged `short_followup`, `fix_vs_explain`, `trivial_vs_architectural`, `multi_step` and `ambiguous`. The `expected` level is a labelling judgement, not ground truth. The file carries a `version`; each result records the corpus version and SHA-256, so results from different corpora must not be compared.
+- Corpus: `tests/fixtures/scorer_eval_corpus.json`, 86 prompts written for this file (no real user text), 11 each at `minimal`, `xhigh` and `max` and 17 to 18 each at `low`, `medium` and `high`, on the full scale `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. The weight is on boundary cases, tagged `short_followup`, `fix_vs_explain`, `trivial_vs_architectural`, `multi_step` and `ambiguous`, plus `correction_or_replan` (a request to redo, correct or change the plan), `strict_format` and `mechanical_edit` (technical wording with a strict output or a purely mechanical change, with high-expected controls that guard against under-rating). The `expected` level is a labelling judgement, not ground truth. The file carries a `version` (currently `2026-10-20`: the 20 added cases are labelled before any live run, so results from the earlier 66-item corpus are not comparable); each result records the corpus version and SHA-256, so results from different corpora must not be compared.
 - Script: `scripts/run_scorer_eval.py` calls `middleware._classify(prompt, settings, choices)`, the same path the middleware uses: same adapters, credential lookup (`agent.secret_scope`, then environment), strict validation and fail-open reason codes. Calls are sequential and each is timed.
 - Settings come from `middleware.DEFAULTS` plus explicit flags. `~/.hermes/config.yaml` is never read, and classification guidance stays empty unless `--instructions-file` is given.
 
@@ -19,7 +19,7 @@ export HERMES_SOURCE_ROOT=/path/to/hermes-agent
 .venv/bin/python scripts/run_scorer_eval.py --provider openrouter --scorer-model <decision-model-id> --send --limit 10
 ```
 
-Flags: `--provider`, `--scorer-model`, `--jev-model`, `--endpoint`, `--cloudflare-account-id`, `--cloudflare-model`, `--custom-endpoint`, `--custom-api-format`, `--custom-auth`, `--timeout-s` (0 = provider default), `--choices`, `--instructions-file`, `--limit N`, `--out-dir`, `--repo-copy`.
+Flags: `--corpus PATH` (default: the scorer corpus; use `tests/fixtures/effort_replay_corpus.json` to compare with an [effort replay](EFFORT_REPLAY.md)), `--provider`, `--scorer-model`, `--jev-model`, `--endpoint`, `--cloudflare-account-id`, `--cloudflare-model`, `--custom-endpoint`, `--custom-api-format`, `--custom-auth`, `--timeout-s` (0 = provider default), `--choices`, `--instructions-file`, `--limit N`, `--out-dir`, `--repo-copy`.
 
 `--choices` takes any subset of the six levels (default: all). Each expectation is clamped onto that subset with `effort.map_named_choice`, the clamp the plugin applies on a route; items record both `expected` and `expected_clamped`. Use `--choices low,medium,high` to evaluate a three-level route.
 

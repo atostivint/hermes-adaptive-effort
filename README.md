@@ -8,7 +8,7 @@ Your conversation model still answers the task. You choose the scorer: Jev (the 
 
 > **Preview:** v0.3.0 is a pre-release. Live effort acceptance is only partially validated; see the [release notes](docs/releases/v0.3.0.md#validation-status--read-before-relying-on-it).
 
-The plugin starts **off**. When you enable routing, it changes a supported effort field and can add a missing field on exact registered routes. If classification fails, the original request continues unchanged. A transient scorer HTTP error (408, 429, 500, 502, 503, 504) is retried once, only inside the `timeout_s` deadline; timeouts, other errors and received answers are never retried. After three consecutive scorer failures (timeout, transport, HTTP or malformed answer) the selected scorer is paused for 60 seconds and requests skip it with `scorer_paused`; see `scorer_pause_failures` and `scorer_pause_s` in [Configuration](docs/CONFIGURATION.md). The saved latency is unmeasured. The scorer deadline defaults to the selected provider's value (`timeout_s: 0`; Jev 2 s, custom 10 s, others 3 s), also unmeasured on this plugin's traffic; see [Configuration](docs/CONFIGURATION.md). `/hae status` shows the p95 of the scorer's observed latency (a bucket bound, counts only, this process) once calls have been made: use it to tune `timeout_s`.
+The plugin starts **off**. When you enable routing, it changes a supported effort field and can add a missing field on exact registered routes. If classification fails, the original request continues unchanged. A transient scorer HTTP error (408, 429, 500, 502, 503, 504) is retried once, only inside the `timeout_s` deadline; timeouts, other errors and received answers are never retried. After three consecutive scorer failures (timeout, transport, HTTP or malformed answer) the selected scorer is paused for 60 seconds and requests skip it with `scorer_paused`; see `scorer_pause_failures` and `scorer_pause_s` in [Configuration](docs/CONFIGURATION.md). The saved latency is unmeasured. The scorer deadline defaults to the selected provider's value (`timeout_s: 0`; Jev 2 s, custom 10 s, others 3 s), also unmeasured on this plugin's traffic; see [Configuration](docs/CONFIGURATION.md). `/hae status` shows the p95 of the scorer's observed latency (a bucket bound, counts only, this process) once calls have been made: use it to tune `timeout_s`. It also shows how often the scorer chose each effort label on the current route (for example `Effort labels (kimi-k3): low 12 · medium 30 · high 4`), and notes when one label is at least 90% of at least 30 answers, which can mean the scorer collapsed to a fixed effort. Counts are per process and informational only.
 
 ## Quick start
 
@@ -212,6 +212,14 @@ The plugin's settings page lists every scorer provider and its options. The scre
 See the [interface guide](docs/USAGE.md#desktop-and-terminal) for notifications, focused-chat status and the native effort selector.
 
 The chip matches decisions to the chat's stored conversation ID; Desktop's temporary runtime ID is used only for session actions. Both live events and status polling follow this distinction.
+
+## What to expect
+
+How much effort routing saves depends on how many of your tasks are easy compared with the effort your model uses by default. A workload made of hard tasks saves little, because most requests keep a high level.
+
+Published adaptive-effort systems report output-length reductions from about 13% to 76% depending on the benchmark. [Learning When to Think](https://arxiv.org/html/2608.20256) measured 76% on GSM8K, 41% on MATH-500 and about 13% on AIME, where the router sends nearly everything to the long mode; these reductions are against the untrained base model. [Ares](https://arxiv.org/html/2603.07915v1) reports from about 35% to 53% fewer reasoning tokens on agent benchmarks, against fixed high effort. These are other systems on other benchmarks, not comparisons with or without this plugin. This plugin has not been measured, and no saving is promised.
+
+Too much effort can also cost quality, not only money: Ares found medium effort ahead of high on one benchmark (42.0% against 38.0% on TAU-Bench Airline). Treat that as a reason to compare, not as a guarantee.
 
 ## Data sharing and limits
 
