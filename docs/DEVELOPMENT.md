@@ -73,6 +73,7 @@ A function autouse fixture resets plugin state and substitutes empty settings, s
 | Bounded prompt-free conversation history and CLI rendering | `test_history_store.py` |
 | REST/Desktop state, events and session selector synchronization | `test_plugin_api.py`, `test_desktop_decision_events.py`, `test_desktop_decision_event_contract.py`, `desktop_decision_event_behavior.test.mjs` |
 | Synthetic scorer-evaluation corpus, result writer and `GET /eval` summary (network-free) | `test_scorer_eval.py` |
+| Effort replay: corpus, answer checks, cheapest-passing logic, runner guards, rejected-level classification, transport and comparison report (network-free; see [EFFORT_REPLAY.md](validation/EFFORT_REPLAY.md)) | `test_effort_replay.py`, `test_compare_replay.py` |
 | Historical review regressions | `test_review_fixes.py` |
 
 Keep test counts in dated result records, alongside revision, platform and command. This inventory describes contracts rather than a total that drifts with every change.

@@ -25,7 +25,23 @@ MAX_ROUTE_VERDICTS = 128
 _OVERRIDE_MODES = ("auto", "once", "always", "off")
 
 _PATH_PROVIDER: Optional[Callable[[], Any]] = None
+# Guards only the in-memory caches below; it is never held across SQLite I/O.
 _STORE_LOCK = threading.RLock()
+
+# Busy timeout (seconds) on the request path. Zero fails fast: on Windows any non-zero
+# SQLite busy wait measured 0.2-0.5 s per blocked statement, which would stall a request.
+# History is best-effort, so a contended write is dropped (the request is unaffected).
+HOT_BUSY_S = 0.0
+COLD_BUSY_S = 0.5
+# A short TTL keeps a mode override written by another process visible quickly.
+OVERRIDE_TTL_S = 1.0
+# An unchanged snapshot is rewritten at most this often (keeps updated_at and LRU fresh).
+SNAPSHOT_REFRESH_S = 30.0
+_MAX_CACHE_ENTRIES = 512
+
+_ENSURED: set = set()                       # DB paths whose schema was created this process
+_OVERRIDE_CACHE: Dict[Any, tuple] = {}      # (path, identities) -> (expires_monotonic, mode)
+_SNAPSHOT_CACHE: Dict[Any, tuple] = {}      # (path, scope) -> (fingerprint, monotonic)
 
 _DETAIL_FIELDS = (
     "state", "score", "label", "target", "decision_type", "choices",
@@ -104,9 +120,10 @@ def _safe_details(details: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 @contextlib.contextmanager
-def _open(path: Path, *, create: bool) -> Iterator[sqlite3.Connection]:
+def _open(path: Path, *, create: bool,
+          busy_s: float = COLD_BUSY_S) -> Iterator[sqlite3.Connection]:
     """One committed transaction on a connection that is always closed (Windows file locks)."""
-    connection = _connect(path, create=create)
+    connection = _connect(path, create=create, busy_s=busy_s)
     try:
         with connection:
             yield connection
@@ -114,57 +131,108 @@ def _open(path: Path, *, create: bool) -> Iterator[sqlite3.Connection]:
         connection.close()
 
 
-def _connect(path: Path, *, create: bool) -> sqlite3.Connection:
+_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS conversations (
+        scope_id TEXT PRIMARY KEY,
+        updated_at REAL NOT NULL,
+        latest_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE TABLE IF NOT EXISTS aliases (
+        alias TEXT PRIMARY KEY,
+        scope_id TEXT NOT NULL REFERENCES conversations(scope_id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS changes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scope_id TEXT NOT NULL REFERENCES conversations(scope_id) ON DELETE CASCADE,
+        decision_hash TEXT NOT NULL,
+        old_effort TEXT NOT NULL,
+        new_effort TEXT NOT NULL,
+        happened_at REAL NOT NULL,
+        provider TEXT,
+        model TEXT,
+        api_mode TEXT,
+        cache_verdict TEXT NOT NULL,
+        details_json TEXT NOT NULL,
+        UNIQUE(scope_id, decision_hash, old_effort, new_effort)
+    );
+    CREATE INDEX IF NOT EXISTS changes_recent
+        ON changes(scope_id, happened_at DESC, id DESC);
+    CREATE TABLE IF NOT EXISTS conversation_modes (
+        scope_id TEXT PRIMARY KEY,
+        mode TEXT NOT NULL,
+        updated_at REAL NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS route_verdicts (
+        route_key TEXT PRIMARY KEY,
+        verdict TEXT NOT NULL,
+        detail TEXT,
+        updated_at REAL NOT NULL
+    );
+"""
+
+
+def _schema_ready(path: Path) -> bool:
+    with _STORE_LOCK:
+        known = str(path) in _ENSURED
+    return known and path.exists()
+
+
+def _connect(path: Path, *, create: bool,
+             busy_s: float = COLD_BUSY_S) -> sqlite3.Connection:
     if create:
         path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(str(path), timeout=0.5)
+    needs_schema = create and not _schema_ready(path)
+    connection = sqlite3.connect(str(path), timeout=busy_s)
     try:
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA busy_timeout = 500")
+        connection.execute(f"PRAGMA busy_timeout = {int(busy_s * 1000)}")
         connection.execute("PRAGMA foreign_keys = ON")
-        if create:
-            connection.executescript("""
-                CREATE TABLE IF NOT EXISTS conversations (
-                    scope_id TEXT PRIMARY KEY,
-                    updated_at REAL NOT NULL,
-                    latest_json TEXT NOT NULL DEFAULT '{}'
-                );
-                CREATE TABLE IF NOT EXISTS aliases (
-                    alias TEXT PRIMARY KEY,
-                    scope_id TEXT NOT NULL REFERENCES conversations(scope_id) ON DELETE CASCADE
-                );
-                CREATE TABLE IF NOT EXISTS changes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    scope_id TEXT NOT NULL REFERENCES conversations(scope_id) ON DELETE CASCADE,
-                    decision_hash TEXT NOT NULL,
-                    old_effort TEXT NOT NULL,
-                    new_effort TEXT NOT NULL,
-                    happened_at REAL NOT NULL,
-                    provider TEXT,
-                    model TEXT,
-                    api_mode TEXT,
-                    cache_verdict TEXT NOT NULL,
-                    details_json TEXT NOT NULL,
-                    UNIQUE(scope_id, decision_hash, old_effort, new_effort)
-                );
-                CREATE INDEX IF NOT EXISTS changes_recent
-                    ON changes(scope_id, happened_at DESC, id DESC);
-                CREATE TABLE IF NOT EXISTS conversation_modes (
-                    scope_id TEXT PRIMARY KEY,
-                    mode TEXT NOT NULL,
-                    updated_at REAL NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS route_verdicts (
-                    route_key TEXT PRIMARY KEY,
-                    verdict TEXT NOT NULL,
-                    detail TEXT,
-                    updated_at REAL NOT NULL
-                );
-            """)
+        try:
+            # Fewer fsyncs per commit. WAL was measured and rejected: every call opens a
+            # connection, and closing the last one checkpoints and deletes the -wal/-shm
+            # files, which made the request path slower on Windows than rollback mode.
+            connection.execute("PRAGMA synchronous = NORMAL")
+        except sqlite3.Error:
+            logger.debug("hermes-adaptive-effort: synchronous pragma failed", exc_info=True)
+        if needs_schema:
+            connection.executescript(_SCHEMA)
+            with _STORE_LOCK:
+                _ENSURED.add(str(path))
+                for key in [k for k in _SNAPSHOT_CACHE if k[0] == str(path)]:
+                    _SNAPSHOT_CACHE.pop(key, None)
     except BaseException:
         connection.close()
         raise
     return connection
+
+
+def _transact(path: Path, work: Callable[[sqlite3.Connection], Any],
+              *, busy_s: float = COLD_BUSY_S) -> Any:
+    """Run ``work`` in one write transaction; re-create a vanished schema once."""
+    for attempt in (0, 1):
+        try:
+            with _open(path, create=True, busy_s=busy_s) as connection:
+                return work(connection)
+        except sqlite3.OperationalError as exc:
+            if attempt == 0 and "no such table" in str(exc).lower():
+                with _STORE_LOCK:
+                    _ENSURED.discard(str(path))
+                continue
+            raise
+
+
+def invalidate_caches() -> None:
+    """Forget cached overrides and snapshot fingerprints (session reset, tests)."""
+    with _STORE_LOCK:
+        _OVERRIDE_CACHE.clear()
+        _SNAPSHOT_CACHE.clear()
+
+
+def _bounded_put(cache: Dict[Any, Any], key: Any, value: Any) -> None:
+    with _STORE_LOCK:
+        if len(cache) >= _MAX_CACHE_ENTRIES and key not in cache:
+            cache.clear()
+        cache[key] = value
 
 
 def _aliases(scope_id: Any, aliases: Iterable[Any]) -> List[str]:
@@ -219,13 +287,30 @@ def record_snapshot(scope_id: Any, aliases: Iterable[Any],
     safe["updated_at"] = when
     if status.get("cache_verdict") in _CACHE_VERDICTS:
         safe["cache_verdict"] = status["cache_verdict"]
+    alias_list = _aliases(scope, aliases)
+    fingerprint = json.dumps(
+        [{k: v for k, v in safe.items() if k != "updated_at"}, alias_list],
+        sort_keys=True, ensure_ascii=False, default=str)
+    cache_key = (str(path), scope)
+    now = time.monotonic()
+    with _STORE_LOCK:
+        last = _SNAPSHOT_CACHE.get(cache_key)
+    if (last is not None and last[0] == fingerprint
+            and now - last[1] < SNAPSHOT_REFRESH_S and _schema_ready(path)):
+        return True
+
+    def work(connection: sqlite3.Connection) -> None:
+        _ensure_conversation(connection, scope, when, safe)
+        _bind_aliases(connection, scope, alias_list)
+        _trim(connection, scope)
+
     try:
-        with _STORE_LOCK, _open(path, create=True) as connection:
-            _ensure_conversation(connection, scope, when, safe)
-            _bind_aliases(connection, scope, _aliases(scope, aliases))
-            _trim(connection, scope)
+        _transact(path, work, busy_s=HOT_BUSY_S)
+        _bounded_put(_SNAPSHOT_CACHE, cache_key, (fingerprint, now))
         return True
     except Exception:
+        with _STORE_LOCK:
+            _SNAPSHOT_CACHE.pop(cache_key, None)
         logger.debug("hermes-adaptive-effort: could not save history status", exc_info=True)
         return False
 
@@ -245,21 +330,25 @@ def record_change(scope_id: Any, aliases: Iterable[Any], decision_key: Any,
     when = float(at if at is not None else time.time())
     key_hash = hashlib.sha256(str(decision_key).encode("utf-8", errors="replace")).hexdigest()
     safe = _safe_details(details)
+    alias_list = _aliases(scope, aliases)
+    encoded = json.dumps(safe, ensure_ascii=False, separators=(",", ":"))
+
+    def work(connection: sqlite3.Connection) -> None:
+        _ensure_conversation(connection, scope, when)
+        _bind_aliases(connection, scope, alias_list)
+        connection.execute("""
+            INSERT OR IGNORE INTO changes(
+                scope_id, decision_hash, old_effort, new_effort, happened_at,
+                provider, model, api_mode, cache_verdict, details_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            scope, key_hash, old_value, new_value, when,
+            _safe_text(provider), _safe_text(model), _safe_text(api_mode), verdict, encoded,
+        ))
+        _trim(connection, scope)
+
     try:
-        with _STORE_LOCK, _open(path, create=True) as connection:
-            _ensure_conversation(connection, scope, when)
-            _bind_aliases(connection, scope, _aliases(scope, aliases))
-            connection.execute("""
-                INSERT OR IGNORE INTO changes(
-                    scope_id, decision_hash, old_effort, new_effort, happened_at,
-                    provider, model, api_mode, cache_verdict, details_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                scope, key_hash, old_value, new_value, when,
-                _safe_text(provider), _safe_text(model), _safe_text(api_mode), verdict,
-                json.dumps(safe, ensure_ascii=False, separators=(",", ":")),
-            ))
-            _trim(connection, scope)
+        _transact(path, work, busy_s=HOT_BUSY_S)
         return True
     except Exception:
         logger.debug("hermes-adaptive-effort: could not save applied change", exc_info=True)
@@ -288,7 +377,7 @@ def read_history(identities: Iterable[Any], limit: int = 10) -> Dict[str, Any]:
     if not path.is_file():
         return {"available": True, "scope_id": None, "events": [], "latest": None, "status": {}}
     try:
-        with _STORE_LOCK, _open(path, create=False) as connection:
+        with _open(path, create=False) as connection:
             scope = _resolve_scope(connection, identities)
             if scope is None:
                 return {"available": True, "scope_id": None,
@@ -332,16 +421,25 @@ def _delete_modes(connection: sqlite3.Connection, identities: Iterable[Any],
 
 
 def read_mode_override(identities: Iterable[Any]) -> Optional[str]:
-    """Return the per-conversation mode override for the first matching identity, else None."""
+    """Return the per-conversation mode override for the first matching identity, else None.
+
+    Successful lookups (including "no override") are cached per identity tuple for
+    ``OVERRIDE_TTL_S``; local writes and resets invalidate the cache at once.
+    """
     path = _path()
     if path is None or not path.is_file():
         return None
+    keys = tuple(k for k in (_safe_text(v) for v in identities) if k)
+    cache_key = (str(path), keys)
+    now = time.monotonic()
+    with _STORE_LOCK:
+        cached = _OVERRIDE_CACHE.get(cache_key)
+    if cached is not None and cached[0] > now:
+        return cached[1]
     try:
-        with _STORE_LOCK, _open(path, create=False) as connection:
-            for value in identities:
-                key = _safe_text(value)
-                if not key:
-                    continue
+        result: Optional[str] = None
+        with _open(path, create=False, busy_s=HOT_BUSY_S) as connection:
+            for key in keys:
                 row = connection.execute(
                     "SELECT mode FROM conversation_modes WHERE scope_id=?", (key,)).fetchone()
                 if row is None:
@@ -350,10 +448,14 @@ def read_mode_override(identities: Iterable[Any]) -> Optional[str]:
                         "ON m.scope_id=a.scope_id WHERE a.alias=?", (key,)).fetchone()
                 if row is not None:
                     mode = str(row[0])
-                    return mode if mode in _OVERRIDE_MODES else None
+                    result = mode if mode in _OVERRIDE_MODES else None
+                    break
+        _bounded_put(_OVERRIDE_CACHE, cache_key, (now + OVERRIDE_TTL_S, result))
+        return result
     except Exception:
         logger.debug("hermes-adaptive-effort: could not read mode override", exc_info=True)
-    return None
+        # A contended or broken read keeps the last known value rather than flipping modes.
+        return cached[1] if cached is not None else None
 
 
 def write_mode_override(scope_id: Any, mode: Optional[str]) -> bool:
@@ -364,25 +466,29 @@ def write_mode_override(scope_id: Any, mode: Optional[str]) -> bool:
         return False
     if mode is not None and mode not in _OVERRIDE_MODES:
         return False
+    def work(connection: sqlite3.Connection) -> None:
+        if mode is None:
+            connection.execute("DELETE FROM conversation_modes WHERE scope_id=?", (scope,))
+        else:
+            connection.execute(
+                "INSERT INTO conversation_modes(scope_id, mode, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(scope_id) DO UPDATE SET mode=excluded.mode, "
+                "updated_at=excluded.updated_at", (scope, mode, time.time()))
+            connection.execute("""
+                DELETE FROM conversation_modes WHERE scope_id IN (
+                    SELECT scope_id FROM conversation_modes
+                    ORDER BY updated_at DESC, rowid DESC LIMIT -1 OFFSET ?
+                )
+            """, (MAX_MODE_OVERRIDES,))
+
     try:
-        with _STORE_LOCK, _open(path, create=True) as connection:
-            if mode is None:
-                connection.execute("DELETE FROM conversation_modes WHERE scope_id=?", (scope,))
-            else:
-                connection.execute(
-                    "INSERT INTO conversation_modes(scope_id, mode, updated_at) VALUES (?, ?, ?) "
-                    "ON CONFLICT(scope_id) DO UPDATE SET mode=excluded.mode, "
-                    "updated_at=excluded.updated_at", (scope, mode, time.time()))
-                connection.execute("""
-                    DELETE FROM conversation_modes WHERE scope_id IN (
-                        SELECT scope_id FROM conversation_modes
-                        ORDER BY updated_at DESC, rowid DESC LIMIT -1 OFFSET ?
-                    )
-                """, (MAX_MODE_OVERRIDES,))
+        _transact(path, work)
         return True
     except Exception:
         logger.debug("hermes-adaptive-effort: could not save mode override", exc_info=True)
         return False
+    finally:
+        invalidate_caches()
 
 
 def clear_conversation(identities: Iterable[Any]) -> bool:
@@ -391,7 +497,7 @@ def clear_conversation(identities: Iterable[Any]) -> bool:
     if path is None or not path.is_file():
         return path is not None
     try:
-        with _STORE_LOCK, _open(path, create=False) as connection:
+        with _open(path, create=False) as connection:
             identities = list(identities)
             scope = _resolve_scope(connection, identities)
             _delete_modes(connection, identities, scope)
@@ -401,6 +507,8 @@ def clear_conversation(identities: Iterable[Any]) -> bool:
     except Exception:
         logger.debug("hermes-adaptive-effort: could not clear reset history", exc_info=True)
         return False
+    finally:
+        invalidate_caches()
 
 
 # ── observed route verdicts (dynamic-route trial) ────────────────────────────
@@ -423,7 +531,7 @@ def read_route_verdict(route_key: Any) -> tuple[bool, Optional[Dict[str, Any]]]:
     if not path.is_file():
         return True, None
     try:
-        with _STORE_LOCK, _open(path, create=False) as connection:
+        with _open(path, create=False) as connection:
             row = connection.execute(
                 "SELECT verdict, detail FROM route_verdicts WHERE route_key=?", (key,)).fetchone()
     except sqlite3.OperationalError:
@@ -443,20 +551,22 @@ def write_route_verdict(route_key: Any, verdict: str, detail: Optional[str] = No
     key = _safe_text(route_key, 512)
     if path is None or not key or not verdict:
         return False
+    def work(connection: sqlite3.Connection) -> None:
+        connection.execute(
+            "INSERT INTO route_verdicts(route_key, verdict, detail, updated_at) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT(route_key) DO UPDATE SET "
+            "verdict=excluded.verdict, detail=excluded.detail, "
+            "updated_at=excluded.updated_at",
+            (key, _safe_text(verdict, 64), _safe_text(detail, 64), time.time()))
+        connection.execute("""
+            DELETE FROM route_verdicts WHERE route_key IN (
+                SELECT route_key FROM route_verdicts
+                ORDER BY updated_at DESC, rowid DESC LIMIT -1 OFFSET ?
+            )
+        """, (MAX_ROUTE_VERDICTS,))
+
     try:
-        with _STORE_LOCK, _open(path, create=True) as connection:
-            connection.execute(
-                "INSERT INTO route_verdicts(route_key, verdict, detail, updated_at) "
-                "VALUES (?, ?, ?, ?) ON CONFLICT(route_key) DO UPDATE SET "
-                "verdict=excluded.verdict, detail=excluded.detail, "
-                "updated_at=excluded.updated_at",
-                (key, _safe_text(verdict, 64), _safe_text(detail, 64), time.time()))
-            connection.execute("""
-                DELETE FROM route_verdicts WHERE route_key IN (
-                    SELECT route_key FROM route_verdicts
-                    ORDER BY updated_at DESC, rowid DESC LIMIT -1 OFFSET ?
-                )
-            """, (MAX_ROUTE_VERDICTS,))
+        _transact(path, work)
         return True
     except Exception:
         logger.debug("hermes-adaptive-effort: could not save route verdict", exc_info=True)

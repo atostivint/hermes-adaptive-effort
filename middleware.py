@@ -152,6 +152,16 @@ _SCORER_LATENCY: Dict[str, List[int]] = {}
 #: Upper bounds in ms; a value equal to a bound belongs to that bucket.
 _LATENCY_BUCKETS_MS = (100, 200, 350, 500, 750, 1000, 1500, 2000, 3000, 5000, 10000)
 
+#: Label distribution: (provider, exact model, api_mode) -> {raw scorer label: count}. Counts only;
+#: never prompts, session ids or timestamps. Insertion-ordered, capped at ``_LABEL_ROUTE_CAP``
+#: routes (oldest-inserted evicted, counted in ``_LABEL_EVICTED``). Guarded by ``_lock``.
+_LABEL_COUNTS: Dict[Tuple[str, str, str], Dict[str, int]] = {}
+_LABEL_EVICTED = 0
+_LABEL_ROUTE_CAP = 32
+#: Informational dominance flag: one label at >= 90 % of >= 30 scorer answers. Fixed constants.
+_LABEL_DOMINANCE_SHARE = 0.9
+_LABEL_DOMINANCE_MIN = 30
+
 
 # ── session state ───────────────────────────────────────────────────────────
 
@@ -163,7 +173,7 @@ def reset_state() -> None:
     """
     global _MODE_OVERRIDE, _CHANGE_SEQUENCE, _CHANGE_STREAM_ID, _CLI_STATUS_HANDLE
     global _DESKTOP_EVENT_REVISION
-    global _CLI_STATUS_TEXT
+    global _CLI_STATUS_TEXT, _LABEL_EVICTED
     with _lock:
         _SESSIONS.clear()
         _PINNED.clear()
@@ -174,6 +184,8 @@ def reset_state() -> None:
         _CHILD_GOALS.clear()
         _SCORER_BREAKER.clear()
         _SCORER_LATENCY.clear()
+        _LABEL_COUNTS.clear()
+        _LABEL_EVICTED = 0
         _EFFORT_CHANGES.clear()
         _CHANGE_SEQUENCE = 0
         _CHANGE_STREAM_ID = uuid.uuid4().hex
@@ -182,6 +194,7 @@ def reset_state() -> None:
         _CLI_STATUS_TEXT = "N/A"
         _MODE_OVERRIDE = None
     _route_trial.reset()
+    _history_store.invalidate_caches()
     _scorer_http.clear_key_cache()
     _effort.clear_caches()
     _tool_errors.clear_memo()
@@ -1211,6 +1224,55 @@ def scorer_latency_state(settings: Optional[Dict[str, Any]] = None) -> Dict[str,
                     over = True
                 break
     return {"provider": provider, "count": total, "p95_le_ms": p95, "p95_over_max": over}
+
+
+# ── label distribution ──────────────────────────────────────────────────────
+
+def _label_distribution_record(provider: Any, model: Any, api_mode: Any, label: Any) -> None:
+    """Count one fresh scorer answer under its route. Never raises.
+
+    Called with the scorer's raw label, before hysteresis: a held label would otherwise
+    manufacture the dominance this view exists to expose.
+    """
+    global _LABEL_EVICTED
+    try:
+        if not isinstance(label, str) or not label:
+            return
+        key = (str(provider or ""), str(model or ""), str(api_mode or ""))
+        with _lock:
+            counts = _LABEL_COUNTS.get(key)
+            if counts is None:
+                while len(_LABEL_COUNTS) >= _LABEL_ROUTE_CAP:
+                    _LABEL_COUNTS.pop(next(iter(_LABEL_COUNTS)))
+                    _LABEL_EVICTED += 1
+                counts = _LABEL_COUNTS[key] = {}
+            counts[label] = counts.get(label, 0) + 1
+    except Exception:
+        logger.debug("hermes-adaptive-effort: label distribution bookkeeping failed",
+                     exc_info=True)
+
+
+def label_distribution_state(settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Prompt-free per-route counts of scorer labels (status payload).
+
+    ``dominant`` is ``{"label", "share"}`` when one label holds at least 90 % of at least
+    30 answers, else ``None``; informational only. Routes keep insertion order, newest last.
+    """
+    with _lock:
+        snapshot = [(key, dict(counts)) for key, counts in _LABEL_COUNTS.items()]
+        evicted = _LABEL_EVICTED
+    routes = []
+    for (provider, model, api_mode), counts in snapshot:
+        total = sum(counts.values())
+        dominant = None
+        if total >= _LABEL_DOMINANCE_MIN:
+            top = max(counts, key=lambda name: counts[name])
+            share = counts[top] / total
+            if share >= _LABEL_DOMINANCE_SHARE:
+                dominant = {"label": top, "share": round(share, 2)}
+        routes.append({"provider": provider, "model": model, "api_mode": api_mode,
+                       "counts": counts, "total": total, "dominant": dominant})
+    return {"routes": routes, "truncated": evicted}
 
 
 def run_probe(prompt: str,
@@ -2433,6 +2495,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                 held = False
                 if len(route_choices) > 1:
                     label = result
+                    _label_distribution_record(provider, model, api_mode, label)
                     if hysteresis_on:
                         label, held = _hysteresis(
                             route_key, session_id, label, continuation_vote,
@@ -2444,6 +2507,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                     score = result
                     entry["score"] = score
                     label = _effort.score_to_label(score)
+                    _label_distribution_record(provider, model, api_mode, label)
                     if label and hysteresis_on:
                         label, held = _hysteresis(
                             route_key, session_id, label, continuation_vote,

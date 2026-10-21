@@ -40,7 +40,7 @@ corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
 def test_corpus_shape():
     items = corpus["items"]
     assert corpus["version"]
-    assert 50 <= len(items) <= 70
+    assert 50 <= len(items) <= 90
     assert len({item["id"] for item in items}) == len(items)
     assert script.validate_corpus(corpus, effort.CHOICE_LEVELS) == []
     for level in effort.CHOICE_LEVELS:
@@ -164,6 +164,28 @@ def test_without_send_makes_zero_classifier_calls(monkeypatch, tmp_path, capsys)
     assert code == 0 and calls == []
     assert f"planned scorer calls: {len(corpus['items'])}" in out
     assert list(tmp_path.iterdir()) == []
+
+
+def test_corpus_flag_default_is_the_scorer_corpus():
+    parser = script.make_parser(scorers.PROVIDERS)
+    assert parser.parse_args([]).corpus == str(script.CORPUS_PATH)
+    assert parser.parse_args(["--corpus", "x.json"]).corpus == "x.json"
+    loaded, digest = script.load_corpus(script.CORPUS_PATH)
+    assert loaded == corpus and len(digest) == 64
+
+
+def test_corpus_flag_selects_another_corpus(tmp_path, capsys, monkeypatch):
+    # clamping is not under test here (and needs the Hermes tree); the corpus choice is
+    monkeypatch.setattr(script, "clamp_expectation", lambda module, expected, choices: expected)
+    replay_corpus = PLUGIN_DIR / "tests" / "fixtures" / "effort_replay_corpus.json"
+    other = json.loads(replay_corpus.read_text(encoding="utf-8"))
+    assert script.main(["--provider", "custom", "--out-dir", str(tmp_path)]) == 0
+    assert f"planned scorer calls: {len(corpus['items'])}" in capsys.readouterr().out
+    assert script.main(["--provider", "custom", "--corpus", str(replay_corpus)]) == 0
+    out = capsys.readouterr().out
+    assert f"planned scorer calls: {len(other['items'])}" in out
+    assert script.main(["--provider", "custom", "--corpus", str(tmp_path / "missing.json")]) == 2
+    assert "corpus unreadable" in capsys.readouterr().out
 
 
 def test_send_writes_file_and_never_prints_or_writes_key_like_strings(monkeypatch, tmp_path, capsys):

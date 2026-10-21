@@ -157,3 +157,220 @@ def test_route_verdicts_round_trip_and_a_missing_store_is_reported(tmp_path, mon
     assert history_store.read_route_verdict("r") == (False, None)
     assert history_store.write_route_verdict("r", "observed") is False
     assert history_store.store_available() is False
+
+
+# -- hot-path behaviour: schema once, snapshot dedupe, override cache, contention ----------
+
+def _count_connects(monkeypatch):
+    calls = []
+    real = history_store.sqlite3.connect
+
+    def counting(*args, **kwargs):
+        calls.append(args)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(history_store.sqlite3, "connect", counting)
+    return calls
+
+
+def _count_schema_runs(monkeypatch):
+    """Count DDL runs by tracing each connection's statements."""
+    runs = []
+    real = history_store.sqlite3.connect
+
+    def tracing(*args, **kwargs):
+        connection = real(*args, **kwargs)
+        connection.set_trace_callback(
+            lambda sql: runs.append(sql) if "CREATE TABLE IF NOT EXISTS conversations" in sql
+            else None)
+        return connection
+
+    monkeypatch.setattr(history_store.sqlite3, "connect", tracing)
+    return runs
+
+
+def test_schema_is_created_once_per_path_and_recreated_after_deletion(tmp_path, monkeypatch):
+    path = tmp_path / "history.sqlite3"
+    monkeypatch.setattr(history_store, "_PATH_PROVIDER", lambda: path)
+    runs = _count_schema_runs(monkeypatch)
+    for index in range(5):
+        assert history_store.record_change(
+            "a", ("a",), f"k{index}", "low", "high", "p", "m", "chat_completions", "compatible")
+    assert len(runs) == 1
+    path.unlink()
+    assert history_store.record_change(
+        "a", ("a",), "again", "low", "high", "p", "m", "chat_completions", "compatible")
+    assert len(runs) == 2
+    assert [e["to"] for e in history_store.read_history(("a",))["events"]] == ["high"]
+
+
+def test_missing_tables_are_recreated_on_the_next_write(tmp_path, monkeypatch):
+    import sqlite3
+    path = tmp_path / "history.sqlite3"
+    monkeypatch.setattr(history_store, "_PATH_PROVIDER", lambda: path)
+    assert history_store.write_mode_override("a", "off")
+    connection = sqlite3.connect(str(path))
+    try:
+        with connection:
+            connection.execute("DROP TABLE conversation_modes")
+    finally:
+        connection.close()
+    assert history_store.write_mode_override("a", "always")
+    history_store.invalidate_caches()
+    assert history_store.read_mode_override(("a",)) == "always"
+
+
+def test_unchanged_snapshot_is_not_rewritten_but_a_change_is(tmp_path, monkeypatch):
+    path = tmp_path / "history.sqlite3"
+    monkeypatch.setattr(history_store, "_PATH_PROVIDER", lambda: path)
+    status = {"state": "off", "mode": "off", "model": "m"}
+    assert history_store.record_snapshot("s", ("s",), status, at=1.0)
+    calls = _count_connects(monkeypatch)
+    assert history_store.record_snapshot("s", ("s",), status, at=2.0)
+    assert history_store.record_snapshot("s", ("s",), {**status, "updated_at": 3.0}, at=3.0)
+    assert calls == []
+    assert history_store.record_snapshot("s", ("s",), {**status, "state": "decided"}, at=4.0)
+    assert len(calls) == 1
+    assert history_store.read_history(("s",))["status"]["state"] == "decided"
+
+
+def test_snapshot_dedupe_is_dropped_when_the_conversation_is_cleared(tmp_path, monkeypatch):
+    path = tmp_path / "history.sqlite3"
+    monkeypatch.setattr(history_store, "_PATH_PROVIDER", lambda: path)
+    status = {"state": "off", "model": "m"}
+    assert history_store.record_snapshot("s", ("s",), status, at=1.0)
+    assert history_store.clear_conversation(("s",))
+    assert history_store.read_history(("s",))["status"] == {}
+    assert history_store.record_snapshot("s", ("s",), status, at=2.0)
+    assert history_store.read_history(("s",))["status"]["model"] == "m"
+
+
+def test_snapshot_is_rewritten_after_the_refresh_window(tmp_path, monkeypatch):
+    path = tmp_path / "history.sqlite3"
+    monkeypatch.setattr(history_store, "_PATH_PROVIDER", lambda: path)
+    status = {"state": "off", "model": "m"}
+    assert history_store.record_snapshot("s", ("s",), status, at=1.0)
+    later = history_store.time.monotonic() + history_store.SNAPSHOT_REFRESH_S + 1
+    monkeypatch.setattr(history_store.time, "monotonic", lambda: later)
+    calls = _count_connects(monkeypatch)
+    assert history_store.record_snapshot("s", ("s",), status, at=2.0)
+    assert len(calls) == 1
+    assert history_store.read_history(("s",))["status"]["updated_at"] == 2.0
+
+
+def test_mode_override_reads_are_cached_and_local_writes_invalidate(tmp_path, monkeypatch):
+    path = tmp_path / "history.sqlite3"
+    monkeypatch.setattr(history_store, "_PATH_PROVIDER", lambda: path)
+    assert history_store.write_mode_override("a", "off")
+    assert history_store.read_mode_override(("a",)) == "off"
+    calls = _count_connects(monkeypatch)
+    for _ in range(5):
+        assert history_store.read_mode_override(("a",)) == "off"
+    assert calls == []
+    # a write is visible at once, with no TTL wait (`/hae <mode> here`)
+    assert history_store.write_mode_override("a", "always")
+    assert history_store.read_mode_override(("a",)) == "always"
+    assert history_store.write_mode_override("a", None)
+    assert history_store.read_mode_override(("a",)) is None
+    assert history_store.write_mode_override("a", "once")
+    assert history_store.read_mode_override(("a",)) == "once"
+    assert history_store.clear_conversation(("a",))
+    assert history_store.read_mode_override(("a",)) is None
+
+
+def test_mode_override_cache_expires_so_other_processes_are_seen(tmp_path, monkeypatch):
+    import sqlite3
+    path = tmp_path / "history.sqlite3"
+    monkeypatch.setattr(history_store, "_PATH_PROVIDER", lambda: path)
+    assert history_store.write_mode_override("a", "off")
+    assert history_store.read_mode_override(("a",)) == "off"
+    connection = sqlite3.connect(str(path))  # another process writes
+    try:
+        with connection:
+            connection.execute("UPDATE conversation_modes SET mode='always'")
+    finally:
+        connection.close()
+    assert history_store.read_mode_override(("a",)) == "off"
+    later = history_store.time.monotonic() + history_store.OVERRIDE_TTL_S + 1
+    monkeypatch.setattr(history_store.time, "monotonic", lambda: later)
+    assert history_store.read_mode_override(("a",)) == "always"
+
+
+def test_lock_contention_fails_open_quickly(tmp_path, monkeypatch):
+    import sqlite3
+    path = tmp_path / "history.sqlite3"
+    monkeypatch.setattr(history_store, "_PATH_PROVIDER", lambda: path)
+    assert history_store.record_change(
+        "a", ("a",), "k0", "low", "high", "p", "m", "chat_completions", "compatible")
+    blocker = sqlite3.connect(str(path), timeout=0.1, isolation_level=None)
+    try:
+        blocker.execute("BEGIN EXCLUSIVE")
+        started = history_store.time.monotonic()
+        assert history_store.record_change(
+            "a", ("a",), "k1", "low", "medium", "p", "m", "chat_completions", "compatible",
+        ) is False
+        assert history_store.record_snapshot("a", ("a",), {"state": "x"}) is False
+        assert history_store.read_mode_override(("a",)) is None
+        assert history_store.time.monotonic() - started < 0.5
+    finally:
+        blocker.rollback()
+        blocker.close()
+    assert history_store.record_change(
+        "a", ("a",), "k2", "low", "medium", "p", "m", "chat_completions", "compatible")
+
+
+def test_contended_override_read_keeps_the_last_known_value(tmp_path, monkeypatch):
+    import sqlite3
+    path = tmp_path / "history.sqlite3"
+    monkeypatch.setattr(history_store, "_PATH_PROVIDER", lambda: path)
+    assert history_store.write_mode_override("a", "always")
+    assert history_store.read_mode_override(("a",)) == "always"
+    later = history_store.time.monotonic() + history_store.OVERRIDE_TTL_S + 1
+    monkeypatch.setattr(history_store.time, "monotonic", lambda: later)
+    blocker = sqlite3.connect(str(path), timeout=0.1, isolation_level=None)
+    try:
+        blocker.execute("BEGIN EXCLUSIVE")
+        assert history_store.read_mode_override(("a",)) == "always"
+    finally:
+        blocker.rollback()
+        blocker.close()
+
+
+def test_store_lock_is_not_held_during_sqlite_io(tmp_path, monkeypatch):
+    import threading
+    path = tmp_path / "history.sqlite3"
+    monkeypatch.setattr(history_store, "_PATH_PROVIDER", lambda: path)
+    held = []
+    real = history_store.sqlite3.connect
+
+    def probing(*args, **kwargs):
+        got = []
+
+        def attempt():
+            acquired = history_store._STORE_LOCK.acquire(timeout=1)
+            got.append(acquired)
+            if acquired:
+                history_store._STORE_LOCK.release()
+
+        thread = threading.Thread(target=attempt)
+        thread.start()
+        thread.join()
+        held.append(got[0])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(history_store.sqlite3, "connect", probing)
+    assert history_store.record_change(
+        "a", ("a",), "k", "low", "high", "p", "m", "chat_completions", "compatible")
+    assert held == [True]
+
+
+def test_here_override_is_visible_immediately_after_a_cached_miss(tmp_path, monkeypatch):
+    monkeypatch.setattr(history_store, "_PATH_PROVIDER", lambda: tmp_path / "history.sqlite3")
+    middleware.set_conversation_mode("conv", "always")
+    assert middleware.conversation_mode_override(("conv",)) == "always"
+    middleware.set_conversation_mode("conv", "off")
+    assert middleware.conversation_mode_override(("conv",)) == "off"
+    middleware.set_conversation_mode("conv", None)
+    assert middleware.conversation_mode_override(("conv",)) is None
+    middleware.set_conversation_mode("conv", "once")
+    assert middleware.conversation_mode_override(("conv",)) == "once"
