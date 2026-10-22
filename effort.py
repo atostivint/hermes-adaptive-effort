@@ -336,6 +336,38 @@ def map_named_choice(label: Optional[str], supported: Sequence[str]) -> Optional
     return clamped.strip().lower()
 
 
+def normalize_bound(value) -> Optional[str]:
+    """Operator bound (``effort_floor`` / ``effort_ceiling``) -> a named level, or ``None``.
+
+    ``None`` means "no bound": an empty value, the explicit switch-off words ``off`` / ``none``,
+    and anything that is not a named level (so ``ultra`` and typos are ignored, fail-open).
+    """
+    if not isinstance(value, str):
+        return None
+    level = value.strip().lower()
+    return level if level in CHOICE_LEVELS else None
+
+
+def normalize_bounds(floor, ceiling) -> tuple[Optional[str], Optional[str]]:
+    """``(floor, ceiling)`` after validation; a floor above the ceiling invalidates both."""
+    low, high = normalize_bound(floor), normalize_bound(ceiling)
+    if low and high and CHOICE_LEVELS.index(low) > CHOICE_LEVELS.index(high):
+        return None, None
+    return low, high
+
+
+def bound_label(label: Optional[str], floor: Optional[str], ceiling: Optional[str]) -> Optional[str]:
+    """Clamp a scorer label into ``[floor, ceiling]``; unbounded or unknown labels pass through."""
+    if not isinstance(label, str) or label not in CHOICE_LEVELS:
+        return label
+    index = CHOICE_LEVELS.index(label)
+    if floor in CHOICE_LEVELS:
+        index = max(index, CHOICE_LEVELS.index(floor))
+    if ceiling in CHOICE_LEVELS:
+        index = min(index, CHOICE_LEVELS.index(ceiling))
+    return CHOICE_LEVELS[index]
+
+
 def raise_choice_level(current: Optional[str], supported: Sequence[str],
                        steps: int = 1) -> Optional[str]:
     """Move *current* up *steps* levels within a route's own list; never down.

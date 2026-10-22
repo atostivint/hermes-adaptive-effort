@@ -74,6 +74,8 @@ DEFAULTS: Dict[str, Any] = {
     "use_target_model_context": False,
     "dialogue_context_messages": 0,
     "continuation_downgrade_votes": 0,
+    "effort_floor": "",
+    "effort_ceiling": "",
     "tool_error_escalation": True,
     "dynamic_trial": True,
     "show_tui_status": True,
@@ -974,6 +976,9 @@ def _settings() -> Dict[str, Any]:
             "show_desktop_popup", DEFAULTS["show_desktop_popup"]),
         "debug": _bool("debug", DEFAULTS["debug"]),
     }
+    settings["effort_floor"], settings["effort_ceiling"] = _effort.normalize_bounds(
+        read_setting("effort_floor", DEFAULTS["effort_floor"]),
+        read_setting("effort_ceiling", DEFAULTS["effort_ceiling"]))
     settings["scorer_model_effective"] = _scorers.model_for(
         settings["scorer_provider"], settings["scorer_model"], settings["cloudflare_model"],
         settings["jev_model"], settings["nace_model"])
@@ -2104,6 +2109,17 @@ def _escalated_target(request: Dict[str, Any], turn_entry: Dict[str, Any], targe
     return raised
 
 
+def _cap_to_ceiling(raised: str, target: str, choices: Any, ceiling: Optional[str]) -> str:
+    """An operator ceiling is absolute: tool-error escalation never lifts the target above it."""
+    capped = _effort.bound_label(raised, None, ceiling)
+    if not ceiling or capped == raised:
+        return raised
+    mapped = _effort.map_named_choice(capped, choices)
+    if mapped is None or _LEVEL_RANK.get(mapped, -1) <= _LEVEL_RANK.get(target, -1):
+        return target
+    return mapped
+
+
 def _copy_decision(source: Dict[str, Any], target: Dict[str, Any]) -> None:
     """Copy only prompt-free decision fields between the turn and route ledgers."""
     for field in ("state", "label", "target", "score", "failure", "elapsed_ms",
@@ -2500,6 +2516,8 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                         label, held = _hysteresis(
                             route_key, session_id, label, continuation_vote,
                             settings["continuation_downgrade_votes"], settings["max_turns"])
+                    label = _effort.bound_label(
+                        label, settings["effort_floor"], settings["effort_ceiling"])
                     entry.update(decision_type="native_choice", choices=list(route_choices),
                                  score=None, label=label)
                     target = _effort.map_effort(label, provider, model, route_choices)
@@ -2512,6 +2530,8 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                         label, held = _hysteresis(
                             route_key, session_id, label, continuation_vote,
                             settings["continuation_downgrade_votes"], settings["max_turns"])
+                    label = _effort.bound_label(
+                        label, settings["effort_floor"], settings["effort_ceiling"])
                     entry.update(decision_type="legacy_score", choices=[], label=label)
                     target = _effort.map_effort(label, provider, model) if label else None
                 entry["continuation"] = (None if continuation_vote is None else
@@ -2593,7 +2613,9 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if (settings["tool_error_escalation"] and dynamic_route and route_choices
             and str(provider or "").strip().lower() != "anthropic"):
         # Local signal, no scorer: only ever raises, only on cache-safe dynamic routes.
-        raised = _escalated_target(request, turn_entry, target, route_choices)
+        raised = _cap_to_ceiling(
+            _escalated_target(request, turn_entry, target, route_choices),
+            target, route_choices, settings["effort_ceiling"])
         if raised != target:
             target, escalated = raised, True
             if entry is not turn_entry:

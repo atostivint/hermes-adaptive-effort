@@ -144,6 +144,10 @@ Status entries and the Desktop decision event v2 gain, additively, `dynamic` (bo
 
 A route with no existing effort field reports `null` for both. `/hae status` and the Desktop details show one line, for example `Effort changes: every turn — on trial (1/3)` or `Effort changes: once, then kept — not dynamic (observed cache loss)`, with a suffix when the mode overrides it (`once` always keeps one decision; `always` changes every turn even on a non-dynamic route and flags the cache risk). `Cache:` is unchanged. Tool-error escalation never applies to trial routes: they have no named choices.
 
+### Effort bounds
+
+`effort_floor` / `effort_ceiling` (str, default empty). Each is a named level (`minimal` .. `max`); empty, `off`, `none` or any unrecognised value (including `ultra`) means no bound for that setting, and a floor above the ceiling invalidates both. In `auto`, `once` and `always` (and `subagent_mode`), the scorer's label (named choice or numeric score) is clamped into the range after continuation hysteresis and before the route clamp (`map_effort` / `map_named_choice`), so a bound outside the route's vocabulary resolves to the nearest allowed level. The scorer request is unchanged. The ceiling also caps tool-error escalation; a decision already retained keeps its label until the next decision. `/hae probe`, single-level routes and the status/Desktop schemas are unchanged apart from the configured bounds shown in `/hae status`.
+
 ### Tool-error escalation
 
 `tool_error_escalation` (bool, default `true`) lets a repeated tool error raise effort locally. Scope: an exact dynamic route (`_dynamic_effort_route`), never an `anthropic` provider, in `auto`, `once` and `always` (and `subagent_mode` for children). With the setting `false` the code path is skipped and request handling is unchanged.

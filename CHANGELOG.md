@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `effort_floor` and `effort_ceiling` operator bounds (empty, `off` or `none` = no bound; default is no bound, so behaviour is unchanged). The scorer's answer is clamped into the range after it is received, before the route clamp; the ceiling also caps tool-error escalation. Invalid values are ignored, and a floor above the ceiling ignores both (#85)
 - Manual, billed effort replay tooling (`scripts/run_effort_replay.py`, `scripts/compare_replay.py`, `tests/fixtures/effort_replay_corpus.json`) that derives the cheapest passing effort per synthetic item from a target model's own answers and compares it with hand labels and scorer choices; `run_scorer_eval.py` gains `--corpus` (default unchanged). Tooling only, no runtime change; see `docs/validation/EFFORT_REPLAY.md` (#71)
 - `/hae status` and `status json` show a per-route count of the labels the scorer chose (`label_distribution`, additive under status v2, in memory, counts only) and note informationally when one label is at least 90% of at least 30 answers, so a collapsed scorer is visible
 

@@ -115,6 +115,9 @@ def test_config_schema_types_and_defaults_match_middleware():
     assert schema["continuation_downgrade_votes"]["default"] == 0
     assert middleware.DEFAULTS["continuation_downgrade_votes"] == 0
     assert "dialogue_context_messages" in schema["continuation_downgrade_votes"]["description"]
+    for key in ("effort_floor", "effort_ceiling"):
+        assert schema[key]["type"] == "str"
+        assert schema[key]["default"] == middleware.DEFAULTS[key] == ""
     assert schema["tool_error_escalation"]["type"] == "bool"
     assert schema["tool_error_escalation"]["default"] is True
     assert middleware.DEFAULTS["tool_error_escalation"] is True

@@ -588,6 +588,8 @@ def _status_full_text() -> str:
            "(contents remain private)"] if settings.get("dialogue_context_messages") else []),
         *([f"Continuation: {settings['continuation']}"]
           if settings.get("continuation_downgrade_votes") else []),
+        f"Effort bounds: floor={settings.get('effort_floor') or 'off'} · "
+        f"ceiling={settings.get('effort_ceiling') or 'off'}",
         f"Tool error escalation: {'on' if settings.get('tool_error_escalation') else 'off'}",
         f"Dynamic trial: {'on' if settings.get('dynamic_trial') else 'off'}",
         f"Display: TUI={'on' if settings['show_tui_status'] else 'off'} · "
