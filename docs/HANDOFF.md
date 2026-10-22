@@ -34,6 +34,8 @@ Earlier "not pushed", "unpublished" or "local work in progress" statements about
 
 No fresh inspection of Iris, Windows's installed plugin, the gateway or Desktop was performed for this documentation refresh. Use the archive's deployment/recovery notes as context, then inspect the actual serving host before asserting that its state is current.
 
+2026-10-22 host change (operator-requested): the operator's Windows Desktop source checkout, which the installed Python payload and the linked Desktop extension both point to, was moved from an old v0.2.0 working copy to `origin/master` at `6b0f2fc` (plugin version 0.4.0). Its earlier local edits were already contained in `master` and were kept as a stash and a backup branch in that checkout. After the move, that checkout's `run_tests.ps1` passed (1231) and `run_lint.ps1` passed. Not verified: the running Desktop and agent were not reloaded or inspected, so the extension and the plugin payload in the running processes may still be the old version until they are reloaded.
+
 ## Features published in v0.3.0
 
 Route-specific named effort choices keep numeric `0..2` scoring for unknown vocabularies and `/hae probe`. Jev, OpenAI Decisions, Cloudflare and both custom formats have strict named-choice request/response contracts; OpenRouter/custom Chat Completions require exactly `{"effort":"<allowed level>"}`. Named values outside the route list fail open without a second scorer call. Status and Desktop decision events use schema v2 with decision type, allowed choices and cache behavior; the Desktop reader accepts both v1 and v2 during transition.
