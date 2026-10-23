@@ -270,7 +270,7 @@ def test_route_change_inside_once_turn_prefers_this_turn_label_over_old_pin(monk
     assert first["request"]["extra_body"]["reasoning"]["effort"] == "low"
     ask(monkeypatch, codex_request("low"), "t1", provider="openai-codex",
         model="gpt-6.1-sol", api_mode="codex_responses")
-    returned = ask(monkeypatch, chat_request("low"), "t1", provider="openrouter",
+    returned = ask(monkeypatch, chat_request("medium"), "t1", provider="openrouter",
                     model="moonshot/kimi-k3", api_mode="chat_completions")
     assert returned["request"]["extra_body"]["reasoning"]["effort"] == "high"
     assert len(seq.calls) == 2

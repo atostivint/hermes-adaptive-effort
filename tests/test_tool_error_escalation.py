@@ -162,11 +162,12 @@ def test_top_of_the_vocabulary_changes_nothing(monkeypatch):
 def test_holds_for_the_rest_of_the_turn_and_resets_next_turn(monkeypatch):
     scorer = ChoiceScorer("low")
     configure(monkeypatch, scorer)
-    assert send(REPEAT_WITH_EDIT) == "medium"
+    # The host re-sends the same configured effort on every request of a conversation.
+    assert send(REPEAT_WITH_EDIT, effort_value="high") == "medium"
     later = REPEAT_WITH_EDIT + [("read", json.dumps({"content": "ok"}))]
-    assert send(later) == "medium"  # no new error: still raised
-    assert send(later + [("run", json.dumps({"output": "ok", "exit_code": 0, "error": None}))]
-                ) == "medium"
+    assert send(later, effort_value="high") == "medium"  # no new error: still raised
+    assert send(later + [("run", json.dumps({"output": "ok", "exit_code": 0, "error": None}))],
+                effort_value="high") == "medium"
     assert send([("run", json.dumps({"output": "ok", "exit_code": 0}))], turn="t2",
                 effort_value="high") == "low"
     assert len(scorer.calls) == 2  # one per user turn
@@ -199,7 +200,7 @@ def test_works_on_chat_completions_dynamic_route_with_the_route_vocabulary(monke
 @pytest.mark.parametrize("mode", ["auto", "once", "always"])
 def test_every_active_mode_on_a_dynamic_route(monkeypatch, mode):
     configure(monkeypatch, ChoiceScorer("low"), mode=mode)
-    assert send(REPEAT_WITH_EDIT) == "medium"
+    assert send(REPEAT_WITH_EDIT, effort_value="high") == "medium"
     if mode == "once":  # the retained route decision keeps its own level for later turns
         assert send([("run", edit_ok())], turn="t2", effort_value="high") == "low"
 

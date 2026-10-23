@@ -381,3 +381,21 @@ def raise_choice_level(current: Optional[str], supported: Sequence[str],
     if current not in levels or steps < 1:
         return current
     return levels[min(levels.index(current) + int(steps), len(levels) - 1)]
+
+
+def is_manual_change(incoming: object, seen: object, applied: object) -> bool:
+    """Did the user change the effort by hand between two requests of one conversation?
+
+    Hermes rebuilds the effort from its own state on every request, so a plugin rewrite
+    never comes back as the next incoming value. An incoming value that differs from both
+    the last one read (*seen*) and the last one the plugin wrote (*applied*, which a
+    Desktop selector sync may echo back) was therefore set by the user. A manual choice
+    that equals either remembered value cannot be told apart. Values only, no I/O.
+    """
+    def norm(value: object) -> str:
+        return value.strip().lower() if isinstance(value, str) else ""
+
+    current = norm(incoming)
+    if not current or not norm(seen):
+        return False
+    return current not in (norm(seen), norm(applied))

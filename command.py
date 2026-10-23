@@ -62,7 +62,7 @@ PROBE_SCHEMA = "hermes-adaptive-effort.probe.v1"
 #: plugin-author payload), so prompt text and provider junk are filtered out.
 _ENTRY_FIELDS = (
     "conversation_id", "state", "score", "label", "target", "previous", "decision_type", "choices",
-    "cache_behavior", "continuation", "held", "escalated", "escalation_reason", "mode", "provider", "model", "api_mode",
+    "cache_behavior", "continuation", "held", "escalated", "escalation_reason", "manual_effort", "mode", "provider", "model", "api_mode",
     "dynamic", "dynamic_reason", "trial_progress",
     "scorer_provider", "scorer_model",
     "requests", "probes", "elapsed_ms", "failure", "updated_at",
@@ -144,6 +144,7 @@ def _set_conversation_mode(target: str) -> str:
     except RuntimeError:
         return ("hermes-adaptive-effort: conversation mode storage is unavailable; "
                 "mode unchanged")
+    _middleware.clear_manual_effort(identities)
     return (f"hermes-adaptive-effort conversation mode: {before or 'default'} -> "
             f"{after or 'default'} (this conversation only; default mode stays "
             f"{_middleware._settings()['mode']})")
@@ -199,6 +200,9 @@ def _conversation_state(limit: int = 10) -> Dict[str, Any]:
         return {"available": True, "scope_id": None, "events": [],
                 "latest": None, "status": {}, "identity_missing": True}
     view = _history_store.read_history(identities, limit=limit)
+    # The stand-down lives in memory only (never in the history store); overlay it here.
+    if view.get("status") and any(_middleware.manual_effort_standing_down(i) for i in identities):
+        view["status"] = dict(view["status"], manual_effort=True)
     if view.get("status"):
         return view
 
@@ -490,6 +494,10 @@ def _status_text() -> str:
     changes_line = _effort_changes_line(entry)
     if changes_line:
         lines.append(changes_line)
+    if entry.get("manual_effort"):
+        lines.append("Manual effort: you changed the effort by hand, so the plugin is standing "
+                     "down for this conversation (no scorer call, no rewrite). "
+                     "Re-enable with /hae <mode> here")
     label, target = entry.get("label"), entry.get("target")
     if label or target:
         lines.append(f"Selected effort: {target or 'N/A'}" +
@@ -571,7 +579,7 @@ def _status_full_text() -> str:
     if entry:
         for field in ("provider", "model", "api_mode", "decision_type", "choices",
                       "score", "label", "target", "continuation", "held", "escalated", "escalation_reason",
-                      "dynamic", "dynamic_reason", "trial_progress", "cache_behavior", "cache_verdict",
+                      "dynamic", "dynamic_reason", "trial_progress", "manual_effort", "cache_behavior", "cache_verdict",
                       "requests", "probes", "elapsed_ms", "failure"):
             value = entry.get(field)
             if value is not None:
@@ -591,6 +599,7 @@ def _status_full_text() -> str:
         f"Effort bounds: floor={settings.get('effort_floor') or 'off'} · "
         f"ceiling={settings.get('effort_ceiling') or 'off'}",
         f"Tool error escalation: {'on' if settings.get('tool_error_escalation') else 'off'}",
+        f"Respect manual effort: {'on' if settings.get('respect_manual_effort') else 'off'}",
         f"Dynamic trial: {'on' if settings.get('dynamic_trial') else 'off'}",
         f"Display: TUI={'on' if settings['show_tui_status'] else 'off'} · "
         f"Desktop popup={'on' if settings['show_desktop_popup'] else 'off'} · "

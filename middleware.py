@@ -77,6 +77,7 @@ DEFAULTS: Dict[str, Any] = {
     "effort_floor": "",
     "effort_ceiling": "",
     "tool_error_escalation": True,
+    "respect_manual_effort": True,
     "dynamic_trial": True,
     "show_tui_status": True,
     "show_desktop_popup": True,
@@ -117,6 +118,13 @@ _CONTINUITY: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 # Recent effort rewrites are kept in memory for the Desktop event poller. The
 # private decision key deduplicates repeated tool-loop rewrites without ever
 # leaving this module.
+# Manual-effort stand-down (``respect_manual_effort``). ``_EFFORT_WATCH`` holds, per parent
+# conversation, the current route plus the last incoming and last applied effort VALUE;
+# ``_STOOD_DOWN`` holds conversations whose effort the user changed by hand. Values only,
+# both bounded by ``max_turns``; never persisted.
+_EFFORT_WATCH: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+_STOOD_DOWN: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+
 _CHANGE_HISTORY_LIMIT = 64
 _CHANGE_STREAM_ID = uuid.uuid4().hex
 _CHANGE_SEQUENCE = 0
@@ -184,6 +192,8 @@ def reset_state() -> None:
         _IN_FLIGHT.clear()
         _ROUTE_IN_FLIGHT.clear()
         _CHILD_GOALS.clear()
+        _EFFORT_WATCH.clear()
+        _STOOD_DOWN.clear()
         _SCORER_BREAKER.clear()
         _SCORER_LATENCY.clear()
         _LABEL_COUNTS.clear()
@@ -339,7 +349,82 @@ def set_conversation_mode(conversation_id: Any, mode: Any) -> Optional[str]:
             raise ValueError("unknown mode")
     if not _history_store.write_mode_override(cid, value):
         raise RuntimeError("store_unavailable")
+    clear_manual_effort((cid,))
     return value
+
+
+def clear_manual_effort(conversation_ids: Any) -> None:
+    """Re-enable a conversation that stood down because the user set the effort by hand."""
+    with _lock:
+        for cid in conversation_ids or ():
+            session = str(cid or "").strip()
+            _STOOD_DOWN.pop(session, None)
+            _EFFORT_WATCH.pop(session, None)
+
+
+def manual_effort_standing_down(session_id: Any) -> bool:
+    """Is this conversation currently stood down on a manual effort change?"""
+    with _lock:
+        return str(session_id or "") in _STOOD_DOWN
+
+
+def _manual_effort_gate(session_id: str, route: Tuple[str, str, str], slot: Any,
+                        max_turns: Any) -> bool:
+    """Record the incoming effort and say whether the user changed it by hand.
+
+    The first request of a conversation, and the first on a new route, only record: a
+    route change is never a manual change. Once detected the conversation stays stood
+    down until ``clear_manual_effort`` (an explicit conversation mode choice) or a reset.
+    """
+    limit = max(1, int(max_turns))
+    with _lock:
+        if session_id in _STOOD_DOWN:
+            _STOOD_DOWN.move_to_end(session_id)
+            return True
+        if slot is None:
+            return False
+        incoming = slot[2]
+        watch = _EFFORT_WATCH.get(session_id)
+        if watch is None or watch.get("route") != route:
+            _EFFORT_WATCH[session_id] = {"route": route, "seen": incoming, "applied": None}
+        elif _effort.is_manual_change(incoming, watch.get("seen"), watch.get("applied")):
+            _EFFORT_WATCH.pop(session_id, None)
+            _STOOD_DOWN[session_id] = {"value": incoming}
+            while len(_STOOD_DOWN) > limit:
+                _STOOD_DOWN.popitem(last=False)
+            return True
+        else:
+            watch["seen"] = incoming
+        _EFFORT_WATCH.move_to_end(session_id)
+        while len(_EFFORT_WATCH) > limit:
+            _EFFORT_WATCH.popitem(last=False)
+    return False
+
+
+def _stand_down(session_id: str, settings: Dict[str, Any], mode: str, provider: Any,
+                model: Any, api_mode: Any, turn_id: Any) -> None:
+    """Show a manual-effort stand-down like an ``off`` turn, flagged ``manual_effort``."""
+    key = _decision_key(session_id, turn_id)
+    with _lock:
+        prior = _SESSIONS.get(key)
+        preserve_decision = bool(prior and prior.get("label"))
+    entry = _touch(key, settings, mode, provider, model, api_mode, conversation_id=session_id)
+    with _lock:
+        if not preserve_decision:
+            entry.update(provider=provider, model=model, api_mode=api_mode)
+            entry.update(state="off", score=None, label=None, target=None, failure=None)
+        entry["manual_effort"] = True
+    shown = dict(entry)
+    shown.update(state="off", score=None, label=None, target=None, failure=None)
+    _publish_desktop_decision(session_id, provider, model, api_mode, shown)
+
+
+def _note_applied_effort(session_id: str, target: Any) -> None:
+    """Remember the value the plugin just wrote, so an echo of it is not a manual change."""
+    with _lock:
+        watch = _EFFORT_WATCH.get(session_id)
+        if watch is not None:
+            watch["applied"] = target
 
 
 def set_history_path_provider(provider: Optional[Callable[[], Any]]) -> None:
@@ -593,7 +678,7 @@ def _touch(key: str, settings: Dict[str, Any], mode: str,
                 "state": "new", "label": None, "target": None, "score": None,
                 "decision_type": None, "choices": [], "cache_behavior": None,
                 "continuation": None, "held": False,
-                "escalated": False, "escalation_reason": None,
+                "escalated": False, "escalation_reason": None, "manual_effort": False,
                 "dynamic": None, "dynamic_reason": None, "trial_progress": None,
                 "mode": mode, "provider": provider, "model": model,
                 "scope": "turn",
@@ -691,6 +776,8 @@ def _clear_session_state(session_id: Optional[str], *, clear_history: bool = Fal
                 _CONTINUITY.pop(key, None)
         _IN_FLIGHT.discard(session)
         _CHILD_GOALS.pop(session, None)
+        _EFFORT_WATCH.pop(session, None)
+        _STOOD_DOWN.pop(session, None)
     _route_trial.clear_session(session)
     _publish_desktop_decision(session, clear=True)
     if clear_history:
@@ -970,6 +1057,8 @@ def _settings() -> Dict[str, Any]:
                           DEFAULTS["continuation_downgrade_votes"])),
         "tool_error_escalation": _bool(
             "tool_error_escalation", DEFAULTS["tool_error_escalation"]),
+        "respect_manual_effort": _bool(
+            "respect_manual_effort", DEFAULTS["respect_manual_effort"]),
         "dynamic_trial": _bool("dynamic_trial", DEFAULTS["dynamic_trial"]),
         "show_tui_status": _bool("show_tui_status", DEFAULTS["show_tui_status"]),
         "show_desktop_popup": _bool(
@@ -2228,6 +2317,8 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     mode = settings["mode"]
     if mode == "off":
         if session_id:
+            with _lock:
+                _EFFORT_WATCH.pop(session_id, None)  # an inactive plugin watches nothing
             key = _decision_key(session_id, kwargs.get("turn_id"))
             with _lock:
                 prior = _SESSIONS.get(key)
@@ -2263,6 +2354,14 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
     if child_goal is not None:
         mode = settings["subagent_mode"]
+    elif not settings["respect_manual_effort"]:
+        clear_manual_effort((session_id,))
+    elif _manual_effort_gate(session_id, _route_identity(provider, model, api_mode),
+                             raw_slot, settings["max_turns"]):
+        # The user set the effort by hand: no scorer call, no rewrite, nothing shared.
+        _stand_down(session_id, settings, mode, provider, model, api_mode,
+                    kwargs.get("turn_id"))
+        return None
 
     slot = raw_slot
     injection_path = None
@@ -2639,6 +2738,8 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if new_request is request:
         _publish_desktop_decision(session_id, provider, model, api_mode, entry)
         return None
+    if child_goal is None:
+        _note_applied_effort(session_id, target)
     event = _record_effort_change(
         turn_key, before, target, session_id, provider, model, api_mode,
         details=entry)

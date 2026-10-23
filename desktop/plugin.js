@@ -126,7 +126,7 @@ function publicStatus(entry) {
     'conversation_id', 'state', 'score', 'label', 'target', 'previous', 'decision_type', 'choices',
     'cache_behavior', 'mode', 'provider', 'model',
     'api_mode', 'scorer_provider', 'scorer_model', 'requests', 'probes', 'elapsed_ms',
-    'failure', 'updated_at', 'continuation', 'held', 'escalated', 'escalation_reason',
+    'failure', 'updated_at', 'continuation', 'held', 'escalated', 'escalation_reason', 'manual_effort',
     'dynamic', 'dynamic_reason', 'trial_progress'
   ]
   const result = {}

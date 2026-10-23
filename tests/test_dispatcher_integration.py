@@ -488,3 +488,44 @@ def test_real_dispatcher_registers_the_trial_hooks_and_delivers_cache_counters(
         "acme-cloud", "acme/model-x", "chat_completions"))
     assert status["dynamic_reason"] == "rejected_level"
     middleware.reset_state()
+
+
+def test_real_dispatcher_resends_the_configured_effort_not_the_rewrite(dispatched, no_network):
+    """Evidence for ``respect_manual_effort``: the host hands the middleware a copy of kwargs it
+    rebuilds from agent state on every request, so a rewrite never comes back as the next
+    incoming effort; only a change in agent state does, and that stands the plugin down."""
+    from hermes_cli.middleware import apply_llm_request_middleware
+
+    middleware = dispatched["middleware"]
+    middleware.reset_state()
+    scorer_calls = []
+
+    def factory(**kwargs):
+        scorer_calls.append(1)
+        return _FakeJev(1.9)
+
+    middleware._classifier_factory = factory
+    context = dict(session_id="sess-manual-1", provider="openrouter",
+                   model="openrouter/meta/llama-3.3-70b-instruct", api_mode="chat")
+
+    def rebuild(effort_value):
+        """What the host does per attempt: fresh kwargs from the agent's own effort."""
+        request = json.loads(json.dumps(RECORDED_REQUEST))
+        request["extra_body"]["reasoning"]["effort"] = effort_value
+        return request
+
+    first = apply_llm_request_middleware(rebuild("medium"), turn_id="t1", **context)
+    assert first.payload["extra_body"]["reasoning"]["effort"] == "high"
+    # Next request: the host rebuilds from agent state, so the incoming value is still "medium".
+    second = apply_llm_request_middleware(rebuild("medium"), turn_id="t2", **context)
+    assert second.payload["extra_body"]["reasoning"]["effort"] == "high"
+    assert not middleware.manual_effort_standing_down("sess-manual-1")
+    assert len(scorer_calls) == 1  # auto keeps one decision on this unlisted route
+
+    # The user changes the effort by hand: the host now sends something new.
+    third = apply_llm_request_middleware(rebuild("low"), turn_id="t3", **context)
+    assert third.changed is False
+    assert third.payload["extra_body"]["reasoning"]["effort"] == "low"
+    assert middleware.manual_effort_standing_down("sess-manual-1")
+    assert len(scorer_calls) == 1
+    middleware.reset_state()

@@ -190,6 +190,7 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | `effort_floor` | empty | Lowest named level the scorer's choice may take (`low`, `medium`, `high`, ...). Empty, `off` or `none` means no floor; an unrecognised value is ignored. A floor above the ceiling makes both ignored |
 | `effort_ceiling` | empty | Highest named level the scorer's choice may take. Empty, `off` or `none` means no ceiling; also caps tool-error escalation. Applied to the scorer's answer before the route clamp, so a level the route lacks resolves to the nearest allowed one |
 | `tool_error_escalation` | `true` | Raise effort one level, locally, when the same tool error repeats after a file edit within one turn. Applies only on exact dynamic-effort routes (never Claude); `false` disables it entirely. See [Raise effort on repeated tool errors](#raise-effort-on-repeated-tool-errors) |
+| `respect_manual_effort` | `true` | Stand down for a conversation once its effort is changed by hand (config or selector): no scorer call, no rewrite, nothing shared, until `/hae <mode> here` or the Desktop mode popup re-enables it, or the session resets. Inference only: a manual choice equal to a value the plugin last read or wrote is invisible. Parent sessions only. `false` is the previous behaviour. See [Stand down on a manual effort change](#stand-down-on-a-manual-effort-change) |
 | `dynamic_trial` | `true` | In `auto`, change effort every turn *on trial* on an unlisted cache-safe route that already has an effort field, and watch the provider's cache counters (token counts only). Three effort changes that keep the cache make the route dynamic; a clear cache drop, a rejected level or no cache counters pin it. Verdicts persist in the profile data directory. `false` keeps one decision per unlisted route. Cost and cache effect are unmeasured. See [Trial of unlisted routes](#trial-of-unlisted-routes) |
 | `effort_models` | empty | Exact model IDs whose effort support the operator asserts |
 | `timeout_s` | `0` | Timeout in seconds for one scoring request. `0`, a negative or an invalid value uses the selected provider's default deadline (table below); any positive value wins, including an explicit `3.0`. A timeout fails open |
@@ -252,6 +253,17 @@ In `always` mode (and `auto` on an exact dynamic route) every new user turn is s
 - The raise is recorded in the applied-change feed like any rewrite; the status entry shows `escalated: true` and `escalation_reason: repeated_tool_error`.
 
 Set `tool_error_escalation: false` to turn it off.
+
+### Stand down on a manual effort change
+
+`respect_manual_effort` is on by default and needs no scorer call. Hermes rebuilds the request from its own state on every attempt, so the effort the plugin receives stays what the user configured until the user changes it; a rewrite by this plugin never comes back as the next incoming value. For each parent conversation the plugin therefore remembers, per current route, the last effort it read and the last it applied. An incoming value equal to neither means you changed it (a config edit or the selector), and the plugin stands down for that conversation.
+
+- While stood down: no scorer call, no rewrite and nothing shared. `/hae status` shows `Manual effort: ... standing down` and the status entry carries `manual_effort: true` (values are never stored or shown).
+- It stays stood down until you choose a mode for the conversation again: `/hae <mode> here` (also `default here`), or the Desktop mode popup (`POST /mode` with `scope: conversation`). A session reset also clears it. `/hae <mode>` without `here` does not.
+- The first request of a conversation, and the first on a new route, only record a value: a route change is never a manual change. Subagents never stand down on this signal. `off` mode records nothing.
+- Limits: a manual choice equal to the last read or applied value cannot be detected; a host that mutates the effort itself would look manual. The memory is in process only, bounded by `max_turns`, and never written to your config or the history store.
+
+Set `respect_manual_effort: false` for the previous behaviour.
 
 ### Trial of unlisted routes
 
