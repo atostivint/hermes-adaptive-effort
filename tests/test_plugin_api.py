@@ -291,11 +291,15 @@ assert.equal(helpers.ownerMatchesActiveBackend(localDefaultOwner, null, 'work'),
 assert.equal(helpers.ownerMatchesActiveBackend(
   { connectionId: 'local', profile: 'work' }, 'local', 'default'), false)
 """
+    # The bound guards against a hung node, not against process startup. A cold spawn
+    # on a Windows runner (Defender scanning node.exe) was observed exceeding 10 s and
+    # failed this test on an otherwise green commit, so the old bound measured the
+    # runner rather than the assertion. 60 s still catches a genuine hang.
     result = subprocess.run(
         [node, "-e", script, str(DESKTOP_JS)],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=60,
         check=False,
     )
     assert result.returncode == 0, result.stderr or result.stdout
