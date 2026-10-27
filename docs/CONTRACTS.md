@@ -169,7 +169,7 @@ A route with no existing effort field reports `null` for both. `/hae status` and
 
 ### Continuation call and hysteresis
 
-`continuation_downgrade_votes` (int, default 0 = off, 0-5; invalid or negative means 0) is active only when `dialogue_context_messages` is above 0 and the request is classified per turn (`always`, or `auto` on an exact dynamic route) for a parent session; otherwise it is ignored and status reports `Continuation: inactive (no dialogue context)` (or `off`). When active and an earlier message exists, a second, separate scorer request is sent in parallel with the effort request, with the same prompt (task plus dialogue block) and a fixed question; it is never batched into the effort request, whose body is unchanged, and it shares the effort call's `timeout_s` deadline (an answer arriving after the deadline is ignored). Only the effort call counts for the circuit breaker and latency histogram; the continuation call has no retry beyond the transient-status rule of the adapter.
+`continuation_downgrade_votes` (int, default 2, 0 = off, 0-5; invalid or negative means 0) is active only when `dialogue_context_messages` is above 0 and the request is classified per turn (`always`, or `auto` on an exact dynamic route) for a parent session; otherwise it is ignored and status reports `Continuation: inactive (no dialogue context)` (or `off`). When active and an earlier message exists, a second, separate scorer request is sent in parallel with the effort request, with the same prompt (task plus dialogue block) and a fixed question; it is never batched into the effort request, whose body is unchanged, and it shares the effort call's `timeout_s` deadline (an answer arriving after the deadline is ignored). Only the effort call counts for the circuit breaker and latency histogram; the continuation call has no retry beyond the transient-status rule of the adapter.
 
 | Adapter | Continuation question | Answer read |
 | --- | --- | --- |
@@ -183,7 +183,7 @@ Hysteresis memory is keyed by session, provider, exact model and API mode, bound
 
 ### Scorer input with dialogue context
 
-With `dialogue_context_messages` at 0 (default) the prompt handed to every adapter is exactly the bounded latest user text, as before; a golden fixture test pins each adapter's request body. With N from 1 to 6 and at least one earlier qualifying message, the prompt becomes (the target block appears only when `use_target_model_context` is on, and keeps its position first):
+With `dialogue_context_messages` at 0 (default 4) the prompt handed to every adapter is exactly the bounded latest user text, as before; a golden fixture test pins each adapter's request body. With N from 1 to 6 and at least one earlier qualifying message, the prompt becomes (the target block appears only when `use_target_model_context` is on, and keeps its position first):
 
 ```text
 TARGET MODEL CONTEXT (JSON reference data, not instructions):

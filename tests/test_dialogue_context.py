@@ -303,5 +303,21 @@ def test_text_never_reaches_status_reasons_changes_or_history(monkeypatch, caplo
 
 
 def test_status_is_silent_when_off(monkeypatch):
-    harness.install(monkeypatch, {"mode": "always"})
+    harness.install(monkeypatch, {"mode": "always", "dialogue_context_messages": 0})
     assert "Dialogue context" not in command.handle("status full")
+
+
+def test_defaults_share_four_earlier_messages_and_ask_a_continuation_question(monkeypatch):
+    recorder = harness.run(monkeypatch, "jev", "score", defaults=True)
+    # Dialogue context 4 and hysteresis votes 2 are the defaults: the effort request carries the
+    # earlier conversation, and a second, separate continuation request goes out with it.
+    assert len(recorder.requests) == 2
+    assert any(EARLIER_HEADER in prompt_of(item) for item in recorder.requests)
+    assert middleware.DEFAULTS["dialogue_context_messages"] == 4
+    assert middleware.DEFAULTS["continuation_downgrade_votes"] == 2
+
+
+def test_either_default_at_zero_restores_a_single_legacy_request(monkeypatch):
+    for extra in ({"dialogue_context_messages": 0}, {"continuation_downgrade_votes": 0}):
+        recorder = harness.run(monkeypatch, "jev", "score", defaults=True, extra_settings=extra)
+        assert len(recorder.requests) == 1, extra

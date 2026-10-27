@@ -185,8 +185,8 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | `custom_auth` | `none` | `none` or `bearer` |
 | `classification_instructions` | empty | Extra guidance, capped at 2,000 characters |
 | `use_target_model_context` | `false` | Include bounded target route/profile context when classifying a request |
-| `dialogue_context_messages` | `0` | Earlier user/assistant text messages (0-6, each at most 1,200 characters) also sent to the scorer as untrusted context; `0` sends none, larger values clamp to 6, invalid or negative values mean `0` |
-| `continuation_downgrade_votes` | `0` | `0` is off; `1`-`5` enables continuation hysteresis (suggested `2`; larger clamps to 5, invalid or negative means `0`). Active only with `dialogue_context_messages` above 0, otherwise ignored and `/hae status full` reports `Continuation: inactive (no dialogue context)` |
+| `dialogue_context_messages` | `4` | Earlier user/assistant text messages (0-6, each at most 1,200 characters) also sent to the scorer as untrusted context; `0` sends none and turns continuation hysteresis off, larger values clamp to 6, invalid or negative values mean `0` |
+| `continuation_downgrade_votes` | `2` | `0` is off (no second scorer request); `1`-`5` enables continuation hysteresis (default `2`; larger clamps to 5, invalid or negative means `0`). Active only with `dialogue_context_messages` above 0, otherwise ignored and `/hae status full` reports `Continuation: inactive (no dialogue context)` |
 | `effort_floor` | empty | Lowest named level the scorer's choice may take (`low`, `medium`, `high`, ...). Empty, `off` or `none` means no floor; an unrecognised value is ignored. A floor above the ceiling makes both ignored |
 | `effort_ceiling` | empty | Highest named level the scorer's choice may take. Empty, `off` or `none` means no ceiling; also caps tool-error escalation. Applied to the scorer's answer before the route clamp, so a level the route lacks resolves to the nearest allowed one |
 | `tool_error_escalation` | `true` | Raise effort one level, locally, when the same tool error repeats after a file edit within one turn. Applies only on exact dynamic-effort routes (never Claude); `false` disables it entirely. See [Raise effort on repeated tool errors](#raise-effort-on-repeated-tool-errors) |
@@ -223,7 +223,7 @@ These values are not measured on this plugin's traffic; the Jev/Clef figures com
 settings:
   classification_instructions: "Prefer low for short, clearly scoped requests; reserve high for ambiguous, multi-step work."
   use_target_model_context: false
-  dialogue_context_messages: 0
+  dialogue_context_messages: 4
 ```
 
 Merge these fields into your scorer settings. Guidance supplements the fixed legacy score rubric and named-choice instructions; it cannot change the route's allowed values or output format. The evaluator considers complexity, ambiguity, scope, reasoning steps, tool/research depth and explicit speed/cost priorities. A longer prompt or technical subject alone is not a reason to select more effort.
@@ -233,6 +233,8 @@ With `use_target_model_context: true`, a request classification also shares targ
 With `dialogue_context_messages: N` (1-6), a request classification also shares up to N user and assistant text messages that precede the latest user message, oldest first, each cut to 1,200 characters. It helps a follow-up ("now fix the tests") be judged with the task it refers to. `prompt_chars` still caps only the latest user text. System and developer messages, tool calls, tool results, images and other non-text parts are never included. Subagents (classified from the parent-written goal) and `probe` never carry dialogue context. The block format is in [Contracts](CONTRACTS.md#scorer-input-with-dialogue-context).
 
 ### Avoid effort oscillation on one task
+
+On by default (these are the default values; set either to `0` to turn it off):
 
 ```yaml
 settings:

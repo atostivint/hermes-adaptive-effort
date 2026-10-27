@@ -78,6 +78,8 @@ def clean(monkeypatch):
 
 
 def use_settings(monkeypatch, **kw):
+    # These tests cover turn scoping; dialogue context and hysteresis are pinned off here.
+    kw = {"dialogue_context_messages": 0, "continuation_downgrade_votes": 0, **kw}
     monkeypatch.setattr(
         middleware, "_settings_provider", lambda key, default=None: kw.get(key, default))
 

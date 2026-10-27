@@ -88,9 +88,15 @@ def install(monkeypatch, settings: Dict[str, Any]) -> Recorder:
 
 def run(monkeypatch, adapter: str, route: str, *, messages: Optional[List[Dict[str, Any]]] = None,
         extra_settings: Optional[Dict[str, Any]] = None, session: str = "golden",
-        **context: Any) -> Recorder:
-    """One active ``llm_request`` through the real adapter; returns what the scorer received."""
+        defaults: bool = False, **context: Any) -> Recorder:
+    """One active ``llm_request`` through the real adapter; returns what the scorer received.
+
+    The baseline pins dialogue context and continuation votes to ``0`` so the golden bodies keep
+    describing the single-request legacy shape; ``defaults=True`` leaves both at the plugin defaults.
+    """
     settings = {"mode": "always"}
+    if not defaults:
+        settings.update(dialogue_context_messages=0, continuation_downgrade_votes=0)
     settings.update(ADAPTERS[adapter])
     settings.update(extra_settings or {})
     recorder = install(monkeypatch, settings)
