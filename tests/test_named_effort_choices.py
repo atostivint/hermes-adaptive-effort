@@ -84,3 +84,56 @@ def test_provider_rejects_a_choice_outside_the_route_vocabulary(provider):
     assert client.classify_effort_detail("bounded task", CHOICES) == (
         None, "malformed_response")
     assert len(transport.calls) == 1
+
+
+NONE_CHOICES = ("none", "low", "high")
+
+
+@pytest.mark.parametrize("provider", [
+    "jev", "nace", "decisions", "cloudflare", "openrouter", "custom-systemone",
+])
+def test_provider_carries_none_only_when_the_route_offered_it(provider):
+    transport = FakeTransport(response(provider, "none"))
+    client = make_client(provider, transport)
+
+    assert client.classify_effort_detail("mechanical task", NONE_CHOICES) == ("none", None)
+    body = json.loads(transport.calls[0].data.decode("utf-8"))
+    if provider in {"jev", "nace", "cloudflare", "openrouter", "custom-systemone"}:
+        assert tuple(body["questions"]["effort"]["criteria"]) == NONE_CHOICES
+    else:
+        assert tuple(option["value"] for option in body["questions"][0]["choices"]) == \
+            NONE_CHOICES
+
+
+@pytest.mark.parametrize("provider", [
+    "jev", "nace", "decisions", "cloudflare", "openrouter", "custom-systemone",
+])
+def test_provider_rejects_none_when_the_route_did_not_offer_it(provider):
+    transport = FakeTransport(response(provider, "none"))
+    client = make_client(provider, transport)
+
+    assert client.classify_effort_detail("task", CHOICES) == (None, "malformed_response")
+    assert len(transport.calls) == 1
+
+
+def test_none_stays_out_of_the_score_contract_and_is_the_lowest_choice_level():
+    effort = import_plugin("effort")
+    rubric = import_plugin("rubric")
+
+    # The numeric score contract, used by /hae probe and unknown vocabularies, is unchanged.
+    assert rubric.questions_for(None, None)["effort"]["type"] == "score"
+    assert rubric.normalize_effort_choices(("none", "low")) == ("none", "low")
+    assert rubric.normalize_effort_choices(("ultra", "low")) == ("low",)
+    assert rubric.normalize_effort_choices(None) == ()
+    assert effort.score_to_label(0.1) == "low"
+
+    # none is only legal where the route lists it, and only as the lowest level.
+    assert effort.map_named_choice("none", ("low", "high")) is None
+    assert effort.map_named_choice("none", ("none", "low", "high")) == "none"
+    assert effort.map_effort("none", "opencode-go", "kimi-k3") is None
+    assert effort.bound_label("none", None, None) == "none"
+    assert effort.bound_label("none", "low", "high") == "low"
+    assert effort.bound_label("none", None, "high") == "none"
+    assert effort.raise_choice_level("none", ("none", "low", "high"), 1) == "low"
+    assert effort.raise_choice_level("none", ("low", "high"), 1) == "none"
+    assert effort.raise_choice_level("none", ("low", "high"), 5) == "none"

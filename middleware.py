@@ -76,6 +76,7 @@ DEFAULTS: Dict[str, Any] = {
     "continuation_downgrade_votes": 2,
     "effort_floor": "",
     "effort_ceiling": "",
+    "allow_none": False,
     "tool_error_escalation": True,
     "respect_manual_effort": True,
     "dynamic_trial": True,
@@ -1055,6 +1056,7 @@ def _settings() -> Dict[str, Any]:
         "continuation_downgrade_votes": _downgrade_votes(
             read_setting("continuation_downgrade_votes",
                           DEFAULTS["continuation_downgrade_votes"])),
+        "allow_none": _bool("allow_none", DEFAULTS["allow_none"]),
         "tool_error_escalation": _bool(
             "tool_error_escalation", DEFAULTS["tool_error_escalation"]),
         "respect_manual_effort": _bool(
@@ -1473,6 +1475,8 @@ CONTINUATION_MAX_VOTES = 5
 ESCALATION_REASON = "repeated_tool_error"
 _ESCALATION_SEEN_LIMIT = 64
 _LEVEL_RANK = {level: index for index, level in enumerate(_rubric.CHOICE_LEVELS)}
+#: Rank that includes ``none`` below ``minimal``; used only for the ceiling comparison.
+_EFFORT_RANK = {level: index for index, level in enumerate(_effort.EFFORT_ORDER)}
 
 
 def _downgrade_votes(value: Any) -> int:
@@ -1858,13 +1862,18 @@ def _target_for_route(entry: Dict[str, Any], provider: Any, model: Any,
     label = entry.get("label")
     if not isinstance(label, str) or not label:
         return None
+    choices = (route_choices if route_choices is not None
+               else _effort.route_choice_levels(provider, model, api_mode, base_url))
+    if label.strip().lower() == _effort.NONE_LEVEL and _effort.NONE_LEVEL not in choices:
+        # An opt-in ``none`` decision only survives while this route still offers it
+        # (``allow_none`` off, a route change, or a lost trial all drop it).
+        entry.update(target=None, provider=provider, model=model, api_mode=api_mode)
+        return None
     if (entry.get("provider"), entry.get("model"), entry.get("api_mode")) == (
             provider, model, api_mode):
         target = entry.get("target")
         if isinstance(target, str) and target:
             return target
-    choices = (route_choices if route_choices is not None
-               else _effort.route_choice_levels(provider, model, api_mode, base_url))
     if entry.get("decision_type") == "native_choice" and choices:
         target = _effort.map_named_choice(label, choices)
         entry["choices"] = list(choices)
@@ -1956,6 +1965,38 @@ def _dynamic_effort_route(provider: Any, model: Any, api_mode: Any,
     if provider_name == "opencode-go":
         return bare_model in _effort.OPEN_CODE_GO_INJECTION_ROUTES.get(api, {})
     return False
+
+
+def _none_choice_allowed(settings: Dict[str, Any], mode: str, provider: Any, model: Any,
+                          api_mode: Any, base_url: Any, route_choices: Any, slot: Any,
+                          dynamic_info: Any) -> bool:
+    """May ``none`` be *offered* to the scorer on this request (issue #83)?
+
+    Every condition must hold; anything unexpected is a no. The operator opted in
+    (``allow_none``), the mode re-decides per user turn (``auto``/``always``), the route is
+    an exact registered model/API pair that already declares ``none`` in its own vocabulary,
+    it has positive transport cache-safety evidence (the same gate as
+    ``_dynamic_effort_route``, and not a trial route, which has no named choices), it is not
+    Anthropic, and the effort field already exists and is writable. The field is never
+    injected for ``none``.
+    """
+    try:
+        if not settings.get("allow_none") or mode not in ("auto", "always"):
+            return False
+        if str(provider or "").strip().lower() == "anthropic":
+            return False
+        if not route_choices or slot is None:
+            return False
+        if (dynamic_info or {}).get("dynamic_reason") != _route_trial.LISTED:
+            return False
+        route = _route_identity(provider, model, api_mode)
+        if not _cache_safety.effort_is_cache_safe(*route):
+            return False
+        return _effort.route_declares_none(provider, model, api_mode, base_url)
+    except Exception:
+        logger.debug("hermes-adaptive-effort: none eligibility failed; not offered",
+                     exc_info=True)
+        return False
 
 
 def _dynamic_info(settings: Dict[str, Any], provider: Any, model: Any, api_mode: Any,
@@ -2204,7 +2245,7 @@ def _cap_to_ceiling(raised: str, target: str, choices: Any, ceiling: Optional[st
     if not ceiling or capped == raised:
         return raised
     mapped = _effort.map_named_choice(capped, choices)
-    if mapped is None or _LEVEL_RANK.get(mapped, -1) <= _LEVEL_RANK.get(target, -1):
+    if mapped is None or _EFFORT_RANK.get(mapped, -1) <= _EFFORT_RANK.get(target, -1):
         return target
     return mapped
 
@@ -2393,6 +2434,11 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         _publish_desktop_decision(session_id, provider, model, api_mode, entry)
         logger.debug("hermes-adaptive-effort: no writable effort field; no change")
         return None
+
+    if _none_choice_allowed(settings, mode, provider, model, api_mode, base_url,
+                            route_choices, slot, dynamic_info):
+        # Opt-in lowest level: offered on this exact route only, after all checks passed.
+        route_choices = (_effort.NONE_LEVEL,) + tuple(route_choices)
 
     turn_id = kwargs.get("turn_id")
     turn_key = _decision_key(session_id, turn_id)

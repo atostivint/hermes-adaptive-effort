@@ -31,8 +31,9 @@ class ChoiceScorer:
         return 1.9, None
 
 
-def configure(monkeypatch, scorer=None, mode="auto", max_turns=64):
+def configure(monkeypatch, scorer=None, mode="auto", max_turns=64, **extra):
     values = {"mode": mode, "max_turns": max_turns}
+    values.update(extra)
     monkeypatch.setattr(middleware, "_settings_provider",
                         lambda key, default=None: values.get(key, default))
     if scorer is not None:
@@ -404,3 +405,150 @@ def test_claude_internal_error_invalidates_existing_marker_history(monkeypatch):
 
     assert claude_call(next_turn, turn_id="turn-2") is None
     assert middleware._CLAUDE_HISTORY[route_key]["invalid"] is True
+
+
+# ── opt-in ``none`` choice (issue #83) ──────────────────────────────────────
+
+def declare_none_route(monkeypatch, model="gpt-6-luna", api="codex_responses"):
+    """Give an exact registered route a vocabulary that already lists ``none``."""
+    table = middleware._effort.OPEN_CODE_GO_INJECTION_ROUTES.setdefault(api, {})
+    monkeypatch.setitem(table, model, ("reasoning", ("none", "low", "medium", "high", "xhigh")))
+    middleware._effort.clear_caches()
+
+
+def go_request(effort="low", model="gpt-6-luna"):
+    body = {"model": model, "input": [{"role": "user", "content": "mechanical task"}]}
+    if effort is not None:
+        body["reasoning"] = {"effort": effort, "summary": "auto"}
+    return body
+
+
+def test_allow_none_offers_none_only_on_an_exact_declared_route(monkeypatch):
+    declare_none_route(monkeypatch)
+    scorer = ChoiceScorer("none")
+    configure(monkeypatch, scorer, allow_none=True)
+
+    result = request_for("opencode-go", "gpt-6-luna", "codex_responses", go_request("high"))
+
+    assert result["request"]["reasoning"] == {"effort": "none", "summary": "auto"}
+    assert scorer.calls[0][1] == ("none", "low", "medium", "high", "xhigh")
+    status = middleware.session_state()[f"{SESSION}/turn-1"]
+    assert status["decision_type"] == "native_choice"
+    assert status["score"] is None
+    assert status["label"] == "none"
+    assert status["target"] == "none"
+    assert status["choices"] == ["none", "low", "medium", "high", "xhigh"]
+
+
+def test_allow_none_default_off_keeps_none_out_of_the_offered_choices(monkeypatch):
+    declare_none_route(monkeypatch)
+    scorer = ChoiceScorer("none")
+    configure(monkeypatch, scorer)
+
+    assert request_for("opencode-go", "gpt-6-luna", "codex_responses",
+                       go_request("high")) is None
+    assert scorer.calls[0][1] == ("low", "medium", "high", "xhigh")
+    status = middleware.session_state()[f"{SESSION}/turn-1"]
+    assert status["state"] == "failed"
+    assert status["failure"] == "malformed_response"
+    assert status["choices"] == []
+
+
+def test_allow_none_never_injects_the_effort_field(monkeypatch):
+    declare_none_route(monkeypatch)
+    scorer = ChoiceScorer("none")
+    configure(monkeypatch, scorer, allow_none=True)
+
+    assert request_for("opencode-go", "gpt-6-luna", "codex_responses",
+                       go_request(effort=None)) is None
+    assert scorer.calls[0][1] == ("low", "medium", "high", "xhigh")
+    status = middleware.session_state()[f"{SESSION}/turn-1"]
+    assert status["state"] == "failed"
+
+
+def test_allow_none_applies_only_to_auto_and_always(monkeypatch):
+    declare_none_route(monkeypatch)
+    once_scorer = ChoiceScorer("none")
+    configure(monkeypatch, once_scorer, mode="once", allow_none=True)
+    assert request_for("opencode-go", "gpt-6-luna", "codex_responses",
+                       go_request("high")) is None
+    assert once_scorer.calls[0][1] == ("low", "medium", "high", "xhigh")
+
+    middleware.reset_state()
+    off_scorer = ChoiceScorer("none")
+    configure(monkeypatch, off_scorer, mode="off", allow_none=True)
+    assert request_for("opencode-go", "gpt-6-luna", "codex_responses",
+                       go_request("high")) is None
+    assert off_scorer.calls == []
+
+
+def test_allow_none_never_reaches_anthropic_or_trial_routes(monkeypatch):
+    monkeypatch.setitem(
+        middleware._effort.ANTHROPIC_EFFORT_ROUTES, "claude-fable-5-1",
+        ("none", "low", "medium", "high", "max"))
+    middleware._effort.clear_caches()
+    anthropic_scorer = ChoiceScorer("none")
+    configure(monkeypatch, anthropic_scorer, mode="always", allow_none=True)
+
+    assert claude_call(claude_request([{"role": "user", "content": "task"}],
+                                      effort="high")) is None
+    assert anthropic_scorer.calls[0][1] == ("low", "medium", "high", "max")
+
+    middleware.reset_state()
+    trial_scorer = ChoiceScorer()
+    configure(monkeypatch, trial_scorer, allow_none=True)
+    result = request_for("openrouter", "vendor/model", "chat_completions", {
+        "model": "vendor/model",
+        "extra_body": {"reasoning": {"enabled": True, "effort": "low"}},
+        "messages": [{"role": "user", "content": "task"}],
+    })
+    assert result["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    assert trial_scorer.calls[0][1] is None
+    assert middleware.session_state()[f"{SESSION}/turn-1"]["decision_type"] == "legacy_score"
+
+
+def test_allow_none_still_respects_the_effort_floor(monkeypatch):
+    declare_none_route(monkeypatch)
+    scorer = ChoiceScorer("none")
+    configure(monkeypatch, scorer, allow_none=True, effort_floor="low")
+
+    result = request_for("opencode-go", "gpt-6-luna", "codex_responses", go_request("high"))
+
+    assert result["request"]["reasoning"]["effort"] == "low"
+    status = middleware.session_state()[f"{SESSION}/turn-1"]
+    assert status["label"] == "low"
+    assert status["target"] == "low"
+    assert "none" in status["choices"]
+
+
+def test_allow_none_keeps_none_off_routes_that_do_not_declare_it(monkeypatch):
+    scorer = ChoiceScorer("none")
+    configure(monkeypatch, scorer, allow_none=True)
+
+    assert request_for("opencode-go", "kimi-k3", "chat_completions", {
+        "model": "kimi-k3", "reasoning_effort": "high",
+        "messages": [{"role": "user", "content": "task"}],
+    }) is None
+    assert scorer.calls[0][1] == ("low", "high", "max")
+
+
+def test_tool_error_escalation_treats_none_as_the_lowest_level():
+    choices = ("none", "low", "medium", "high")
+    assert middleware._cap_to_ceiling("low", "none", choices, None) == "low"
+    assert middleware._cap_to_ceiling("low", "none", choices, "high") == "low"
+    assert middleware._effort.raise_choice_level("none", choices, 1) == "low"
+
+
+def test_retained_none_decision_survives_only_while_the_route_offers_it():
+    entry = {"label": "none", "target": "none", "decision_type": "native_choice",
+             "provider": "opencode-go", "model": "gpt-6-luna",
+             "api_mode": "codex_responses"}
+
+    assert middleware._target_for_route(
+        dict(entry), "opencode-go", "gpt-6-luna", "codex_responses", None,
+        ("none", "low", "high")) == "none"
+    dropped = dict(entry)
+    assert middleware._target_for_route(
+        dropped, "opencode-go", "gpt-6-luna", "codex_responses", None,
+        ("low", "high")) is None
+    assert dropped["target"] is None

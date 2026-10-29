@@ -56,7 +56,7 @@ const OUTCOME_HELP = {
 }
 const DECISION_EVENT = `plugin.${ID}.decision.updated`
 const SESSION_INFO_EVENT = 'session.info'
-const EFFORT_VALUES = new Set(['minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+const EFFORT_VALUES = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
 const MAX_LIVE_SESSIONS = 64
 const MAX_RETIRED_STREAMS = 64
 const MAX_SYNC_ATTEMPTS = 128

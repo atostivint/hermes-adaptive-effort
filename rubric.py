@@ -39,7 +39,11 @@ QUESTIONS: Dict[str, Dict[str, Any]] = {
 MAX_CLASSIFICATION_INSTRUCTION_CHARS = 2000
 
 CHOICE_LEVELS = ("minimal", "low", "medium", "high", "xhigh", "max")
+#: ``none`` is accepted as a choice only when the caller (an exact route under
+#: ``allow_none``) put it in the offered list; it is never a score-derived label.
+CHOICE_LEVELS_WITH_NONE = ("none",) + CHOICE_LEVELS
 _CHOICE_DESCRIPTIONS = {
+    "none": "No reasoning is needed: only when the task is purely mechanical and the user explicitly wants the cheapest fastest reply.",
     "minimal": "The lowest available effort. Use only when the task is exceptionally simple and the user clearly prioritizes minimal cost or latency.",
     "low": "For short, scoped tasks with an obvious answer or one straightforward step.",
     "medium": "For a well-defined task with several steps and some judgment; a balanced level.",
@@ -63,14 +67,17 @@ def normalize_classification_instructions(value: Any) -> str:
 
 
 def normalize_effort_choices(choices: Any) -> Tuple[str, ...]:
-    """Keep only the automatic effort vocabulary, in caller-supplied route order."""
+    """Keep only the offered effort vocabulary, in caller-supplied route order.
+
+    ``none`` is kept when the caller offered it; it never appears on its own.
+    """
     if not isinstance(choices, (list, tuple)):
         return ()
     result = []
     for item in choices:
         if isinstance(item, str):
             level = item.strip().lower()
-            if level in CHOICE_LEVELS and level not in result:
+            if level in CHOICE_LEVELS_WITH_NONE and level not in result:
                 result.append(level)
     return tuple(result)
 

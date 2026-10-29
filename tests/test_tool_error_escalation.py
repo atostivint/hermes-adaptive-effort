@@ -188,7 +188,12 @@ def test_never_exceeds_the_route_top_and_never_reaches_ultra_or_none(monkeypatch
     assert effort.raise_choice_level("max", ("low", "high", "max")) == "max"
     assert effort.raise_choice_level("low", ("low", "high", "max"), 1) == "high"
     assert effort.raise_choice_level("medium", ("low", "high", "max")) == "medium"
-    assert effort.raise_choice_level("none", ("none", "low")) == "none"
+    # ``none`` is the lowest level escalation can start from (issue #83): it is raised by
+    # one step, but no raise ever *reaches* ``none`` from above.
+    assert effort.raise_choice_level("none", ("none", "low")) == "low"
+    assert effort.raise_choice_level("none", ("none", "low", "high"), 5) == "high"
+    assert effort.raise_choice_level("low", ("none", "low", "high"), 1) == "high"
+    assert effort.raise_choice_level("none", ("low", "high")) == "none"
 
 
 def test_works_on_chat_completions_dynamic_route_with_the_route_vocabulary(monkeypatch):

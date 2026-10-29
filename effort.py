@@ -19,6 +19,12 @@ from typing import Optional, Sequence
 #: Normalized labels Hermes Adaptive Effort may select. Never a fourth value.
 EFFORT_LABELS: tuple[str, ...] = ("low", "medium", "high")
 CHOICE_LEVELS: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh", "max")
+#: The opt-in "no reasoning" level (issue #83). It stays outside ``CHOICE_LEVELS`` so no
+#: implicit clamp, raise or score can ever reach it: it is offered to a scorer only when the
+#: operator set ``allow_none`` and the exact route already declares it.
+NONE_LEVEL = "none"
+#: Ordering used only where ``none`` may take part (bounds, named choices, escalation).
+EFFORT_ORDER: tuple[str, ...] = (NONE_LEVEL,) + CHOICE_LEVELS
 
 #: Rubric boundaries (documented in README.md).
 LOW_MAX = 0.5
@@ -107,12 +113,14 @@ def score_to_label(score) -> Optional[str]:
 _CACHE_LIMIT = 512
 _WIRE_CACHE: dict = {}
 _CHOICE_CACHE: dict = {}
+_DECLARED_CACHE: dict = {}
 
 
 def clear_caches() -> None:
     """Drop the memoised route lookups (``reset_state`` and tests)."""
     _WIRE_CACHE.clear()
     _CHOICE_CACHE.clear()
+    _DECLARED_CACHE.clear()
 
 
 def _memo(cache: dict, key: tuple, compute):
@@ -240,7 +248,29 @@ def route_choice_levels(provider: Optional[str], model: Optional[str], api_mode:
 
 def _route_choice_levels(provider: Optional[str], model: Optional[str], api_mode: Optional[str],
                          base_url: Optional[str]) -> tuple[tuple[str, ...], bool]:
-    """``(levels, cacheable)``; not cacheable when a lazy Hermes import failed."""
+    """Automatic named choices for the exact route, filtered out of its declared levels."""
+    levels, cacheable = _route_declared_levels(provider, model, api_mode, base_url)
+    return tuple(level for level in levels if level in CHOICE_LEVELS), cacheable
+
+
+def route_declares_none(provider: Optional[str], model: Optional[str], api_mode: Optional[str],
+                        base_url: Optional[str] = None) -> bool:
+    """Does this exact registered route's own vocabulary already list ``none``?
+
+    True only for a route the registry binds to an exact provider/model/API pair whose
+    declared levels include ``none``. Hermes' generic OpenAI-compatible entry vocabulary
+    does list ``none``, but that is never evidence for a specific vendor route; it is only
+    the widest default, and this plugin treats unverified support as absent.
+    """
+    declared = _memo(_DECLARED_CACHE, (provider, model, api_mode, base_url),
+                     lambda: _route_declared_levels(provider, model, api_mode, base_url))
+    return NONE_LEVEL in declared
+
+
+def _route_declared_levels(provider: Optional[str], model: Optional[str],
+                           api_mode: Optional[str],
+                           base_url: Optional[str]) -> tuple[tuple[str, ...], bool]:
+    """``(levels, cacheable)`` for the exact registry, *unfiltered* (may include ``none``)."""
     cacheable = True
     provider_name = (provider or "").strip().lower()
     api = (api_mode or "").strip().lower()
@@ -265,7 +295,10 @@ def _route_choice_levels(provider: Optional[str], model: Optional[str], api_mode
     elif (provider_name == "anthropic" and api == "anthropic_messages"
           and _native_anthropic_host(base_url)):
         levels = ANTHROPIC_EFFORT_ROUTES.get(bare, ())
-    return tuple(level for level in levels if level in CHOICE_LEVELS), cacheable
+    normalized = tuple(
+        str(level).strip().lower() for level in levels
+        if isinstance(level, str) and level.strip())
+    return normalized, cacheable
 
 
 def _native_anthropic_host(base_url: Optional[str]) -> bool:
@@ -289,10 +322,15 @@ def map_effort(label: Optional[str], provider: Optional[str] = None,
     if not isinstance(label, str):
         return None
     level = label.strip().lower()
-    if level not in CHOICE_LEVELS:
+    if level not in CHOICE_LEVELS and level != NONE_LEVEL:
         return None
     vocabulary = supported_efforts(provider, model, supported)
     if not vocabulary:
+        return None
+    if level == NONE_LEVEL and NONE_LEVEL not in {
+            str(item).strip().lower() for item in vocabulary if isinstance(item, str)}:
+        # ``none`` is only ever sent to a route that declares it; the vendor's own
+        # "least effort" level is not a substitute (that would change reasoning intensity).
         return None
     try:
         from agent.reasoning_effort import clamp_effort
@@ -318,8 +356,13 @@ def map_named_choice(label: Optional[str], supported: Sequence[str]) -> Optional
     if not isinstance(label, str):
         return None
     level = label.strip().lower()
-    vocabulary = tuple(item for item in supported if item in CHOICE_LEVELS)
-    if level not in CHOICE_LEVELS or not vocabulary:
+    vocabulary = tuple(
+        str(item).strip().lower() for item in supported
+        if isinstance(item, str) and str(item).strip().lower() in EFFORT_ORDER)
+    if level not in EFFORT_ORDER or not vocabulary:
+        return None
+    if level == NONE_LEVEL and level not in vocabulary:
+        # ``none`` is never re-clamped onto a route that does not list it.
         return None
     try:
         from agent.reasoning_effort import clamp_effort
@@ -357,27 +400,36 @@ def normalize_bounds(floor, ceiling) -> tuple[Optional[str], Optional[str]]:
 
 
 def bound_label(label: Optional[str], floor: Optional[str], ceiling: Optional[str]) -> Optional[str]:
-    """Clamp a scorer label into ``[floor, ceiling]``; unbounded or unknown labels pass through."""
-    if not isinstance(label, str) or label not in CHOICE_LEVELS:
+    """Clamp a scorer label into ``[floor, ceiling]``; unbounded or unknown labels pass through.
+
+    ``none`` takes part here as the level below ``minimal``, so an operator floor still
+    lifts it (a floor of ``low`` means ``low``, and a ceiling never lifts it).
+    """
+    if not isinstance(label, str):
         return label
-    index = CHOICE_LEVELS.index(label)
+    level = label.strip().lower()
+    if level not in EFFORT_ORDER:
+        return label
+    index = EFFORT_ORDER.index(level)
     if floor in CHOICE_LEVELS:
-        index = max(index, CHOICE_LEVELS.index(floor))
+        index = max(index, EFFORT_ORDER.index(floor))
     if ceiling in CHOICE_LEVELS:
-        index = min(index, CHOICE_LEVELS.index(ceiling))
-    return CHOICE_LEVELS[index]
+        index = min(index, EFFORT_ORDER.index(ceiling))
+    return EFFORT_ORDER[index]
 
 
 def raise_choice_level(current: Optional[str], supported: Sequence[str],
                        steps: int = 1) -> Optional[str]:
     """Move *current* up *steps* levels within a route's own list; never down.
 
-    Only named levels (``CHOICE_LEVELS``) take part, so ``none`` and ``ultra`` are never
-    reached. An unknown *current*, an empty list or the top of the list returns *current*.
+    ``none`` counts as the level below ``minimal`` only when the route lists it, so a
+    repeated tool error raises it by one step instead of leaving reasoning disabled.
+    ``ultra`` is never in the ladder and is never reached.
     """
     if not isinstance(current, str):
         return current
-    levels = [level for level in CHOICE_LEVELS if level in supported]
+    offered = {str(item).strip().lower() for item in supported if isinstance(item, str)}
+    levels = [level for level in EFFORT_ORDER if level in offered]
     if current not in levels or steps < 1:
         return current
     return levels[min(levels.index(current) + int(steps), len(levels) - 1)]
