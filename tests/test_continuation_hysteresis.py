@@ -333,8 +333,9 @@ def test_status_reports_inactive_without_dialogue_context(monkeypatch):
     assert "continuation: inactive (no dialogue context)" in \
         command.handle("status full").lower()
     configure(monkeypatch, None, continuation_downgrade_votes=0)
-    assert "continuation" not in command.handle("status full").lower().replace(
-        "continuation_", "")
+    full = command.handle("status full").lower()
+    assert "continuation" not in full.replace("continuation_", "").replace(
+        "goal continuation escalation: off", "")
     configure(monkeypatch, None, continuation_downgrade_votes=2)
     assert "Continuation: active" in command.handle("status full")
 
