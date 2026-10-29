@@ -221,6 +221,10 @@ Published adaptive-effort systems report output-length reductions from about 13%
 
 Too much effort can also cost quality, not only money: Ares found medium effort ahead of high on one benchmark (42.0% against 38.0% on TAU-Bench Airline). Treat that as a reason to compare, not as a guarantee.
 
+More systematic evidence points the same way. [What Effort Level Should I Choose?](https://arxiv.org/abs/2610.34491) (Sun et al., 2026) measured eight models on four benchmarks, including agentic tasks, and found that higher effort can lose tasks a lower level solved; on tasks every level solves, the top level cost up to 42x the lowest; and higher effort changes an agent's strategy (more self-verification and retrieval) rather than only adding deliberation. Their deployable policy - start at the lowest level and retry at the highest only after an externally verified failure ("naive laddering") - matched or beat fixed top effort at lower median cost on most benchmarks. The lesson is to start low and raise on evidence, not to assume a higher level is safer. This plugin cannot perform that fresh retry: `tool_error_escalation` raises effort inside the same turn after a repeated tool error, so it is a weaker, bounded proxy. The paper does not measure this plugin.
+
+If you want a cost-conscious posture today, keep `tool_error_escalation` on and use `classification_instructions` to prefer the lowest level that can plausibly solve the task. Leave `effort_ceiling` empty so escalation can still reach the top: a ceiling is a hard cap, not a ladder, and it also caps tool-error escalation.
+
 ## Data sharing and limits
 
 - Enabling routing sends at most `prompt_chars` task characters (default 4,000), plus optional classifier guidance and the allowed level names for named-choice routes, to the selected scorer. Target model context is a separate opt-in setting.

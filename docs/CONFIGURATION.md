@@ -256,6 +256,19 @@ In `always` mode (and `auto` on an exact dynamic route) every new user turn is s
 
 Set `tool_error_escalation: false` to turn it off.
 
+### Cost-conscious configuration
+
+Effort economics are task-dependent: a higher level can lose a task a lower level solved, and on tasks every level solves it can cost many times more. The [paper cited in the README](../README.md#what-to-expect) found that starting low and retrying at the highest level only after an externally verified failure beat fixed top effort on most of its benchmarks. This plugin cannot restart a turn, so it cannot implement that fresh retry. The closest opt-in posture is a soft low-first bias plus the existing up-only escalation:
+
+```yaml
+settings:
+  mode: auto
+  classification_instructions: "Prefer the lowest effort that can plausibly solve the task. Choose a higher level only when the task clearly needs multi-step planning, formal proof, repeated debugging or careful verification."
+  tool_error_escalation: true
+```
+
+Leave `effort_ceiling` empty. It is a hard cap, it also caps `tool_error_escalation`, and it would prevent the high-level retry this posture relies on. This is a heuristic, not a measured saving: the scorer can ignore guidance, and the paper measured other systems and benchmarks.
+
 ### Stand down on a manual effort change
 
 `respect_manual_effort` is on by default and needs no scorer call. Hermes rebuilds the request from its own state on every attempt, so the effort the plugin receives stays what the user configured until the user changes it; a rewrite by this plugin never comes back as the next incoming value. For each parent conversation the plugin therefore remembers, per current route, the last effort it read and the last it applied. An incoming value equal to neither means you changed it (a config edit or the selector), and the plugin stands down for that conversation.
