@@ -167,6 +167,19 @@ A route with no existing effort field reports `null` for both. `/hae status` and
 | Surfaces | Applied through the single rewrite return point, so the change feed records `from -> to` once. The decision entry gains `escalated` (bool) and `escalation_reason` (`"repeated_tool_error"` or `null`), additive in status v2, the Desktop decision event v2 and the history store; `target` stays the decision's level |
 | Privacy | No scorer call, nothing shared. Digests live only in the in-memory turn record (bounded by `max_turns`); error text and digests never appear in status, logs, the history store, the feed or events |
 
+### Goal-continuation escalation
+
+`goal_continuation_escalation` (bool, default `false`) raises effort one level for a host-generated goal retry after a failed check. Scope: an exact dynamic route with named choices, `always` or `auto` on a dynamic route, never an `anthropic` provider, and never `once` or a retained `auto` decision. Trial routes have no named choices and are skipped.
+
+| Part | Contract |
+| --- | --- |
+| Signal | The latest user text starts with `[Continuing toward your standing goal` (`/goal`, `/subgoal` and quality-gate retries) or `[Continuing toward this kanban task` (kanban goal-mode worker). The kanban finalize nudge `[The work looks complete`, a new goal kickoff `[Goal set]`, and normal user text do not match. Comparison is local; the text is never stored |
+| Basis | The previous decided turn's applied level for the same session and exact route (`_applied_target`, falling back to its `target`). The marker selects only the turn; it does not change the task text sent to the scorer |
+| Effect | One level up within the route's choices, once per retry turn; never down; never `none`/`ultra`; none at the top; re-clamped on a route change; capped by `effort_ceiling`. It combines with tool-error escalation by taking the higher target; a tie uses `goal_continuation` |
+| Surfaces | Applied through the single rewrite return point, so the change feed records `from -> to` once. The decision entry gains `escalated` (bool) and `escalation_reason` (`"goal_continuation"`), additive in status v2, the Desktop decision event v2 and the history store; `target` stays the decision's level |
+| Privacy | No scorer call and no new text shared. The goal prompt is already the latest user message the scorer sees; the plugin keeps only the previous effort value, and the marker itself is not stored |
+| Limit | The host also emits a continuation prompt when the goal judge fails open (transport or parse failure). The marker is therefore not proof of a real failure; the setting is off by default, and cost/cache effects are unmeasured |
+
 ### Continuation call and hysteresis
 
 `continuation_downgrade_votes` (int, default 2, 0 = off, 0-5; invalid or negative means 0) is active only when `dialogue_context_messages` is above 0 and the request is classified per turn (`always`, or `auto` on an exact dynamic route) for a parent session; otherwise it is ignored and status reports `Continuation: inactive (no dialogue context)` (or `off`). When active and an earlier message exists, a second, separate scorer request is sent in parallel with the effort request, with the same prompt (task plus dialogue block) and a fixed question; it is never batched into the effort request, whose body is unchanged, and it shares the effort call's `timeout_s` deadline (an answer arriving after the deadline is ignored). Only the effort call counts for the circuit breaker and latency histogram; the continuation call has no retry beyond the transient-status rule of the adapter.
