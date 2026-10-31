@@ -18,6 +18,7 @@ Retry semantics stay in :mod:`scorer_retry` and are not changed.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
@@ -26,6 +27,8 @@ import urllib.request
 from typing import Any, Callable, Optional
 
 from . import scorer_retry
+
+logger = logging.getLogger(__name__)
 
 #: How long a resolved API key is reused before the secret scope / environment is read again.
 KEY_TTL_S = 30.0
@@ -120,6 +123,8 @@ def send(request: urllib.request.Request, transport: Callable[..., Any],
     try:
         return scorer_retry.send_with_retry(lambda t: transport(request, t), timeout), None
     except urllib.error.HTTPError as exc:
+        code = getattr(exc, "code", None)
+        logger.info("hermes-adaptive-effort: scorer returned HTTP %s", code)
         close_response(exc)
         return None, "http_error"
     except urllib.error.URLError as exc:
@@ -137,6 +142,7 @@ def read_json(payload: Any) -> "tuple[Any, Optional[str]]":
     """Parsed answer or a reason code; a non-2xx or unreadable response is closed."""
     status = getattr(payload, "status", None)
     if isinstance(status, int) and not 200 <= status < 300:
+        logger.info("hermes-adaptive-effort: scorer returned HTTP %s", status)
         close_response(payload)
         return None, "http_error"
     try:

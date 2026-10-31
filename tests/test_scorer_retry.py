@@ -74,7 +74,7 @@ class Sequence:
 
 # ── helper rules ────────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("status", [408, 429, 500, 502, 503, 504])
+@pytest.mark.parametrize("status", [408, 429, 500, 502, 503, 504, 529])
 def test_transient_status_then_success_retries_once(fake_time, status):
     transport = Sequence(http_error(status), "ok", fake=fake_time, cost=0.05)
     assert scorer_retry.send_with_retry(lambda t: transport(None, t), 2.0) == "ok"
@@ -251,6 +251,16 @@ ADAPTERS = sorted(PAYLOADS)
 @pytest.mark.parametrize("name", ADAPTERS)
 def test_adapter_retries_a_503_once_and_uses_the_answer(fake_time, name):
     transport = Sequence(http_error(503), _ok(PAYLOADS[name]))
+    score, failure = _client(name, transport).classify_detail("Rename a function")
+    assert (score, failure) == (pytest.approx(1.25), None)
+    assert len(transport.timeouts) == 2
+    assert transport.timeouts[0] == 2.0
+    assert transport.timeouts[1] <= 2.0 - scorer_retry.DEFAULT_WAIT_S + 1e-9
+
+
+@pytest.mark.parametrize("name", ADAPTERS)
+def test_adapter_retries_a_529_once_and_uses_the_answer(fake_time, name):
+    transport = Sequence(http_error(529), _ok(PAYLOADS[name]))
     score, failure = _client(name, transport).classify_detail("Rename a function")
     assert (score, failure) == (pytest.approx(1.25), None)
     assert len(transport.timeouts) == 2

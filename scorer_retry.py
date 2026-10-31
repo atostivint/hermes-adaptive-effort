@@ -1,6 +1,6 @@
 """One bounded retry for a transient scorer HTTP status (stdlib only, no I/O of its own).
 
-A scorer that answers 408/429/500/502/503/504 gave no answer at all, so the call may be
+A scorer that answers 408/429/500/502/503/504/529 gave no answer at all, so the call may be
 repeated once, but only inside the caller's existing deadline: the retry's own timeout is
 the remaining budget, so the total never exceeds ``timeout_s``. Timeouts, connection
 errors, every other status and every answer that was received (malformed, refused,
@@ -15,7 +15,7 @@ import urllib.error
 from typing import Any, Callable, Optional
 
 #: HTTP statuses that mean "no answer yet, try again".
-TRANSIENT_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
+TRANSIENT_STATUSES = frozenset({408, 429, 500, 502, 503, 504, 529})
 #: A retry needs at least this much of the deadline left after the wait.
 MIN_REMAINING_S = 0.3
 #: Wait before the retry when the server sent no usable ``Retry-After``.
