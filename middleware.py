@@ -38,6 +38,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import cache_safety as _cache_safety
 from . import effort as _effort
+from . import goal_loop as _goal_loop
 from . import history_store as _history_store
 from . import jev_client as _jev_client
 from . import model_profiles as _model_profiles
@@ -77,6 +78,7 @@ DEFAULTS: Dict[str, Any] = {
     "effort_floor": "",
     "effort_ceiling": "",
     "tool_error_escalation": True,
+    "goal_continuation_escalation": False,
     "respect_manual_effort": True,
     "dynamic_trial": True,
     "show_tui_status": True,
@@ -1057,6 +1059,8 @@ def _settings() -> Dict[str, Any]:
                           DEFAULTS["continuation_downgrade_votes"])),
         "tool_error_escalation": _bool(
             "tool_error_escalation", DEFAULTS["tool_error_escalation"]),
+        "goal_continuation_escalation": _bool(
+            "goal_continuation_escalation", DEFAULTS["goal_continuation_escalation"]),
         "respect_manual_effort": _bool(
             "respect_manual_effort", DEFAULTS["respect_manual_effort"]),
         "dynamic_trial": _bool("dynamic_trial", DEFAULTS["dynamic_trial"]),
@@ -1471,6 +1475,7 @@ def _dialogue_context(request: Any, count: int) -> "List[Tuple[str, str]]":
 
 CONTINUATION_MAX_VOTES = 5
 ESCALATION_REASON = "repeated_tool_error"
+GOAL_ESCALATION_REASON = "goal_continuation"
 _ESCALATION_SEEN_LIMIT = 64
 _LEVEL_RANK = {level: index for index, level in enumerate(_rubric.CHOICE_LEVELS)}
 
@@ -2232,6 +2237,52 @@ def _cap_to_ceiling(raised: str, target: str, choices: Any, ceiling: Optional[st
     return mapped
 
 
+def _level_rank(value: Any) -> int:
+    return _LEVEL_RANK.get(value, -1) if isinstance(value, str) else -1
+
+
+def _previous_applied_target(session_id: str, route: Tuple[str, str, str],
+                             current_key: str) -> Optional[str]:
+    """The last applied level for this session and route before the current turn.
+
+    The goal and kanban loops retry the same task in a new turn. Their continuation prompt is
+    short for kanban, so the previous attempt is a better baseline than a fresh score of the
+    prompt. Reads only the bounded in-memory turn ledger; no prompt text.
+    """
+    provider, model, api_mode = route
+    with _lock:
+        for key, prior in reversed(_SESSIONS.items()):
+            if key == current_key or prior.get("conversation_id") != session_id:
+                continue
+            if (prior.get("provider"), prior.get("model"), prior.get("api_mode")) != (
+                    provider, model, api_mode):
+                continue
+            if prior.get("state") == "decided":
+                applied = prior.get("_applied_target") or prior.get("target")
+                if applied in _LEVEL_RANK:
+                    return applied
+    return None
+
+
+def _goal_continuation_target(request: Dict[str, Any], session_id: str,
+                              route: Tuple[str, str, str], current_key: str, target: str,
+                              choices: Any) -> str:
+    """One level above the previous attempt for a host-generated goal continuation.
+
+    The host sends a new turn only after the goal judge or a quality gate rejected the previous
+    attempt (``hermes_cli/goals.py``). The marker is compared locally and never stored. A missing
+    or evicted previous entry falls back to the current decision, so the ladder still moves;
+    the caller applies the operator ceiling and takes the higher of this and tool-error escalation.
+    """
+    if not _goal_loop.is_goal_continuation(_latest_user_prompt(request)):
+        return target
+    baseline = _previous_applied_target(session_id, route, current_key) or target
+    raised = _effort.raise_choice_level(baseline, choices, 1)
+    if raised not in choices or _level_rank(raised) < _level_rank(target):
+        return target
+    return raised
+
+
 def _copy_decision(source: Dict[str, Any], target: Dict[str, Any]) -> None:
     """Copy only prompt-free decision fields between the turn and route ledgers."""
     for field in ("state", "label", "target", "score", "failure", "elapsed_ms",
@@ -2732,17 +2783,40 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "reason": f"{mode} {before} -> {target} ({entry.get('label')}, per-message)",
         }
     escalated = False
-    if (settings["tool_error_escalation"] and dynamic_route and route_choices
-            and str(provider or "").strip().lower() != "anthropic"):
+    escalation_reason = None
+    local_escalation = (dynamic_route and route_choices
+                        and str(provider or "").strip().lower() != "anthropic")
+    goal_scope = local_escalation and mode in ("auto", "always") and not persistent_scope
+    goal_raised = target
+    if settings["goal_continuation_escalation"] and goal_scope:
+        goal_raised = _cap_to_ceiling(
+            _goal_continuation_target(request, session_id, route, turn_key, target,
+                                      route_choices),
+            target, route_choices, settings["effort_ceiling"])
+    tool_raised = target
+    if settings["tool_error_escalation"] and local_escalation:
         # Local signal, no scorer: only ever raises, only on cache-safe dynamic routes.
-        raised = _cap_to_ceiling(
+        tool_raised = _cap_to_ceiling(
             _escalated_target(request, turn_entry, target, route_choices),
             target, route_choices, settings["effort_ceiling"])
-        if raised != target:
-            target, escalated = raised, True
-            if entry is not turn_entry:
-                entry = dict(entry, escalated=True, escalation_reason=ESCALATION_REASON)
-            _remember_escalation(route_key, session_id, target)
+    decided_target = target
+    if (_level_rank(goal_raised) > _level_rank(target)
+            and _level_rank(goal_raised) >= _level_rank(tool_raised)):
+        target, escalated, escalation_reason = goal_raised, True, GOAL_ESCALATION_REASON
+    elif _level_rank(tool_raised) > _level_rank(target):
+        target, escalated, escalation_reason = tool_raised, True, ESCALATION_REASON
+    if escalated:
+        if entry is not turn_entry:
+            entry = dict(entry, escalated=True, escalation_reason=escalation_reason)
+        else:
+            entry["escalated"] = True
+            entry["escalation_reason"] = escalation_reason
+        if _level_rank(tool_raised) > _level_rank(decided_target):
+            # Let a same-task continuation remember the level actually sent after a local raise.
+            _remember_escalation(route_key, session_id, tool_raised)
+    with _lock:
+        # The applied level, not the decision label, is the baseline for the next goal retry.
+        turn_entry["_applied_target"] = target
     before = slot[2] if slot is not None else "absent"
     entry["previous"] = turn_entry["previous"] = before
     if target == before:
