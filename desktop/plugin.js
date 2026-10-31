@@ -57,6 +57,11 @@ const OUTCOME_HELP = {
 const DECISION_EVENT = `plugin.${ID}.decision.updated`
 const SESSION_INFO_EVENT = 'session.info'
 const EFFORT_VALUES = new Set(['minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+// Display-only compaction: the wire values and status payload keep their full
+// names. `absent` is the internal marker for a request without an effort field.
+const EFFORT_LABELS = { absent: 'default', minimal: 'min', medium: 'med' }
+const CHIP_DISPLAY_KEY = 'chip_display'
+const CHIP_DISPLAY_MODES = new Set(['transition', 'effort'])
 const MAX_LIVE_SESSIONS = 64
 const MAX_RETIRED_STREAMS = 64
 const MAX_SYNC_ATTEMPTS = 128
@@ -65,6 +70,8 @@ const MAX_DEBUG_ENTRIES = 32
 let rest = null
 let showDesktopPopup = false
 let debugMode = false
+let chipDisplayMode = 'transition'
+let preferenceStorage = null
 const debugLog = []
 const liveDecisions = new Map()
 const sessionIdentities = new Map()
@@ -82,6 +89,22 @@ const ownerKey = (connectionId, profile) => JSON.stringify([
 const liveKey = (connectionId, profile, sessionId) => JSON.stringify([
   String(connectionId || '').trim(), String(profile || '').trim() || 'default', String(sessionId || '')
 ])
+
+function effortLabel(value) {
+  if (typeof value !== 'string' || !value) return value
+  return EFFORT_LABELS[value.toLowerCase()] || value
+}
+
+function applyChipDisplayPreference(value) {
+  if (!CHIP_DISPLAY_MODES.has(value)) return
+  chipDisplayMode = value
+  try {
+    preferenceStorage?.set(CHIP_DISPLAY_KEY, value)
+  } catch (_ignored) {
+    // A storage failure only loses the preference for the next restart.
+  }
+  emitLiveChange()
+}
 
 function emitLiveChange() {
   liveRevision += 1
@@ -498,7 +521,7 @@ function notifyDecisionOutcome(record) {
   if (appliedNoticeAttempts.size > MAX_APPLIED_NOTICE_ATTEMPTS) {
     appliedNoticeAttempts.delete(appliedNoticeAttempts.values().next().value)
   }
-  effortNotice({ kind: 'info', title: 'Effort changed', message: `${applied.from} → ${applied.to}` })
+  effortNotice({ kind: 'info', title: 'Effort changed', message: `${effortLabel(applied.from)} → ${effortLabel(applied.to)}` })
 }
 
 function isFocusedFreshDecision(record) {
@@ -606,8 +629,8 @@ function transitionForConversation(data, conversationId) {
   const target = effortForConversation(data, conversationId)
   if (target === 'N/A') return target
   const previous = entryForConversation(data, conversationId)?.previous
-  if (typeof previous !== 'string' || !previous) return target
-  return `${previous === 'absent' ? 'default' : previous} → ${target}`
+  if (typeof previous !== 'string' || !previous) return effortLabel(target)
+  return `${effortLabel(previous)} → ${effortLabel(target)}`
 }
 
 function ownerMatchesActiveBackend(owner, connectionId, profile) {
@@ -759,6 +782,34 @@ function ModeButtons({ mode, query, conversationId, withDefault, disabled }) {
   })
 }
 
+const CHIP_DISPLAY_HELP = {
+  transition: 'Show the previous and chosen effort, for example low → med.',
+  effort: 'Show only the chosen effort, for example med.'
+}
+
+function ChipDisplayButtons({ value }) {
+  return jsx('div', {
+    className: 'flex flex-wrap gap-1',
+    children: [['transition', 'Transition'], ['effort', 'Effort only']].map(([name, label]) => {
+      const active = value === name
+      return jsx(Tip, {
+        label: CHIP_DISPLAY_HELP[name],
+        side: 'top',
+        children: jsx('button', {
+          type: 'button',
+          'aria-pressed': active,
+          'aria-label': `Chip display: ${label}. ${CHIP_DISPLAY_HELP[name]}`,
+          onClick: () => applyChipDisplayPreference(name),
+          className: active
+            ? 'rounded-md bg-(--ui-accent) px-2 py-1 text-[0.6875rem] font-medium text-white'
+            : 'rounded-md bg-(--ui-fill-secondary) px-2 py-1 text-[0.6875rem] text-(--ui-text-secondary) hover:text-(--ui-text-primary)',
+          children: label
+        })
+      }, name)
+    })
+  })
+}
+
 function useConversationHistory(connectionId, profile, conversationId, enabled) {
   return useQuery({
     queryKey: [ID, 'history', connectionId, profile, conversationId],
@@ -787,7 +838,7 @@ function evaluationRows(data) {
     const accuracy = Number.isFinite(row.accuracy) ? `${Math.round(row.accuracy * 100)}%` : 'n/a'
     const p95 = Number.isFinite(row.p95_ms) ? `p95 ${Math.round(row.p95_ms)} ms` : 'p95 n/a'
     const day = typeof row.run_at === 'string' ? row.run_at.slice(0, 10) : 'unknown date'
-    const choices = Array.isArray(row.choices) ? row.choices.join('/') : 'n/a'
+    const choices = Array.isArray(row.choices) ? row.choices.map(effortLabel).join('/') : 'n/a'
     const scorer = [row.provider, row.scorer_model].filter(Boolean).join(' · ')
     return {
       key: `${row.provider}|${row.scorer_model || ''}`,
@@ -872,7 +923,7 @@ function AdaptiveEffortDetails({ data, mode, effort, transition, reason, route, 
           jsx('div', { className: 'font-medium', children: 'This chat' }),
           jsx('div', { className: 'text-(--ui-text-secondary)', children: transition }),
           focusedEntry?.decision_type === 'native_choice' && Array.isArray(focusedEntry.choices)
-            ? jsx('div', { className: 'text-(--ui-text-tertiary)', children: `Selected from: ${focusedEntry.choices.join(', ')}` })
+            ? jsx('div', { className: 'text-(--ui-text-tertiary)', children: `Selected from: ${focusedEntry.choices.map(effortLabel).join(', ')}` })
             : null,
           focusedEntry?.cache_behavior === 'per_message'
             ? jsx('div', { className: 'text-(--ui-text-tertiary)', children: 'Claude changes effort per message; the session selector remains at its initial setting.' })
@@ -902,7 +953,7 @@ function AdaptiveEffortDetails({ data, mode, effort, transition, reason, route, 
                 className: 'border-b border-(--ui-border) py-1 last:border-0',
                 children: [
                   jsx('div', { className: 'break-all font-medium text-(--ui-text-secondary)', children: event.model || 'Unknown model' }),
-                  jsx('div', { className: 'text-(--ui-text-tertiary)', children: `${historyTime(event.at)} · ${event.from || '?'} → ${event.to || '?'} · ${cacheLabel(event.cache_verdict)}` })
+                  jsx('div', { className: 'text-(--ui-text-tertiary)', children: `${historyTime(event.at)} · ${effortLabel(event.from) || '?'} → ${effortLabel(event.to) || '?'} · ${cacheLabel(event.cache_verdict)}` })
                 ]
               }, String(event.id)))
               : jsx('div', { className: 'text-(--ui-text-tertiary)', children: 'No applied changes recorded for this chat.' })
@@ -952,12 +1003,12 @@ function AdaptiveEffortDetails({ data, mode, effort, transition, reason, route, 
               ? jsxs('div', {
                 className: 'space-y-0.5 pt-1',
                 children: [
-                  jsx('div', { children: `Last: ${last.state} · effort ${last.target ?? 'N/A'}` }),
+                  jsx('div', { children: `Last: ${last.state} · effort ${effortLabel(last.target ?? 'N/A')}` }),
                   last.failure
                     ? jsx('div', { children: `Why: ${outcomeForEntry(last, last.mode)}` })
                     : null,
                   jsx('div', { className: 'break-all', children: `Route: ${last.provider ?? 'N/A'} · ${last.model ?? 'N/A'}` }),
-                  jsx('div', { className: 'break-all', children: `Scorer: ${last.scorer_provider ?? 'N/A'} · ${last.scorer_model ?? 'N/A'} · ${last.decision_type === 'native_choice' || last.decision_type === 'fixed' ? `choice ${last.label ?? 'N/A'}` : `score ${last.score ?? 'N/A'}`}` })
+                  jsx('div', { className: 'break-all', children: `Scorer: ${last.scorer_provider ?? 'N/A'} · ${last.scorer_model ?? 'N/A'} · ${last.decision_type === 'native_choice' || last.decision_type === 'fixed' ? `choice ${effortLabel(last.label ?? 'N/A')}` : `score ${last.score ?? 'N/A'}`}` })
                 ]
               })
               : jsx('div', { className: 'pt-1', children: 'No recent status.' })
@@ -1037,7 +1088,8 @@ function AdaptiveEffortChip() {
   const conversationApplies = Boolean(conversation && scopeId &&
     (conversation.conversation_id == null || conversation.conversation_id === scopeId))
   const overridden = Boolean(conversationApplies && conversation.source === 'conversation' && conversationMode)
-  const label = overridden ? `${transition} · ${conversationMode} (this chat)` : transition
+  const chipValue = chipDisplayMode === 'effort' ? effortLabel(effort) : transition
+  const label = overridden ? `${chipValue} · ${conversationMode} (this chat)` : chipValue
   const tone = toneFor(mode, query.isError)
 
   useEffect(() => subscribeLive(setLiveVersion), [])
@@ -1131,6 +1183,24 @@ function AdaptiveEffortChip() {
                         }),
                         jsx(ModeButtons, { mode: defaultMode, query })
                       ]
+                    }),
+                    jsxs('section', {
+                      className: 'space-y-1.5',
+                      children: [
+                        jsxs('div', {
+                          className: 'flex items-center justify-between text-xs font-medium',
+                          children: [jsx('span', { children: 'Chip display' }),
+                            jsx(Tip, {
+                              label: 'Choose whether the status-bar chip shows the effort transition or only the chosen effort.',
+                              side: 'top',
+                              children: jsx('span', {
+                                className: 'text-(--ui-accent)',
+                                children: chipDisplayMode === 'effort' ? 'effort only' : 'transition'
+                              })
+                            })]
+                        }),
+                        jsx(ChipDisplayButtons, { value: chipDisplayMode })
+                      ]
                     })
                   ]
                 }),
@@ -1180,6 +1250,13 @@ export default {
   defaultEnabled: false,
   register(ctx) {
     rest = ctx.rest
+    preferenceStorage = ctx.storage && typeof ctx.storage.get === 'function' ? ctx.storage : null
+    try {
+      const saved = preferenceStorage?.get(CHIP_DISPLAY_KEY, 'transition')
+      if (CHIP_DISPLAY_MODES.has(saved)) chipDisplayMode = saved
+    } catch (_ignored) {
+      chipDisplayMode = 'transition'
+    }
     void rest('/status', { timeoutMs: 15000 }).then(applyStatusSettings).catch(() => {})
     ctx.onEvent(DECISION_EVENT, event => handleDecisionEvent(ctx, event))
     ctx.onEvent(SESSION_INFO_EVENT, publishSessionInfo)
@@ -1198,6 +1275,7 @@ export default {
       retiredStreams.clear()
       syncAttempts.clear()
       appliedNoticeAttempts.clear()
+      preferenceStorage = null
       debugLog.length = 0
       emitLiveChange()
     })
