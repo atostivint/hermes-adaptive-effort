@@ -164,6 +164,7 @@ A route with no existing effort field reports `null` for both. `/hae status` and
 | Window | The current user turn, last 20 tool results |
 | Trigger | The same fingerprint again with an edit attempt after its previous occurrence |
 | Effect | One level up within the route's choices (`CHOICE_LEVELS` order) for the rest of the turn; once per fingerprint; never down; never `none`/`ultra`; none at the top; re-derived on each request so a route change re-clamps it |
+| Continuation memory | When continuation hysteresis is active, the route's continuity record stores the raised level, so a same-task continuation holds it under the same vote rule instead of comparing against the pre-escalation label; a new, unrelated turn still starts from the scorer's decision. Values only; the record is dropped on a route change, reset or eviction |
 | Surfaces | Applied through the single rewrite return point, so the change feed records `from -> to` once. The decision entry gains `escalated` (bool) and `escalation_reason` (`"repeated_tool_error"` or `null`), additive in status v2, the Desktop decision event v2 and the history store; `target` stays the decision's level |
 | Privacy | No scorer call, nothing shared. Digests live only in the in-memory turn record (bounded by `max_turns`); error text and digests never appear in status, logs, the history store, the feed or events |
 

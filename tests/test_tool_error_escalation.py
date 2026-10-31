@@ -34,6 +34,19 @@ class ChoiceScorer:
         return 1.0, None
 
 
+class ContinuationScorer(ChoiceScorer):
+    """A choice scorer that also answers the continuation question."""
+
+    def __init__(self, value="low", continuation=0.9):
+        super().__init__(value)
+        self.continuation = continuation
+        self.continuation_calls = 0
+
+    def classify_continuation(self, prompt):
+        self.continuation_calls += 1
+        return self.continuation, None
+
+
 def configure(monkeypatch, scorer=None, **values):
     values.setdefault("mode", "always")
     monkeypatch.setattr(middleware, "_settings_provider",
@@ -50,9 +63,15 @@ def edit_ok():
     return json.dumps({"success": True, "diff": "...", "files_modified": ["a.py"]})
 
 
-def chat_messages(*steps):
+HISTORY = [
+    {"role": "user", "content": "the parser test is failing"},
+    {"role": "assistant", "content": "I will inspect it"},
+]
+
+
+def chat_messages(*steps, history=()):
     """steps: ('run', result) or ('edit', result) or ('read', result) tool calls, in order."""
-    messages = [{"role": "user", "content": "fix the failing test"}]
+    messages = [*history, {"role": "user", "content": "fix the failing test"}]
     for index, (kind, result) in enumerate(steps):
         name = {"run": "terminal", "edit": "patch", "write": "write_file", "read": "read_file"}[kind]
         call_id = f"c{index}"
@@ -62,8 +81,8 @@ def chat_messages(*steps):
     return messages
 
 
-def responses_input(*steps):
-    items = [{"role": "user", "content": "fix the failing test"}]
+def responses_input(*steps, history=()):
+    items = [*history, {"role": "user", "content": "fix the failing test"}]
     for index, (kind, result) in enumerate(steps):
         name = {"run": "terminal", "edit": "patch", "write": "write_file", "read": "read_file"}[kind]
         items.append({"type": "function_call", "call_id": f"c{index}", "name": name,
@@ -72,13 +91,13 @@ def responses_input(*steps):
     return items
 
 
-def send(steps, route=CODEX, turn="t1", effort_value="low", shape=None):
+def send(steps, route=CODEX, turn="t1", effort_value="low", shape=None, history=()):
     provider, model, api_mode = route
     if api_mode == "codex_responses":
-        request = {"model": model, "input": responses_input(*steps),
+        request = {"model": model, "input": responses_input(*steps, history=history),
                    "reasoning": {"effort": effort_value, "summary": "auto"}}
     else:
-        request = {"model": model, "messages": chat_messages(*steps),
+        request = {"model": model, "messages": chat_messages(*steps, history=history),
                    "reasoning_effort": effort_value}
     out = middleware.on_llm_request(
         request=request, session_id=SESSION, turn_id=turn, provider=provider, model=model,
@@ -171,6 +190,56 @@ def test_holds_for_the_rest_of_the_turn_and_resets_next_turn(monkeypatch):
     assert send([("run", json.dumps({"output": "ok", "exit_code": 0}))], turn="t2",
                 effort_value="high") == "low"
     assert len(scorer.calls) == 2  # one per user turn
+
+
+@pytest.mark.parametrize("mode", ["auto", "always"])
+def test_a_continuation_holds_the_escalated_level(monkeypatch, mode):
+    scorer = ContinuationScorer("low", continuation=0.9)
+    configure(monkeypatch, scorer, mode=mode, dialogue_context_messages=4,
+              continuation_downgrade_votes=2)
+    assert send(REPEAT_WITH_EDIT, history=HISTORY) == "medium"
+    assert send([("run", json.dumps({"output": "ok", "exit_code": 0}))], turn="t2",
+                history=HISTORY) == "medium"
+    entry = middleware.session_state()[f"{SESSION}/t2"]
+    assert entry["continuation"] == "yes" and entry["held"] is True
+    assert entry["target"] == "medium"
+    assert scorer.continuation_calls == 2
+
+
+def test_once_does_not_carry_the_escalation(monkeypatch):
+    scorer = ContinuationScorer("low", continuation=0.9)
+    configure(monkeypatch, scorer, mode="once", dialogue_context_messages=4,
+              continuation_downgrade_votes=2)
+    assert send(REPEAT_WITH_EDIT, history=HISTORY) == "medium"
+    send([("run", json.dumps({"output": "ok", "exit_code": 0}))], turn="t2",
+         history=HISTORY)
+    entry = middleware.session_state()[f"{SESSION}/t2"]
+    assert entry["target"] == "low"
+    assert scorer.continuation_calls == 0
+
+
+def test_a_new_task_does_not_inherit_the_escalation(monkeypatch):
+    scorer = ContinuationScorer("low", continuation=0.0)
+    configure(monkeypatch, scorer, dialogue_context_messages=4,
+              continuation_downgrade_votes=2)
+    assert send(REPEAT_WITH_EDIT, history=HISTORY) == "medium"
+    send([("run", json.dumps({"output": "ok", "exit_code": 0}))], turn="t2",
+         history=HISTORY)
+    entry = middleware.session_state()[f"{SESSION}/t2"]
+    assert entry["continuation"] == "no" and entry["held"] is False
+    assert entry["target"] == "low"
+
+
+def test_without_hysteresis_the_escalation_is_not_carried(monkeypatch):
+    scorer = ContinuationScorer("low", continuation=0.9)
+    configure(monkeypatch, scorer, dialogue_context_messages=4,
+              continuation_downgrade_votes=0)
+    assert send(REPEAT_WITH_EDIT, history=HISTORY) == "medium"
+    send([("run", json.dumps({"output": "ok", "exit_code": 0}))], turn="t2",
+         history=HISTORY)
+    entry = middleware.session_state()[f"{SESSION}/t2"]
+    assert entry["target"] == "low"
+    assert scorer.continuation_calls == 0
 
 
 def test_one_escalation_per_fingerprint_and_a_new_one_adds_a_level(monkeypatch):

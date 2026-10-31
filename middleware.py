@@ -1590,6 +1590,29 @@ def _hysteresis(route_key: str, session_id: str, label: str, continuation: Optio
     return applied, held
 
 
+def _remember_escalation(route_key: str, session_id: str, target: str) -> None:
+    """Let a same-task continuation remember the level actually sent after a local raise.
+
+    ``_hysteresis`` stores the scorer's applied label when the turn is classified, before
+    ``tool_error_escalation`` may raise the target. Updating that continuity record here keeps
+    the raise under the existing vote rule instead of comparing the next continuation against
+    the pre-escalation label. A new, unrelated turn still starts from the scorer's decision.
+    Only an existing record is touched, so hysteresis remains the gate; values only are kept.
+    """
+    if target not in _LEVEL_RANK:
+        return
+    with _lock:
+        record = _CONTINUITY.get(route_key)
+        if not record or record.get("session_id") != session_id:
+            return
+        previous = record.get("label")
+        if previous in _LEVEL_RANK and _LEVEL_RANK[target] < _LEVEL_RANK[previous]:
+            return
+        record["label"] = target
+        record["streak"] = 0
+        _CONTINUITY.move_to_end(route_key)
+
+
 def _latest_user_text(messages: Any) -> Optional[str]:
     """Latest user message: history and trailing tool results are not the new task."""
     if not isinstance(messages, list):
@@ -2776,6 +2799,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         tool_raised = _cap_to_ceiling(
             _escalated_target(request, turn_entry, target, route_choices),
             target, route_choices, settings["effort_ceiling"])
+    decided_target = target
     if (_level_rank(goal_raised) > _level_rank(target)
             and _level_rank(goal_raised) >= _level_rank(tool_raised)):
         target, escalated, escalation_reason = goal_raised, True, GOAL_ESCALATION_REASON
@@ -2787,6 +2811,9 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         else:
             entry["escalated"] = True
             entry["escalation_reason"] = escalation_reason
+        if _level_rank(tool_raised) > _level_rank(decided_target):
+            # Let a same-task continuation remember the level actually sent after a local raise.
+            _remember_escalation(route_key, session_id, tool_raised)
     with _lock:
         # The applied level, not the decision label, is the baseline for the next goal retry.
         turn_entry["_applied_target"] = target

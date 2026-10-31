@@ -248,11 +248,12 @@ In `always` mode (and `auto` on an exact dynamic route) every new user turn is s
 
 ### Raise effort on repeated tool errors
 
-`tool_error_escalation` is on by default and needs no scorer call. When the same tool error appears twice in one user turn with a `write_file` or `patch` call in between (a turn stuck on the same failing test), the plugin raises the effort one level within the route's own choices for the rest of that turn. It acts once per distinct error, never lowers effort, never selects `none` or `ultra`, and does nothing at the top of the route's list. The next user turn starts from its normal decision again.
+`tool_error_escalation` is on by default and needs no scorer call. When the same tool error appears twice in one user turn with a `write_file` or `patch` call in between (a turn stuck on the same failing test), the plugin raises the effort one level within the route's own choices for the rest of that turn. It acts once per distinct error, never lowers effort, never selects `none` or `ultra`, and does nothing at the top of the route's list. A new, unrelated user turn starts from its normal decision again.
 
 - Only exact dynamic-effort routes (the OpenCode Go/Zen control routes and `openai-codex/gpt-6.1-sol`) are affected. Claude routes, `effort_models` additions and every other route keep their previous behaviour, so no cache-sensitive route is touched. The effect on cost, latency and cache hits is unmeasured.
 - An error is a tool result whose JSON has a non-empty `error` or a non-zero `exit_code` (or an Anthropic `tool_result` with `is_error`). Only the last 20 tool results of the current turn are compared.
 - The error text is normalised (colours, line endings, `file.py:123` positions, timings, hex addresses, temp paths) and only its SHA-256 is compared in memory. Nothing is sent anywhere, and the text or hash never appears in status, logs, the history store or the change feed.
+- With continuation hysteresis active, the raised level replaces the route's remembered level. A later turn that the continuation question marks as the same task holds the raise under the existing vote rule instead of dropping back to the scorer's lower label at once; a new, unrelated turn is unaffected. This is the closest local approximation of the [paper's retry at a higher level](https://arxiv.org/abs/2610.34491), but it is still a continuation, not a fresh retry.
 - The raise is recorded in the applied-change feed like any rewrite; the status entry shows `escalated: true` and `escalation_reason: repeated_tool_error`.
 
 Set `tool_error_escalation: false` to turn it off.

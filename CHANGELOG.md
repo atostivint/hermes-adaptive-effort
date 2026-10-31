@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Tool-error escalation now updates the route's continuation memory, so a later turn classified as the same task holds the raised level under the existing vote rule instead of dropping back to the pre-escalation label at once. A new, unrelated turn is unaffected; no new setting.
 - Desktop effort names are shortened for display in the chip, details, history, activity and notifications (`minimal` → `min`, `medium` → `med`); wire values and the terminal status item keep their full names, and routing is unchanged
 - Documented the reasoning-effort economics findings of [arXiv:2610.34491](https://arxiv.org/abs/2610.34491) and a cost-conscious configuration: prefer a low initial level, keep `tool_error_escalation` on, and leave `effort_ceiling` empty so escalation can still reach the top. Documentation only; no runtime or default change.
 - Continuation hysteresis is now on by default: `continuation_downgrade_votes` defaults to `2` and `dialogue_context_messages` to `4` (it needs dialogue context). When a routing mode is on, the scorer now also receives up to 4 earlier user/assistant text messages and, in `always` and `auto` on exact dynamic routes, a second yes/no request per turn; set either setting to `0` to restore the previous behaviour. Added cost and latency are unmeasured.
