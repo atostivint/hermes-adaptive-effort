@@ -80,6 +80,7 @@ function makeHarness(options = {}) {
   vm.runInContext(`${source.slice(start, end)}\n;globalThis.api = {
     rememberDecision, handleDecisionEvent, publishSessionInfo, liveFor,
     syncAppliedEffort, AdaptiveEffortChip, ScorerEvaluation, evaluationRows, setPopup: value => { showDesktopPopup = value },
+    setChipDisplay: value => applyChipDisplayPreference(value),
     setRest: value => { rest = value }, getNotices: () => notices,
     applyStatusSettings, getDebugLog: () => debugLog
   }`, context, { filename: 'desktop/plugin.js' })
@@ -179,7 +180,7 @@ test('v2 named-choice status is accepted alongside the older v1 event schema', (
   assert.equal(h.calls.length, 0)
 })
 
-test('chip shows previous → decided, maps absent to default and keeps a no-change level', () => {
+test('chip shows previous → decided with compact labels, maps absent to default and keeps a no-change level', () => {
   const withPrevious = previous => decision({
     schema: 'hermes-adaptive-effort.desktop-status.v2',
     status: { ...decision().payload.status, previous }
@@ -192,10 +193,26 @@ test('chip shows previous → decided, maps absent to default and keeps a no-cha
   injected.api.handleDecisionEvent(injected.ctx, withPrevious('absent'))
   assert.equal(findEffortChip(injected.api.AdaptiveEffortChip()), 'default → high')
 
+  const compact = makeHarness()
+  compact.api.handleDecisionEvent(compact.ctx, withPrevious('minimal'))
+  assert.equal(findEffortChip(compact.api.AdaptiveEffortChip()), 'min → high')
+
   const kept = makeHarness()
   kept.api.handleDecisionEvent(kept.ctx, withPrevious('high'))
   assert.equal(findEffortChip(kept.api.AdaptiveEffortChip()), 'high → high')
   assert.equal(kept.notices.length, 0)
+})
+
+test('chip display can show only the chosen effort with compact names', () => {
+  const h = makeHarness({ status: {
+    mode: 'auto', settings: { show_desktop_popup: true },
+    sessions: [{ ...decision().payload.status, previous: 'minimal', target: 'medium' }]
+  } })
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'min → med')
+  h.api.setChipDisplay('effort')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'med')
+  h.api.setChipDisplay('transition')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'min → med')
 })
 
 test('a v1 event without previous still renders the decided level alone', () => {
@@ -209,7 +226,7 @@ test('REST status carries previous into the chip', () => {
     mode: 'auto', settings: { show_desktop_popup: true },
     sessions: [{ ...decision().payload.status, previous: 'medium' }]
   } })
-  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'medium → high')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'med → high')
 })
 
 test('stored decision ids match a focused chat whose gateway runtime id is different', () => {
@@ -221,8 +238,8 @@ test('stored decision ids match a focused chat whose gateway runtime id is diffe
       score: 0.67, target: 'medium' },
     applied: { id: 1, from: 'max', to: 'medium', at: 123 }, selector_sync_supported: false })
   h.api.handleDecisionEvent(h.ctx, event)
-  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'medium')
-  assert.equal(h.notices[0].message, 'max → medium')
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'med')
+  assert.equal(h.notices[0].message, 'max → med')
 
   h.state.focusedStoredSessionId.set('another-chat')
   assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'N/A')
@@ -281,7 +298,7 @@ test('selector sync uses the gateway runtime id and requires acknowledgment of t
   h.api.publishSessionInfo(ack)
   await flush()
   assert.equal(h.api.liveFor('conn-1', 'work', 'session-1').syncReason, 'Selector synced for this chat.')
-  assert.equal(h.notices[0].message, 'medium → high')
+  assert.equal(h.notices[0].message, 'med → high')
 })
 
 test('a runtime rebind during route resolution prevents a write to the old runtime', async () => {
@@ -405,7 +422,7 @@ test('focused applied effort uses the exact owner route and session-scoped confi
   })
   assert.equal(h.notices.length, 1)
   assert.equal(h.notices[0].title, 'Effort changed')
-  assert.equal(h.notices[0].message, 'medium → high')
+  assert.equal(h.notices[0].message, 'med → high')
   assert.equal(h.api.liveFor('conn-1', 'work', 'session-1').syncReason,
     'Selector synced for this chat.')
 })
@@ -574,7 +591,7 @@ test('scorer evaluation section lists one row per scorer and says when there is 
   ] } } }))
   assert.match(text, /Scorer evaluation/)
   assert.match(text, /jev · jev-latest/)
-  assert.match(text, /50% · p95 812 ms · 66 items · 2026-10-14 · low\/medium\/high/)
+  assert.match(text, /50% · p95 812 ms · 66 items · 2026-10-14 · low\/med\/high/)
 })
 
 test('the evaluation is fetched only while the popup is open and is gated by show_desktop_popup', () => {

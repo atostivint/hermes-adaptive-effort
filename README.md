@@ -193,7 +193,7 @@ See [Design](docs/DESIGN.md) for the component diagram and [Contracts](docs/CONT
 
 ## Desktop and terminal
 
-The optional Desktop extension adds an Effort chip (`previous → decided`, for example `low → high`; `default` when the request had no effort field; `N/A` before any decision) with a compact **Routing mode** popup. **More** reveals conversation and scorer details plus recent applied changes for that chat; **Activity** shows aggregate status. In a Hermes chat, `/hae` opens the same conversation's recent history, and `/hae status` summarizes its model, selected effort and cache behavior.
+The optional Desktop extension adds an Effort chip. It shortens effort names for display (`minimal` → `min`, `medium` → `med`; `default` means the request had no effort field, and `N/A` means no decision yet) and shows `previous → chosen`, for example `low → high`. A **Chip display** toggle in the popup switches the chip to the chosen effort only, for example `med`; the preference is kept in Desktop plugin storage, never in `config.yaml`. The popup itself stays compact: **More** reveals conversation and scorer details plus recent applied changes for that chat; **Activity** shows aggregate status. In a Hermes chat, `/hae` opens the same conversation's recent history, and `/hae status` summarizes its model, selected effort and cache behavior.
 
 ![Compact Routing mode popup in Hermes Desktop](docs/images/routing-mode-popover.png)
 

@@ -342,6 +342,12 @@ def test_desktop_plugin_static_contract():
     assert "route: ${route}" in chip
     assert "show_desktop_popup === false" in chip
     assert "Routing mode" in chip
+    assert "Chip display" in chip
+    assert "ChipDisplayButtons" in text
+    assert "const CHIP_DISPLAY_KEY = 'chip_display'" in text
+    assert "ctx.storage" in text  # display prefs are Desktop-scoped, never config.yaml
+    assert "function effortLabel(value)" in text
+    assert "chipDisplayMode === 'effort' ? effortLabel(effort) : transition" in chip
     assert "Show details" in chip and "Hide details" in chip
     assert "onOpenChange: nextOpen =>" in chip
     assert "if (!nextOpen) setShowDetails(false)" in chip
