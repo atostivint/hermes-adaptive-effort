@@ -188,8 +188,9 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | `dialogue_context_messages` | `4` | Earlier user/assistant text messages (0-6, each at most 1,200 characters) also sent to the scorer as untrusted context; `0` sends none and turns continuation hysteresis off, larger values clamp to 6, invalid or negative values mean `0` |
 | `continuation_downgrade_votes` | `2` | `0` is off (no second scorer request); `1`-`5` enables continuation hysteresis (default `2`; larger clamps to 5, invalid or negative means `0`). Active only with `dialogue_context_messages` above 0, otherwise ignored and `/hae status full` reports `Continuation: inactive (no dialogue context)` |
 | `effort_floor` | empty | Lowest named level the scorer's choice may take (`low`, `medium`, `high`, ...). Empty, `off` or `none` means no floor; an unrecognised value is ignored. A floor above the ceiling makes both ignored |
-| `effort_ceiling` | empty | Highest named level the scorer's choice may take. Empty, `off` or `none` means no ceiling; also caps tool-error escalation. Applied to the scorer's answer before the route clamp, so a level the route lacks resolves to the nearest allowed one |
+| `effort_ceiling` | empty | Highest named level the scorer's choice may take. Empty, `off` or `none` means no ceiling; also caps tool-error and goal-continuation escalation. Applied to the scorer's answer before the route clamp, so a level the route lacks resolves to the nearest allowed one |
 | `tool_error_escalation` | `true` | Raise effort one level, locally, when the same tool error repeats after a file edit within one turn. Applies only on exact dynamic-effort routes (never Claude); `false` disables it entirely. See [Raise effort on repeated tool errors](#raise-effort-on-repeated-tool-errors) |
+| `goal_continuation_escalation` | `false` | Raise effort one level above the previous attempt when a `/goal`, `/subgoal`, failed-gate or kanban goal-loop continuation says the previous turn was not done. Local marker only; no scorer call and no prompt text stored. Applies only on exact dynamic-effort routes with per-turn decisions (never Claude, `once` or retained `auto`); the ceiling caps it. Off by default because the goal judge can fail open. See [Raise effort after a failed goal check](#raise-effort-after-a-failed-goal-check) |
 | `respect_manual_effort` | `true` | Stand down for a conversation once its effort is changed by hand (config or selector): no scorer call, no rewrite, nothing shared, until `/hae <mode> here` or the Desktop mode popup re-enables it, or the session resets. Inference only: a manual choice equal to a value the plugin last read or wrote is invisible. Parent sessions only. `false` is the previous behaviour. See [Stand down on a manual effort change](#stand-down-on-a-manual-effort-change) |
 | `dynamic_trial` | `true` | In `auto`, change effort every turn *on trial* on an unlisted cache-safe route that already has an effort field, and watch the provider's cache counters (token counts only). Three effort changes that keep the cache make the route dynamic; a clear cache drop, a rejected level or no cache counters pin it. Verdicts persist in the profile data directory. `false` keeps one decision per unlisted route. Cost and cache effect are unmeasured. See [Trial of unlisted routes](#trial-of-unlisted-routes) |
 | `effort_models` | empty | Exact model IDs whose effort support the operator asserts |
@@ -255,6 +256,33 @@ In `always` mode (and `auto` on an exact dynamic route) every new user turn is s
 - The raise is recorded in the applied-change feed like any rewrite; the status entry shows `escalated: true` and `escalation_reason: repeated_tool_error`.
 
 Set `tool_error_escalation: false` to turn it off.
+
+### Raise effort after a failed goal check
+
+`goal_continuation_escalation` is off by default. Hermes' goal loops retry the same task in a new turn after a failed check, and the host starts that turn with a fixed marker:
+
+- `[Continuing toward your standing goal...` for `/goal`, `/subgoal` and quality-gate retries
+- `[Continuing toward this kanban task...` for a kanban goal-mode worker whose judge says the task is not done
+
+The marker means the previous turn did not satisfy the goal judge or a quality gate. With the setting on, the plugin uses the previous turn's applied effort on the same session and route as the baseline and raises one level within the route's own choices for this retry turn. It combines with `tool_error_escalation` by taking the higher target. The status entry shows `escalated: true` and `escalation_reason: goal_continuation`; the decision's `target` stays the scorer's level, and a rewrite that changes the request is recorded in the change feed. A normal user turn is unaffected; a new goal kickoff (`[Goal set]...`), a kanban finalize nudge (`[The work looks complete...]`), a pause and a done verdict do not match.
+
+- Scope: exact dynamic-effort routes with named choices, `always` or `auto` on a dynamic route, parent or child per its mode. A kanban goal-mode worker runs as its own session, so enable the routing `mode` (and this setting) in the worker's profile; `subagent_mode` only governs any registered child sessions it starts. `once`, retained `auto`, trial routes and Claude's per-message path are unchanged. The `effort_ceiling` caps the raise.
+- The check is local: the plugin compares the first characters of the latest user text, sends no scorer call and stores no prompt text.
+- The goal judge can fail open: a judge transport or parse failure also produces a continuation prompt, and the plugin cannot tell that from a real "not done" verdict. That is why the setting is off by default. Enable it when the goal judge is healthy and one bounded raise per retry is acceptable.
+- The effect on cost, latency and cache hits is unmeasured.
+
+### Cost-conscious configuration
+
+Effort economics are task-dependent: a higher level can lose a task a lower level solved, and on tasks every level solves it can cost many times more. The [paper cited in the README](../README.md#what-to-expect) found that starting low and retrying at the highest level only after an externally verified failure beat fixed top effort on most of its benchmarks. This plugin cannot restart a turn, so it cannot implement that fresh retry. The closest opt-in posture is a soft low-first bias plus the existing up-only escalation:
+
+```yaml
+settings:
+  mode: auto
+  classification_instructions: "Prefer the lowest effort that can plausibly solve the task. Choose a higher level only when the task clearly needs multi-step planning, formal proof, repeated debugging or careful verification."
+  tool_error_escalation: true
+```
+
+Leave `effort_ceiling` empty. It is a hard cap, it also caps `tool_error_escalation`, and it would prevent the high-level retry this posture relies on. This is a heuristic, not a measured saving: the scorer can ignore guidance, and the paper measured other systems and benchmarks.
 
 ### Stand down on a manual effort change
 

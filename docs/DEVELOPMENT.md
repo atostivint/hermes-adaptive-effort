@@ -67,6 +67,7 @@ A function autouse fixture resets plugin state and substitutes empty settings, s
 | Named choices, scorer formats, exact route options and Claude turn markers | `test_named_effort_choices.py`, `test_native_choice_middleware.py` |
 | Scorer construction and transports | `test_scorers.py`, `test_jev_client.py`, `test_openai_decision_client.py`, `test_openrouter_client.py`, `test_cloudflare_client.py`, `test_nace_client.py`, `test_custom_client.py`, `test_scorer_retry.py`, `test_scorer_http.py` |
 | Child lifecycle and routing | `test_subagent.py` |
+| Goal and kanban continuation escalation: markers, ladder, ceiling, scope, privacy | `test_goal_continuation.py` |
 | Dynamic-route trial: verdicts, persistence, status codes, hooks, privacy | `test_route_trial.py` (plus hook registration in `test_dispatcher_integration.py`) |
 | Dialogue context, golden request bodies (`tests/fixtures/scorer_request_bodies.json`, captured from master with `tests/dialogue_harness.py`) | `test_dialogue_context.py` |
 | Commands, manifest/settings parity and real host integration | `test_command.py`, `test_plugin_registration.py`, `test_config_schema.py`, `test_dispatcher_integration.py` |

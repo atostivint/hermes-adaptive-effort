@@ -150,13 +150,34 @@ Option C, per-step scoring:
 - `route_trial`: needs the within-turn tag from Q2.
 - Cost: an extra scorer bill per step, **unmeasured**, plus the latency in Q1.
 
+## What Sun et al. (2026) adds
+
+[What Effort Level Should I Choose?](https://arxiv.org/abs/2610.34491) measures the
+counterfactual effect of effort on eight models and four benchmarks, including
+Terminal-Bench and SWE-Bench Pro. It reports that higher effort can lose tasks a lower level
+solved, that on tasks every level solves the top level costs up to 42x the lowest, and that
+higher effort changes strategy (more verification and retrieval) and lengthens trajectories.
+Its deployable policy - start at the lowest available level and retry at the highest only
+after an externally verified failure ("naive laddering") - matched or beat fixed top effort
+at lower median cost on most benchmarks.
+
+This is a strong external case for outcome-triggered escalation over pre-execution routing.
+It does not support per-step scoring. The paper's positive result uses a **fresh retry per
+task** with a reliable external correctness check, not a continuation of the same trajectory,
+and it finds that self-routing from the task description gave no consistent advantage over
+random allocation. `on_llm_request` cannot restart a turn, so `tool_error_escalation` is only
+a weaker, in-turn proxy. A true ladder belongs at the host/agent-loop level; per-step scoring
+(option C) remains unjustified.
+
 ## Recommendation
 
 **Do nothing for now; keep the existing escalation; run one cheap measurement before any local-signal work.**
 Per-step scoring (C) is not justified: latency and scorer cost scale with steps, the privacy
-rule forbids sending the observation that the paper's router relies on, and no cache or quality
+rule forbids sending the observation that Ares's router relies on, and no cache or quality
 evidence exists. Local signals (B) are the only plausible next step, but their benefit is
-unmeasured and the downward half is risky.
+unmeasured and the downward half is risky. Sun et al. reinforce this: their positive policy is
+an outcome-triggered fresh retry, not a better pre-execution router, and a true ladder belongs
+at the host/agent-loop level rather than in `on_llm_request`.
 
 ### Optional follow-up: within-turn cache A/B (not started)
 
