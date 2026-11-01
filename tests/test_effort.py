@@ -217,10 +217,15 @@ def test_native_gemini_argon_route_rejects_lookalikes():
                  "https://user@generativelanguage.googleapis.com/v1beta",
                  "https://generativelanguage.googleapis.com.evil.example/v1beta",
                  "https://proxy.example/v1beta",
-                 "https://generativelanguage.googleapis.com/v1beta/openai",
-                 "https://generativelanguage.googleapis.com/v1beta/openai/",
                  "https://openrouter.ai"):
         assert levels(base=base) == ()
+    # The /openai surface is a different carrier: never the native predicate.
+    for base in ("https://generativelanguage.googleapis.com/v1beta/openai",
+                 "https://generativelanguage.googleapis.com/v1beta/openai/"):
+        assert not effort.native_gemini_thinking_route(
+            "gemini", "gemini-4-argon", "chat_completions", base)
+        assert not effort.native_gemini_host(base)
+        assert effort.gemini_openai_host(base)
 
 
 def test_native_gemini3_routes_have_their_exact_levels():
@@ -259,3 +264,39 @@ def test_native_gemini3_routes_reject_unregistered_or_inexact_ids():
             "gemini", model, "chat_completions", GEMINI_NATIVE) == (), model
         assert not effort.native_gemini_thinking_route(
             "gemini", model, "chat_completions", GEMINI_NATIVE), model
+
+
+GEMINI_OPENAI = "https://generativelanguage.googleapis.com/v1beta/openai"
+
+
+def test_gemini_openai_route_uses_the_registered_vocabularies():
+    for provider in ("gemini", "google", "google-gemini", "google-ai-studio"):
+        for model, levels in effort.GEMINI_NATIVE_THINKING_ROUTES.items():
+            assert effort.gemini_openai_thinking_route(
+                provider, model, "chat_completions", GEMINI_OPENAI), model
+            assert effort.route_choice_levels(
+                provider, f"google/{model}", "chat_completions", GEMINI_OPENAI + "/") == levels
+    assert effort.route_choice_levels(
+        "gemini", "gemini-3.1-pro-preview", "chat_completions", GEMINI_OPENAI) == ("low", "high")
+
+
+def test_gemini_openai_route_rejects_lookalikes():
+    def levels(provider="gemini", model="gemini-3.6-flash", api="chat_completions",
+               base=GEMINI_OPENAI):
+        return effort.route_choice_levels(provider, model, api, base)
+
+    assert levels(provider="openai") == ()
+    assert levels(model="gemini-3.6-flash-001") == ()
+    assert levels(api="codex_responses") == ()
+    for base in (None, "", GEMINI_NATIVE,
+                 "http://generativelanguage.googleapis.com/v1beta/openai",
+                 "https://generativelanguage.googleapis.com:8443/v1beta/openai",
+                 "https://user@generativelanguage.googleapis.com/v1beta/openai",
+                 "https://generativelanguage.googleapis.com.evil.example/v1beta/openai",
+                 "https://proxy.example/v1beta/openai"):
+        if base == GEMINI_NATIVE:
+            assert levels(base=base) == ("low", "medium", "high")  # native, not /openai
+            assert not effort.gemini_openai_thinking_route(
+                "gemini", "gemini-3.6-flash", "chat_completions", base)
+        else:
+            assert levels(base=base) == (), base

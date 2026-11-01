@@ -1720,6 +1720,30 @@ def _gemini_thinking_slot(request: Dict[str, Any], choices: Tuple[str, ...]
     return None
 
 
+def _gemini_openai_config(request: Dict[str, Any]) -> Any:
+    """``extra_body.extra_body.google.thinking_config`` or ``None`` when any level is absent."""
+    node: Any = request
+    for key in ("extra_body", "extra_body", "google", "thinking_config"):
+        if not isinstance(node, dict):
+            return None
+        node = node.get(key)
+    return node
+
+
+def _gemini_openai_slot(request: Dict[str, Any], choices: Tuple[str, ...]
+                        ) -> Optional[Tuple[Dict[str, Any], str, str]]:
+    """Existing snake_case ``thinking_level`` of the OpenAI-compatible Gemini route."""
+    config = _gemini_openai_config(request)
+    if not isinstance(config, dict) or _gemini_thinking_controls_conflict(config):
+        return None
+    if "thinkingLevel" in config:
+        return None  # camelCase is not this surface's key; both spellings may disagree
+    value = config.get("thinking_level")
+    if isinstance(value, str) and value.strip().lower() in choices:
+        return config, "thinking_level", value.strip().lower()
+    return None
+
+
 def _effort_slot(request: Dict[str, Any], provider: Any = None, model: Any = None,
                  api_mode: Any = None, base_url: Any = None,
                  route_choices: Optional[Tuple[str, ...]] = None
@@ -1752,6 +1776,14 @@ def _effort_slot(request: Dict[str, Any], provider: Any = None, model: Any = Non
         choices = (route_choices if route_choices is not None
                    else _effort.route_choice_levels(provider, model, api_mode, base_url))
         return _gemini_thinking_slot(request, choices)
+    # Exact OpenAI-compatible Gemini route: nested snake_case carrier. The server rejects a
+    # top-level ``reasoning_effort`` next to it (HTTP 400), so any other field stands down.
+    if _effort.gemini_openai_thinking_route(provider, model, api_mode, base_url):
+        if _has_competing_effort_carrier(request) or "verbosity" in request:
+            return None
+        choices = (route_choices if route_choices is not None
+                   else _effort.route_choice_levels(provider, model, api_mode, base_url))
+        return _gemini_openai_slot(request, choices)
     extra_body = request.get("extra_body")
     if isinstance(extra_body, dict):
         reasoning = extra_body.get("reasoning")
@@ -1789,7 +1821,8 @@ def _effort_slot(request: Dict[str, Any], provider: Any = None, model: Any = Non
     return None
 
 
-def _reasoning_is_explicitly_disabled(request: Dict[str, Any], native_gemini: bool = False) -> bool:
+def _reasoning_is_explicitly_disabled(request: Dict[str, Any], native_gemini: bool = False,
+                                      gemini_openai: bool = False) -> bool:
     """Do not rewrite or insert effort when a host control disables or malforms thinking."""
     reasoning = request.get("reasoning")
     if isinstance(reasoning, dict):
@@ -1815,7 +1848,21 @@ def _reasoning_is_explicitly_disabled(request: Dict[str, Any], native_gemini: bo
         if config is not None and (
                 not isinstance(config, dict) or _gemini_thinking_controls_conflict(config)):
             return True
+        if gemini_openai and _gemini_openai_unusable(extra):
+            return True
     return False
+
+
+def _gemini_openai_unusable(extra: Dict[str, Any]) -> bool:
+    """Malformed or hidden/budgeted nested Gemini controls (absent containers are not)."""
+    node: Any = extra
+    for key in ("extra_body", "google", "thinking_config"):
+        if not isinstance(node, dict) or key not in node:
+            return False
+        node = node[key]
+        if not isinstance(node, dict):
+            return True
+    return _gemini_thinking_controls_conflict(node)
 
 
 def _apply(request: Dict[str, Any], slot: Tuple[Dict[str, Any], str, str],
@@ -1839,6 +1886,16 @@ def _apply(request: Dict[str, Any], slot: Tuple[Dict[str, Any], str, str],
         return new
     if container is request.get("output_config"):
         new["output_config"] = new_container
+        return new
+    nested_config = _gemini_openai_config(request)
+    if nested_config is not None and container is nested_config:
+        extra_body = dict(request["extra_body"])
+        inner = dict(extra_body["extra_body"])
+        google = dict(inner["google"])
+        google["thinking_config"] = new_container
+        inner["google"] = google
+        extra_body["extra_body"] = inner
+        new["extra_body"] = extra_body
         return new
     extra_config = (request.get("extra_body") or {}).get("thinking_config") \
         if isinstance(request.get("extra_body"), dict) else None
@@ -1886,6 +1943,13 @@ def _injection_path(request: Dict[str, Any], provider: Any, model: Any,
             and _effort.native_gemini_host(base_url)):
         # The native adapter ignores ``reasoning_effort``: an injection would be an
         # applied change with no wire effect, even through ``effort_models``.
+        return None
+    if (provider_name in _effort.GEMINI_NATIVE_PROVIDERS and api == "chat_completions"
+            and _effort.gemini_openai_host(base_url)
+            and (_effort.gemini_openai_thinking_route(provider_name, model, api, base_url)
+                 or _gemini_openai_config(request) is not None)):
+        # The server answers HTTP 400 when ``thinking_config`` and a top-level
+        # ``reasoning_effort`` are both present, so never add one next to the nested carrier.
         return None
     claude_choices = (
         (route_choices if route_choices is not None
@@ -2539,7 +2603,8 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         slot = None
         injection_path = None
     if _reasoning_is_explicitly_disabled(
-            request, _effort.native_gemini_thinking_route(provider, model, api_mode, base_url)):
+            request, _effort.native_gemini_thinking_route(provider, model, api_mode, base_url),
+            _effort.gemini_openai_thinking_route(provider, model, api_mode, base_url)):
         key = _decision_key(session_id, kwargs.get("turn_id"))
         entry = _touch(key, settings, mode, provider, model, api_mode,
                        conversation_id=session_id)

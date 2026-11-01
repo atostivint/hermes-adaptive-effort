@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from conftest import import_plugin
 
 middleware = import_plugin("middleware")
@@ -43,8 +44,8 @@ class ChoiceScorer:
         return 1.9, None
 
 
-def configure(monkeypatch, scorer=None, mode="auto", max_turns=64):
-    values = {"mode": mode, "max_turns": max_turns}
+def configure(monkeypatch, scorer=None, mode="auto", max_turns=64, **settings):
+    values = {"mode": mode, "max_turns": max_turns, **settings}
     monkeypatch.setattr(middleware, "_settings_provider",
                         lambda key, default=None: values.get(key, default))
     if scorer is not None:
@@ -829,3 +830,162 @@ def test_native_gemini_never_injects_even_through_effort_models(monkeypatch):
     body = {"model": "gemini-4-argon", "messages": [{"role": "user", "content": "task"}]}
     result = gemini_call(body, turn_id="turn-9", route=other)
     assert result is not None and result["request"]["reasoning_effort"]
+
+
+# ── OpenAI-compatible Gemini surface: extra_body.extra_body.google.thinking_config ──
+
+GEMINI_OPENAI_ROUTE = {
+    "provider": "gemini",
+    "model": "gemini-3.6-flash",
+    "api_mode": "chat_completions",
+    "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+}
+
+
+def oai_body(config=None, inner_extra=None, outer_extra=None, **top):
+    google = {"thinking_config": config if config is not None
+              else {"thinking_level": "low", "include_thoughts": True}, "other": 1}
+    return {
+        "model": "gemini-3.6-flash",
+        "extra_body": {"extra_body": {"google": google, **(inner_extra or {})},
+                       **(outer_extra or {})},
+        "messages": [{"role": "user", "content": "task"}],
+        **top,
+    }
+
+
+def oai_call(body, turn_id="turn-1", route=None):
+    result = request_for(**dict(route or GEMINI_OPENAI_ROUTE), body=body, turn_id=turn_id)
+    return result["request"] if result else None
+
+
+def test_gemini_openai_rewrites_only_thinking_level_and_preserves_siblings(monkeypatch):
+    for index, level in enumerate(("low", "medium", "high")):
+        configure(monkeypatch, ChoiceScorer(level), mode="always")
+        body = oai_body({"thinking_level": "medium" if level != "medium" else "low",
+                         "include_thoughts": True},
+                        inner_extra={"keep": "inner"}, outer_extra={"keep": "outer"})
+        snapshot = copy.deepcopy(body)
+        result = oai_call(body, turn_id=f"turn-{index}")
+        assert body == snapshot  # original never mutated
+        config = result["extra_body"]["extra_body"]["google"]["thinking_config"]
+        assert config == {"thinking_level": level, "include_thoughts": True}
+        assert result["extra_body"]["keep"] == "outer"
+        assert result["extra_body"]["extra_body"]["keep"] == "inner"
+        assert result["extra_body"]["extra_body"]["google"]["other"] == 1
+        assert "reasoning_effort" not in result
+        middleware.reset_state()
+
+
+def test_gemini_openai_pro_uses_its_two_level_vocabulary(monkeypatch):
+    scorer = ChoiceScorer("high")
+    configure(monkeypatch, scorer, mode="always")
+    route = dict(GEMINI_OPENAI_ROUTE, model="gemini-3.1-pro-preview")
+    result = oai_call(oai_body(), route=route)
+    assert result["extra_body"]["extra_body"]["google"]["thinking_config"]["thinking_level"] == "high"
+    assert scorer.calls[0][1] == ("low", "high")
+
+
+def test_gemini_openai_unusable_controls_stand_down_without_scoring(monkeypatch):
+    cases = [
+        oai_body({}),                                                    # never injected
+        oai_body({"thinkingLevel": "high"}),                             # camelCase only
+        oai_body({"thinking_level": "low", "thinkingLevel": "high"}),    # both spellings
+        oai_body({"thinking_level": "minimal"}),                         # outside vocabulary
+        oai_body({"thinking_level": "ultra"}),
+        oai_body({"thinking_level": 3}),
+        oai_body({"thinking_level": "low", "include_thoughts": False}),
+        oai_body({"thinking_level": "low", "thinking_budget": 0}),
+        oai_body({"thinking_level": "low", "thinking_budget": 1024}),
+        oai_body("low"),                                                 # malformed container
+        oai_body(["thinking_level"]),
+        {**oai_body(), "extra_body": {"extra_body": {"google": "x"}}},
+        {**oai_body(), "extra_body": {"extra_body": "x"}},
+        {**oai_body(), "extra_body": {"extra_body": {"google": {}}}},    # missing thinking_config
+        {**oai_body(), "extra_body": {}},
+        oai_body(reasoning_effort="low"),                                # competing carriers
+        oai_body(verbosity="low"),
+        oai_body(output_config={"effort": "low"}),
+        oai_body(reasoning={"effort": "low"}),
+        oai_body(outer_extra={"reasoning": {"effort": "low"}}),
+        oai_body(outer_extra={"reasoning_effort": "low"}),
+    ]
+    for index, body in enumerate(cases):
+        scorer = ChoiceScorer("high")
+        configure(monkeypatch, scorer, mode="always")
+        snapshot = copy.deepcopy(body)
+        assert oai_call(body, turn_id=f"turn-{index}") is None, index
+        assert scorer.calls == [], index
+        assert body == snapshot, index
+        middleware.reset_state()
+
+
+def test_gemini_openai_wrong_route_makes_no_change(monkeypatch):
+    wrong = [
+        dict(GEMINI_OPENAI_ROUTE, provider="openai"),
+        dict(GEMINI_OPENAI_ROUTE, model="gemini-3.6-flash-001"),
+        dict(GEMINI_OPENAI_ROUTE, api_mode="codex_responses"),
+        dict(GEMINI_OPENAI_ROUTE, base_url="https://proxy.example/v1beta/openai"),
+        dict(GEMINI_OPENAI_ROUTE,
+             base_url="https://generativelanguage.googleapis.com/v1beta"),  # native base
+    ]
+    for index, route in enumerate(wrong):
+        scorer = ChoiceScorer("high")
+        configure(monkeypatch, scorer, mode="always")
+        assert oai_call(oai_body(), turn_id=f"turn-{index}", route=route) is None, route
+        assert scorer.calls == [], route
+        middleware.reset_state()
+
+
+def test_gemini_openai_effort_models_never_injects_next_to_the_carrier(monkeypatch):
+    for body in (
+        oai_body({}),
+        {"model": "gemini-3.6-flash", "messages": [{"role": "user", "content": "t"}]},
+    ):
+        scorer = ChoiceScorer("high")
+        configure(monkeypatch, scorer, mode="always", effort_models="gemini-3.6-flash")
+        assert oai_call(body) is None
+        assert scorer.calls == []
+        middleware.reset_state()
+    # An unregistered model on that base may still use an operator-listed top-level field,
+    # but not beside a nested thinking_config (HTTP 400 on the server).
+    route = dict(GEMINI_OPENAI_ROUTE, model="gemini-9-unknown")
+    scorer = ChoiceScorer("high")
+    configure(monkeypatch, scorer, mode="always", effort_models="gemini-9-unknown")
+    assert oai_call(oai_body(), route=route) is None
+    assert scorer.calls == []
+
+
+def test_gemini_openai_auto_retains_always_classifies_and_reuses_in_tool_loop(monkeypatch):
+    scorer = ChoiceScorer("high", "low")
+    configure(monkeypatch, scorer, mode="auto")
+    first = oai_call(oai_body({"thinking_level": "medium"}))
+    second = oai_call(oai_body({"thinking_level": "medium"}), turn_id="turn-2")
+    assert len(scorer.calls) == 1  # retained decision, no dynamic promotion
+    for result in (first, second):
+        assert result["extra_body"]["extra_body"]["google"]["thinking_config"][
+            "thinking_level"] == "high"
+    middleware.reset_state()
+
+    scorer = ChoiceScorer("high", "low")
+    configure(monkeypatch, scorer, mode="always")
+    a = oai_call(oai_body({"thinking_level": "medium"}))
+    again = oai_call(oai_body({"thinking_level": "medium"}))  # same turn: tool loop
+    b = oai_call(oai_body({"thinking_level": "medium"}), turn_id="turn-2")
+    assert len(scorer.calls) == 2
+    levels = [r["extra_body"]["extra_body"]["google"]["thinking_config"]["thinking_level"]
+              for r in (a, again, b)]
+    assert levels == ["high", "high", "low"]
+
+
+def test_gemini_openai_route_change_reclamps_the_same_label(monkeypatch):
+    scorer = ChoiceScorer("high")
+    configure(monkeypatch, scorer, mode="always")
+    flash = oai_call(oai_body({"thinking_level": "low"}))
+    assert flash["extra_body"]["extra_body"]["google"]["thinking_config"][
+        "thinking_level"] == "high"
+    pro = dict(GEMINI_OPENAI_ROUTE, model="gemini-3.1-pro-preview")
+    result = oai_call(oai_body({"thinking_level": "low"}), route=pro)  # same turn
+    assert len(scorer.calls) == 1  # the label is reused, not re-scored
+    assert result["extra_body"]["extra_body"]["google"]["thinking_config"][
+        "thinking_level"] == "high"
