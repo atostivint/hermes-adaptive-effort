@@ -87,6 +87,23 @@ ANTHROPIC_PER_MESSAGE_MODELS = frozenset({
     "claude-opus-5", "claude-sonnet-5-5",
 })
 
+#: Exact OpenRouter Chat Completions routes with a documented named vocabulary.
+#: The Claude entries use the top-level ``verbosity`` control (answer effort for
+#: Anthropic models); Argon uses the existing ``extra_body.reasoning.effort``.
+OPENROUTER_CLAUDE_VERBOSITY_ROUTES = {
+    "anthropic/claude-opus-5.5": ("low", "medium", "high", "xhigh", "max"),
+    "anthropic/claude-sonnet-5.5": ("low", "medium", "high", "xhigh", "max"),
+    "anthropic/claude-haiku-5.5": ("low", "medium", "high", "xhigh", "max"),
+    "anthropic/claude-fable-5.1": ("low", "medium", "high", "xhigh", "max"),
+    "anthropic/claude-opus-5": ("low", "medium", "high", "xhigh", "max"),
+    "anthropic/claude-sonnet-5": ("low", "medium", "high", "xhigh", "max"),
+    "anthropic/claude-fable-5": ("low", "medium", "high", "xhigh", "max"),
+}
+OPENROUTER_CHOICE_ROUTES = {
+    **OPENROUTER_CLAUDE_VERBOSITY_ROUTES,
+    "google/gemini-4-argon": ("low", "medium", "high"),
+}
+
 
 def score_to_label(score) -> Optional[str]:
     """Rubric score -> normalized label; ``None`` for anything invalid."""
@@ -246,6 +263,7 @@ def _route_choice_levels(provider: Optional[str], model: Optional[str], api_mode
     api = (api_mode or "").strip().lower()
     model_id = (model or "").strip().lower()
     bare = model_id.rsplit("/", 1)[-1]
+    openrouter_model = _openrouter_model_id(model_id)
     levels: Sequence[str] = ()
     if provider_name in _OPEN_CODE_GO_PROVIDERS:
         declared = OPEN_CODE_GO_INJECTION_ROUTES.get(api, {}).get(bare)
@@ -265,7 +283,54 @@ def _route_choice_levels(provider: Optional[str], model: Optional[str], api_mode
     elif (provider_name == "anthropic" and api == "anthropic_messages"
           and _native_anthropic_host(base_url)):
         levels = ANTHROPIC_EFFORT_ROUTES.get(bare, ())
+    elif (provider_name == "openrouter" and api == "chat_completions"
+          and _openrouter_host(base_url)):
+        levels = OPENROUTER_CHOICE_ROUTES.get(openrouter_model, ())
     return tuple(level for level in levels if level in CHOICE_LEVELS), cacheable
+
+
+def openrouter_verbosity_route(provider: Optional[str], model: Optional[str],
+                               api_mode: Optional[str],
+                               base_url: Optional[str]) -> bool:
+    """Is this the exact OpenRouter Claude route whose carrier is ``verbosity``?"""
+    return (
+        (provider or "").strip().lower() == "openrouter"
+        and (api_mode or "").strip().lower() == "chat_completions"
+        and _openrouter_model_id((model or "").strip().lower())
+        in OPENROUTER_CLAUDE_VERBOSITY_ROUTES
+        and _openrouter_host(base_url)
+    )
+
+
+def openrouter_choice_route(provider: Optional[str], model: Optional[str],
+                            api_mode: Optional[str],
+                            base_url: Optional[str]) -> bool:
+    """Is this an exact OpenRouter route with a registered named vocabulary?"""
+    return (
+        (provider or "").strip().lower() == "openrouter"
+        and (api_mode or "").strip().lower() == "chat_completions"
+        and _openrouter_model_id((model or "").strip().lower()) in OPENROUTER_CHOICE_ROUTES
+        and _openrouter_host(base_url)
+    )
+
+
+def _openrouter_model_id(model_id: str) -> str:
+    prefix = "openrouter/"
+    return model_id[len(prefix):] if model_id.startswith(prefix) else model_id
+
+
+def _openrouter_host(base_url: Optional[str]) -> bool:
+    try:
+        parsed = urlsplit(str(base_url or ""))
+        return (
+            parsed.scheme.lower() == "https"
+            and (parsed.hostname or "").lower() == "openrouter.ai"
+            and parsed.port in (None, 443)
+            and parsed.username is None
+            and parsed.password is None
+        )
+    except (TypeError, ValueError):
+        return False
 
 
 def _native_anthropic_host(base_url: Optional[str]) -> bool:

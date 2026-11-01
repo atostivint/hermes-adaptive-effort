@@ -136,6 +136,46 @@ def test_named_effort_mapping_preserves_wire_vocabulary():
     assert effort.map_effort("xhigh", "openai-codex", "gpt-6.1-sol") == "xhigh"
 
 
+def test_openrouter_named_choices_require_exact_host_model_and_api():
+    assert effort.route_choice_levels(
+        "openrouter", "anthropic/claude-opus-5.5", "chat_completions",
+        "https://openrouter.ai") == ("low", "medium", "high", "xhigh", "max")
+    assert effort.route_choice_levels(
+        "openrouter", "anthropic/claude-opus-5.5", "chat_completions",
+        "https://openrouter.ai:443") == ("low", "medium", "high", "xhigh", "max")
+    assert effort.route_choice_levels(
+        "openrouter", "openrouter/anthropic/claude-opus-5.5", "chat_completions",
+        "https://openrouter.ai") == ("low", "medium", "high", "xhigh", "max")
+    assert effort.route_choice_levels(
+        "openrouter", "google/gemini-4-argon", "chat_completions",
+        "https://openrouter.ai") == ("low", "medium", "high")
+    assert effort.route_choice_levels(
+        "openrouter", "openrouter/google/gemini-4-argon", "chat_completions",
+        "https://openrouter.ai") == ("low", "medium", "high")
+    assert effort.openrouter_verbosity_route(
+        "openrouter", "anthropic/claude-opus-5.5", "chat_completions",
+        "https://openrouter.ai")
+    assert effort.openrouter_choice_route(
+        "openrouter", "google/gemini-4-argon", "chat_completions",
+        "https://openrouter.ai")
+
+    for host in ("https://proxy.example", "http://openrouter.ai",
+                 "https://openrouter.ai:8443", "https://user@openrouter.ai",
+                 "https://openrouter.ai.evil.example"):
+        assert effort.route_choice_levels(
+            "openrouter", "anthropic/claude-opus-5.5", "chat_completions", host) == ()
+        assert not effort.openrouter_verbosity_route(
+            "openrouter", "anthropic/claude-opus-5.5", "chat_completions", host)
+    for model in ("claude-opus-5.5", "anthropic/claude-opus-5.5:free",
+                  "anthropic/claude-opus-5.5-2026", "anthropic/claude-opus-4.8"):
+        assert effort.route_choice_levels(
+            "openrouter", model, "chat_completions", "https://openrouter.ai") == ()
+    assert effort.route_choice_levels(
+        "openrouter", "anthropic/claude-opus-5.5", "anthropic_messages",
+        "https://openrouter.ai") == ()
+
+
+
 def test_native_named_choice_route_change_does_not_promote_xhigh_to_max():
     assert effort.map_named_choice("medium", ("low", "high", "max")) == "high"
     assert effort.map_named_choice("xhigh", ("low", "high", "max")) == "high"

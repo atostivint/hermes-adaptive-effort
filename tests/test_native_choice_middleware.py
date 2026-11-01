@@ -13,6 +13,18 @@ CLAUDE = {
     "api_mode": "anthropic_messages",
     "base_url": "https://api.anthropic.com",
 }
+OPENROUTER = {
+    "provider": "openrouter",
+    "model": "anthropic/claude-opus-5.5",
+    "api_mode": "chat_completions",
+    "base_url": "https://openrouter.ai",
+}
+OPENROUTER_ARGON = {
+    "provider": "openrouter",
+    "model": "google/gemini-4-argon",
+    "api_mode": "chat_completions",
+    "base_url": "https://openrouter.ai",
+}
 BETA = "mid-conversation-output-config-2026-07-01"
 
 
@@ -43,6 +55,11 @@ def request_for(provider, model, api_mode, body, **context):
     return middleware.on_llm_request(
         request=body, session_id=SESSION, turn_id=context.pop("turn_id", "turn-1"),
         provider=provider, model=model, api_mode=api_mode, **context)
+
+
+def openrouter_call(body, turn_id="turn-1", route=None):
+    context = dict(route or OPENROUTER)
+    return request_for(**context, body=body, turn_id=turn_id)
 
 
 def claude_request(messages, effort="medium", beta=True, thinking="adaptive"):
@@ -160,6 +177,195 @@ def test_mimo_go_missing_field_uses_exact_chat_choice_route(monkeypatch):
         "opencode-go", "mimo-v2.6-pro", "chat_completions") == ()
     assert middleware._effort.route_choice_levels(
         "opencode-go", "mimo-v2.6-flash", "codex_responses") == ()
+
+
+def test_openrouter_claude_verbosity_uses_only_its_named_choices(monkeypatch):
+    choices = ("low", "medium", "high", "xhigh", "max")
+    for index, choice in enumerate(choices):
+        middleware.reset_state()
+        scorer = ChoiceScorer(choice)
+        configure(monkeypatch, scorer, mode="always")
+        initial = "medium" if choice != "medium" else "low"
+        body = {
+            "model": OPENROUTER["model"],
+            "verbosity": initial,
+            "temperature": 0.2,
+            "extra_body": {"metadata": {"keep": True}},
+            "messages": [{"role": "user", "content": "task"}],
+        }
+        result = openrouter_call(body, turn_id=f"turn-{index}")
+
+        assert result is not None
+        assert result["request"]["verbosity"] == choice
+        assert result["request"]["temperature"] == 0.2
+        assert result["request"]["extra_body"] == {"metadata": {"keep": True}}
+        assert body["verbosity"] == initial
+        assert scorer.calls[0][1] == choices
+        entry = middleware.session_state()[f"{SESSION}/turn-{index}"]
+        assert (entry["decision_type"], entry["score"], entry["target"]) == (
+            "native_choice", None, choice)
+
+
+def test_openrouter_verbosity_is_not_rewritten_on_inexact_routes(monkeypatch):
+    routes = [
+        dict(OPENROUTER, base_url="https://proxy.example"),
+        dict(OPENROUTER, base_url="http://openrouter.ai"),
+        dict(OPENROUTER, base_url="https://openrouter.ai:8443"),
+        dict(OPENROUTER, base_url="https://user@openrouter.ai"),
+        dict(OPENROUTER, model="claude-opus-5.5"),
+        dict(OPENROUTER, model="anthropic/claude-opus-5.5:free"),
+        dict(OPENROUTER, model="anthropic/claude-opus-4.8"),
+        dict(OPENROUTER, model="openai/gpt-6.1"),
+        dict(OPENROUTER, api_mode="anthropic_messages"),
+        dict(OPENROUTER, provider="openrouter-proxy"),
+    ]
+    for index, route in enumerate(routes):
+        middleware.reset_state()
+        scorer = ChoiceScorer("high")
+        configure(monkeypatch, scorer)
+        result = openrouter_call({
+            "model": route["model"], "verbosity": "low",
+            "messages": [{"role": "user", "content": "task"}],
+        }, turn_id=f"turn-{index}", route=route)
+
+        assert result is None, route
+        assert scorer.calls == [], route
+
+
+def test_openrouter_verbosity_missing_malformed_disabled_or_conflicting_is_unsupported(
+        monkeypatch):
+    bodies = [
+        {"messages": [{"role": "user", "content": "task"}]},
+        {"verbosity": 7, "messages": [{"role": "user", "content": "task"}]},
+        {"verbosity": "", "messages": [{"role": "user", "content": "task"}]},
+        {"verbosity": "none", "messages": [{"role": "user", "content": "task"}]},
+        {"verbosity": "ultra", "messages": [{"role": "user", "content": "task"}]},
+        {"verbosity": "banana", "messages": [{"role": "user", "content": "task"}]},
+        {"verbosity": "high", "reasoning_effort": "low",
+         "messages": [{"role": "user", "content": "task"}]},
+        {"verbosity": "high", "extra_body": {"reasoning": {"effort": "low"}},
+         "messages": [{"role": "user", "content": "task"}]},
+        {"verbosity": "high", "reasoning": {"effort": "low"},
+         "messages": [{"role": "user", "content": "task"}]},
+        {"verbosity": "high", "output_config": {"effort": "low"},
+         "messages": [{"role": "user", "content": "task"}]},
+    ]
+    for index, body in enumerate(bodies):
+        middleware.reset_state()
+        scorer = ChoiceScorer("high")
+        configure(monkeypatch, scorer)
+        body = {"model": OPENROUTER["model"], **body}
+        original = dict(body)
+        result = openrouter_call(body, turn_id=f"turn-{index}")
+
+        assert result is None
+        assert scorer.calls == []
+        assert body == original
+
+
+def test_openrouter_argon_uses_the_existing_reasoning_effort_carrier(monkeypatch):
+    scorer = ChoiceScorer("medium")
+    configure(monkeypatch, scorer)
+    body = {
+        "model": OPENROUTER_ARGON["model"],
+        "extra_body": {"reasoning": {"effort": "low", "enabled": True,
+                                     "summary": "auto"}},
+        "messages": [{"role": "user", "content": "task"}],
+    }
+    result = openrouter_call(body, route=OPENROUTER_ARGON)
+
+    assert result["request"]["extra_body"]["reasoning"] == {
+        "effort": "medium", "enabled": True, "summary": "auto"}
+    assert body["extra_body"]["reasoning"]["effort"] == "low"
+    assert scorer.calls[0][1] == ("low", "medium", "high")
+    entry = middleware.session_state()[f"{SESSION}/turn-1"]
+    assert (entry["decision_type"], entry["target"]) == ("native_choice", "medium")
+
+
+def test_openrouter_auto_keeps_one_decision_per_route(monkeypatch):
+    scorer = ChoiceScorer("high")
+    configure(monkeypatch, scorer, mode="auto")
+    first = openrouter_call({
+        "model": OPENROUTER["model"], "verbosity": "medium",
+        "messages": [{"role": "user", "content": "first"}],
+    })
+    second = openrouter_call({
+        "model": OPENROUTER["model"], "verbosity": "medium",
+        "messages": [{"role": "user", "content": "second"}],
+    }, turn_id="turn-2")
+    tool_loop = openrouter_call({
+        "model": OPENROUTER["model"], "verbosity": "medium",
+        "messages": [{"role": "user", "content": "second"}],
+    })
+
+    assert first["request"]["verbosity"] == "high"
+    assert second["request"]["verbosity"] == "high"
+    assert tool_loop["request"]["verbosity"] == "high"
+    assert len(scorer.calls) == 1
+    assert middleware.session_state()[f"{SESSION}/turn-2"]["label"] == "high"
+
+
+def test_openrouter_verbosity_participates_in_manual_stand_down(monkeypatch):
+    scorer = ChoiceScorer("high")
+    configure(monkeypatch, scorer, mode="auto")
+    first = openrouter_call({
+        "model": OPENROUTER["model"], "verbosity": "medium",
+        "messages": [{"role": "user", "content": "first"}],
+    })
+    changed = {
+        "model": OPENROUTER["model"], "verbosity": "low",
+        "messages": [{"role": "user", "content": "second"}],
+    }
+    assert first["request"]["verbosity"] == "high"
+    assert openrouter_call(changed, turn_id="turn-2") is None
+    assert changed["verbosity"] == "low"
+    assert len(scorer.calls) == 1
+    entry = middleware.session_state()[f"{SESSION}/turn-2"]
+    assert entry["manual_effort"] is True
+
+
+def test_openrouter_route_change_reclamps_xhigh_to_argon_high(monkeypatch):
+    scorer = ChoiceScorer("xhigh")
+    configure(monkeypatch, scorer, mode="always")
+    first = openrouter_call({
+        "model": OPENROUTER["model"], "verbosity": "medium",
+        "messages": [{"role": "user", "content": "task"}],
+    })
+    second = openrouter_call({
+        "model": OPENROUTER_ARGON["model"],
+        "extra_body": {"reasoning": {"effort": "medium"}},
+        "messages": [{"role": "user", "content": "task"}],
+    }, route=OPENROUTER_ARGON)
+
+    assert first["request"]["verbosity"] == "xhigh"
+    assert second["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    assert len(scorer.calls) == 1
+
+
+def test_openrouter_exact_routes_never_inject_a_missing_carrier(monkeypatch):
+    values = {
+        "mode": "auto",
+        "max_turns": 64,
+        "effort_models": ("anthropic/claude-opus-5.5,google/gemini-4-argon"),
+    }
+    monkeypatch.setattr(
+        middleware, "_settings_provider", lambda key, default=None: values.get(key, default))
+    scorer = ChoiceScorer("high")
+    monkeypatch.setattr(middleware, "_classifier_factory", lambda **_kwargs: scorer)
+
+    claude_body = {
+        "model": OPENROUTER["model"],
+        "messages": [{"role": "user", "content": "task"}],
+    }
+    argon_body = {
+        "model": OPENROUTER_ARGON["model"],
+        "messages": [{"role": "user", "content": "task"}],
+    }
+    assert openrouter_call(claude_body) is None
+    assert openrouter_call(argon_body, route=OPENROUTER_ARGON) is None
+    assert scorer.calls == []
+    assert "verbosity" not in claude_body
+    assert "extra_body" not in argon_body
 
 
 def test_native_choice_route_change_does_not_promote_xhigh_to_new_route_max(monkeypatch):
