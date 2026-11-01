@@ -1939,6 +1939,10 @@ def _injection_path(request: Dict[str, Any], provider: Any, model: Any,
     if _effort.openrouter_choice_route(provider_name, model, api, base_url):
         # These exact routes may rewrite an existing carrier, never add one.
         return None
+    if _effort.directsdk_choice_route(provider_name, model, api):
+        # The adapter reads only ``extra_body.reasoning.effort``; a top-level
+        # ``reasoning_effort`` would be an applied change with no wire effect.
+        return None
     if (provider_name in _effort.GEMINI_NATIVE_PROVIDERS and api == "chat_completions"
             and _effort.native_gemini_host(base_url)):
         # The native adapter ignores ``reasoning_effort``: an injection would be an

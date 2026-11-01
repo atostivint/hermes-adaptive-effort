@@ -82,6 +82,25 @@ ANTHROPIC_EFFORT_ROUTES = {
     "claude-sonnet-4-6": ("low", "medium", "high", "max"),
 }
 
+#: Exact Claude Code DirectSDK routes (``chat_completions`` through the experimental
+#: subscription adapter). The adapter maps the existing ``extra_body.reasoning.effort`` to
+#: ``output_config.effort`` / ``--effort``. Claude Code 2.1.308 accepted all five levels for
+#: the ``[1m]`` variants on 2026-10-29 (acceptance, not proof each level was independently
+#: applied; not an end-to-end DirectSDK test). Fable 5.1, Opus 5 (observed fallbacks), Haiku 4.5
+#: (effort unsupported) and Daybreak are deliberately absent; ids are never inferred from the
+#: ``claude-*`` family and the ``[1m]`` suffix is never stripped. Naming a vocabulary says nothing
+#: about cache behaviour: these routes are never dynamic and never trialled.
+DIRECTSDK_PROVIDER = "claude-subscription-directsdk-experimental"
+_DIRECTSDK_LEVELS = ("low", "medium", "high", "xhigh", "max")
+_DIRECTSDK_BASE_MODELS = (
+    "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-4-8",
+    "claude-sonnet-5",
+)
+DIRECTSDK_CHOICE_ROUTES = {
+    model_id: _DIRECTSDK_LEVELS
+    for base in _DIRECTSDK_BASE_MODELS for model_id in (base, base + "[1m]")
+}
+
 ANTHROPIC_PER_MESSAGE_MODELS = frozenset({
     "claude-fable-5-1", "claude-mythos-5-1", "claude-opus-5-5",
     "claude-opus-5", "claude-sonnet-5-5",
@@ -296,6 +315,8 @@ def _route_choice_levels(provider: Optional[str], model: Optional[str], api_mode
         except Exception:
             levels = ()
             cacheable = False
+    elif directsdk_choice_route(provider_name, model_id, api):
+        levels = DIRECTSDK_CHOICE_ROUTES[model_id]
     elif (provider_name == "anthropic" and api == "anthropic_messages"
           and _native_anthropic_host(base_url)):
         levels = ANTHROPIC_EFFORT_ROUTES.get(bare, ())
@@ -306,6 +327,20 @@ def _route_choice_levels(provider: Optional[str], model: Optional[str], api_mode
           or gemini_openai_thinking_route(provider_name, model_id, api, base_url)):
         levels = GEMINI_NATIVE_THINKING_ROUTES.get(_gemini_model_id(model_id), ())
     return tuple(level for level in levels if level in CHOICE_LEVELS), cacheable
+
+
+def directsdk_choice_route(provider: Optional[str], model: Optional[str],
+                           api_mode: Optional[str]) -> bool:
+    """Is this an exact DirectSDK route with a registered named vocabulary?
+
+    The provider name plus the exact model string and API mode is the gate (no host exists
+    to check); the model is compared whole, so a prefix or a stripped ``[1m]`` never matches.
+    """
+    return (
+        (provider or "").strip().lower() == DIRECTSDK_PROVIDER
+        and (api_mode or "").strip().lower() == "chat_completions"
+        and (model or "").strip().lower() in DIRECTSDK_CHOICE_ROUTES
+    )
 
 
 def openrouter_verbosity_route(provider: Optional[str], model: Optional[str],
