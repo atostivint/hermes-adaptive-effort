@@ -221,3 +221,41 @@ def test_native_gemini_argon_route_rejects_lookalikes():
                  "https://generativelanguage.googleapis.com/v1beta/openai/",
                  "https://openrouter.ai"):
         assert levels(base=base) == ()
+
+
+def test_native_gemini3_routes_have_their_exact_levels():
+    expected = {
+        "gemini-3.8-flash": ("low", "medium", "high"),
+        "gemini-3.6-flash": ("low", "medium", "high"),
+        "gemini-3.5-flash-lite": ("low", "medium", "high"),
+        "gemini-3.1-flash-lite": ("low", "medium", "high"),
+        "gemini-3-flash-preview": ("low", "medium", "high"),
+        "gemini-3.1-pro-preview": ("low", "high"),
+    }
+    for model, levels in expected.items():
+        for provider in ("gemini", "google", "google-gemini", "google-ai-studio"):
+            assert effort.route_choice_levels(
+                provider, model, "chat_completions", GEMINI_NATIVE) == levels, model
+            assert effort.native_gemini_thinking_route(
+                provider, model, "chat_completions", GEMINI_NATIVE), model
+        assert effort.route_choice_levels(
+            "gemini", f"google/{model}", "chat_completions", GEMINI_NATIVE) == levels, model
+        assert effort.route_choice_levels(
+            "google", f"gemini/{model}", "chat_completions", GEMINI_NATIVE) == levels, model
+    assert "medium" not in effort.route_choice_levels(
+        "gemini", "gemini-3.1-pro-preview", "chat_completions", GEMINI_NATIVE)
+
+
+def test_native_gemini3_routes_reject_unregistered_or_inexact_ids():
+    for model in (
+            "gemini-3.1-pro",  # not a serveable native ID
+            "gemini-3-pro-preview",  # shut down, not registered
+            "gemini-3.7-flash",  # present in Hermes, absent from current vendor docs
+            "gemini-3.8-flash-preview",  # exact-ID gate, no suffix inference
+            "gemini-3.1-flash-lite-preview",  # shut down, not registered
+            "gemini-3.1-flash-lite-image",  # image model, not a text route
+    ):
+        assert effort.route_choice_levels(
+            "gemini", model, "chat_completions", GEMINI_NATIVE) == (), model
+        assert not effort.native_gemini_thinking_route(
+            "gemini", model, "chat_completions", GEMINI_NATIVE), model

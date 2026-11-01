@@ -670,6 +670,42 @@ def test_native_gemini_argon_accepts_provider_alias_and_prefixed_model(monkeypat
     assert result["request"]["extra_body"]["thinking_config"]["thinkingLevel"] == "medium"
 
 
+GEMINI3_ROUTES = {
+    "gemini-3.8-flash": ("low", "medium", "high"),
+    "gemini-3.6-flash": ("low", "medium", "high"),
+    "gemini-3.5-flash-lite": ("low", "medium", "high"),
+    "gemini-3.1-flash-lite": ("low", "medium", "high"),
+    "gemini-3-flash-preview": ("low", "medium", "high"),
+    "gemini-3.1-pro-preview": ("low", "high"),
+}
+
+
+def test_native_gemini3_routes_rewrite_only_their_exact_levels(monkeypatch):
+    for model, levels in GEMINI3_ROUTES.items():
+        for index, level in enumerate(levels):
+            scorer = ChoiceScorer(level)
+            configure(monkeypatch, scorer, mode="always")
+            current = "low" if level != "low" else "high"
+            body = gemini_body({"thinkingLevel": current, "includeThoughts": True})
+            result = gemini_call(
+                body, turn_id=f"{model}-{index}",
+                route=dict(GEMINI_ARGON, model=model))
+            assert result["request"]["extra_body"]["thinking_config"] == {
+                "thinkingLevel": level, "includeThoughts": True}
+            assert scorer.calls[0][1] == levels, model
+            middleware.reset_state()
+
+
+def test_native_gemini3_pro_rejects_medium_outside_its_vocabulary(monkeypatch):
+    scorer = ChoiceScorer("medium")
+    configure(monkeypatch, scorer, mode="always")
+    body = gemini_body({"thinkingLevel": "low"})
+    route = dict(GEMINI_ARGON, model="gemini-3.1-pro-preview")
+    assert gemini_call(body, route=route) is None
+    assert body["extra_body"]["thinking_config"] == {"thinkingLevel": "low"}
+    assert scorer.calls[0][1] == ("low", "high")
+
+
 def test_native_gemini_argon_unusable_controls_are_unsupported_and_unscored(monkeypatch):
     cases = [
         gemini_body({}),                                          # missing level: never injected
