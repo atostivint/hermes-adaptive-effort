@@ -610,3 +610,186 @@ def test_claude_internal_error_invalidates_existing_marker_history(monkeypatch):
 
     assert claude_call(next_turn, turn_id="turn-2") is None
     assert middleware._CLAUDE_HISTORY[route_key]["invalid"] is True
+
+
+GEMINI_ARGON = {
+    "provider": "gemini",
+    "model": "gemini-4-argon",
+    "api_mode": "chat_completions",
+    "base_url": "https://generativelanguage.googleapis.com/v1beta",
+}
+
+
+def gemini_body(config=None, **extra):
+    body = {
+        "model": GEMINI_ARGON["model"],
+        "extra_body": {"thinking_config": config if config is not None
+                       else {"thinkingLevel": "low"}, **extra},
+        "messages": [{"role": "user", "content": "task"}],
+    }
+    return body
+
+
+def gemini_call(body, turn_id="turn-1", route=None):
+    return request_for(**dict(route or GEMINI_ARGON), body=body, turn_id=turn_id)
+
+
+def test_native_gemini_argon_rewrites_every_level_without_touching_siblings(monkeypatch):
+    for index, level in enumerate(("low", "medium", "high")):
+        scorer = ChoiceScorer(level)
+        configure(monkeypatch, scorer, mode="always")
+        body = gemini_body({"thinkingLevel": "medium" if level != "medium" else "low",
+                            "includeThoughts": True}, other={"keep": 1})
+        original = {**body, "extra_body": {**body["extra_body"],
+                                           "thinking_config": dict(
+                                               body["extra_body"]["thinking_config"])}}
+        result = gemini_call(body, turn_id=f"turn-{index}")
+
+        assert result["request"]["extra_body"]["thinking_config"] == {
+            "thinkingLevel": level, "includeThoughts": True}
+        assert result["request"]["extra_body"]["other"] == {"keep": 1}
+        assert body == original  # the caller's request is never mutated
+        assert scorer.calls[0][1] == ("low", "medium", "high")
+        entry = middleware.session_state()[f"{SESSION}/turn-{index}"]
+        assert (entry["decision_type"], entry["target"], entry["score"]) == (
+            "native_choice", level, None)
+        middleware.reset_state()
+
+
+def test_native_gemini_argon_preserves_snake_case_key_style(monkeypatch):
+    configure(monkeypatch, ChoiceScorer("high"), mode="always")
+    result = gemini_call(gemini_body({"thinking_level": "low", "include_thoughts": True}))
+    assert result["request"]["extra_body"]["thinking_config"] == {
+        "thinking_level": "high", "include_thoughts": True}
+
+
+def test_native_gemini_argon_accepts_provider_alias_and_prefixed_model(monkeypatch):
+    configure(monkeypatch, ChoiceScorer("medium"), mode="always")
+    route = dict(GEMINI_ARGON, provider="google-ai-studio", model="google/gemini-4-argon")
+    result = gemini_call(gemini_body(), route=route)
+    assert result["request"]["extra_body"]["thinking_config"]["thinkingLevel"] == "medium"
+
+
+def test_native_gemini_argon_unusable_controls_are_unsupported_and_unscored(monkeypatch):
+    cases = [
+        gemini_body({}),                                          # missing level: never injected
+        {"model": "gemini-4-argon", "messages": [{"role": "user", "content": "t"}]},
+        gemini_body({"thinkingLevel": "minimal"}),                # out of the route vocabulary
+        gemini_body({"thinkingLevel": "xhigh"}),
+        gemini_body({"thinkingLevel": 3}),
+        gemini_body({"thinkingLevel": "low", "includeThoughts": False}),
+        gemini_body({"thinkingLevel": "low", "thinkingBudget": 0}),
+        gemini_body({"thinkingLevel": "low", "thinkingBudget": 2048}),
+        gemini_body({"thinkingLevel": "low", "thinking_level": "high"}),
+        gemini_body("low"),                                       # malformed thinking_config
+        gemini_body(["thinkingLevel"]),
+        gemini_body(None, reasoning={"effort": "low"}),           # competing carrier
+    ]
+    cases[-1]["extra_body"]["thinking_config"] = {"thinkingLevel": "low"}
+    cases.append({**gemini_body(), "reasoning_effort": "low"})
+    cases.append({**gemini_body(), "verbosity": "low"})
+    cases.append({**gemini_body(), "output_config": {"effort": "low"}})
+    for index, body in enumerate(cases):
+        scorer = ChoiceScorer("high")
+        configure(monkeypatch, scorer, mode="always")
+        snapshot = repr(body)
+        assert gemini_call(body, turn_id=f"turn-{index}") is None, index
+        assert scorer.calls == [], index
+        assert repr(body) == snapshot, index
+        middleware.reset_state()
+
+
+def test_native_gemini_argon_makes_no_change_on_wrong_route(monkeypatch):
+    wrong = [
+        dict(GEMINI_ARGON, provider="openai"),
+        dict(GEMINI_ARGON, model="gemini-4-flash"),
+        dict(GEMINI_ARGON, api_mode="codex_responses"),
+        dict(GEMINI_ARGON, base_url="https://proxy.example/v1beta"),
+        dict(GEMINI_ARGON, base_url="https://generativelanguage.googleapis.com/v1beta/openai"),
+    ]
+    for index, route in enumerate(wrong):
+        scorer = ChoiceScorer("high")
+        configure(monkeypatch, scorer, mode="always")
+        body = gemini_body()
+        assert gemini_call(body, turn_id=f"turn-{index}", route=route) is None, route
+        assert scorer.calls == [], route
+        assert body["extra_body"]["thinking_config"] == {"thinkingLevel": "low"}
+        middleware.reset_state()
+
+
+def test_native_gemini_argon_auto_retains_and_always_classifies_each_turn(monkeypatch):
+    scorer = ChoiceScorer("high", "low")
+    configure(monkeypatch, scorer, mode="auto")
+    first = gemini_call(gemini_body({"thinkingLevel": "medium"}))
+    second = gemini_call(gemini_body({"thinkingLevel": "medium"}), turn_id="turn-2")
+    tool_loop = gemini_call(gemini_body({"thinkingLevel": "medium"}), turn_id="turn-2")
+    assert [r["request"]["extra_body"]["thinking_config"]["thinkingLevel"]
+            for r in (first, second, tool_loop)] == ["high", "high", "high"]
+    assert len(scorer.calls) == 1
+    middleware.reset_state()
+
+    scorer = ChoiceScorer("high", "low")
+    configure(monkeypatch, scorer, mode="always")
+    one = gemini_call(gemini_body({"thinkingLevel": "medium"}))
+    loop = gemini_call(gemini_body({"thinkingLevel": "medium"}))
+    two = gemini_call(gemini_body({"thinkingLevel": "medium"}), turn_id="turn-2")
+    assert one["request"]["extra_body"]["thinking_config"]["thinkingLevel"] == "high"
+    assert loop["request"]["extra_body"]["thinking_config"]["thinkingLevel"] == "high"
+    assert two["request"]["extra_body"]["thinking_config"]["thinkingLevel"] == "low"
+    assert len(scorer.calls) == 2
+
+
+def test_native_gemini_argon_fails_open_on_out_of_list_or_single_answer(monkeypatch):
+    for answer in ("xhigh", "minimal", "none", "ultra", ""):
+        scorer = ChoiceScorer(answer)
+        configure(monkeypatch, scorer, mode="always")
+        body = gemini_body()
+        assert gemini_call(body) is None
+        assert body["extra_body"]["thinking_config"] == {"thinkingLevel": "low"}
+        middleware.reset_state()
+
+
+def test_native_gemini_argon_reclamps_on_route_change_without_second_call(monkeypatch):
+    scorer = ChoiceScorer("high")
+    configure(monkeypatch, scorer, mode="always")
+    first = gemini_call(gemini_body())
+    second = openrouter_call({
+        "model": OPENROUTER_ARGON["model"],
+        "extra_body": {"reasoning": {"effort": "low"}},
+        "messages": [{"role": "user", "content": "task"}],
+    }, route=OPENROUTER_ARGON)
+    assert first["request"]["extra_body"]["thinking_config"]["thinkingLevel"] == "high"
+    assert second["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    assert len(scorer.calls) == 1
+
+
+def test_native_gemini_argon_manual_change_stands_down(monkeypatch):
+    scorer = ChoiceScorer("high")
+    configure(monkeypatch, scorer, mode="auto")
+    first = gemini_call(gemini_body({"thinkingLevel": "medium"}))
+    assert first["request"]["extra_body"]["thinking_config"]["thinkingLevel"] == "high"
+    changed = gemini_body({"thinkingLevel": "low"})
+    assert gemini_call(changed, turn_id="turn-2") is None
+    assert changed["extra_body"]["thinking_config"]["thinkingLevel"] == "low"
+    assert len(scorer.calls) == 1
+    assert middleware.session_state()[f"{SESSION}/turn-2"]["manual_effort"] is True
+
+
+def test_native_gemini_never_injects_even_through_effort_models(monkeypatch):
+    values = {"mode": "always", "max_turns": 64, "effort_models": "gemini-4-argon,gemini-4-pro"}
+    monkeypatch.setattr(
+        middleware, "_settings_provider", lambda key, default=None: values.get(key, default))
+    scorer = ChoiceScorer("high")
+    monkeypatch.setattr(middleware, "_classifier_factory", lambda **_kwargs: scorer)
+    for index, route in enumerate((
+            GEMINI_ARGON,
+            dict(GEMINI_ARGON, model="gemini-4-pro"),
+            dict(GEMINI_ARGON, provider="google"))):
+        body = {"model": route["model"], "messages": [{"role": "user", "content": "task"}]}
+        assert gemini_call(body, turn_id=f"turn-{index}", route=route) is None
+        assert "reasoning_effort" not in body and "extra_body" not in body
+    # The same IDs still inject on an unrelated Chat Completions host (operator assertion).
+    other = dict(GEMINI_ARGON, base_url="https://llm.example/v1")
+    body = {"model": "gemini-4-argon", "messages": [{"role": "user", "content": "task"}]}
+    result = gemini_call(body, turn_id="turn-9", route=other)
+    assert result is not None and result["request"]["reasoning_effort"]
