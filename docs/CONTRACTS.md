@@ -237,7 +237,7 @@ Custom endpoints must be valid HTTP(S) URLs without embedded credentials or frag
 
 Scoring deadline: `timeout_s` of `0`, negative or invalid means the selected provider's default (`scorers.PROVIDER_TIMEOUT_S`); a positive value wins. `status` settings expose the effective `timeout_s`, `timeout_s_configured` (raw operator value, `0` when unset) and `timeout_source` (`provider_default` | `configured`), additively within status schema v2. A timeout still fails open with `timeout` and counts toward the circuit breaker.
 
-Transient scorer HTTP errors (`scorer_retry.py`, every adapter and `/hae probe`): a scorer call that ends in HTTP 408, 429, 500, 502, 503 or 504 is repeated **once**, never more.
+Transient scorer HTTP errors (`scorer_retry.py`, every adapter and `/hae probe`): a scorer call that ends in HTTP 408, 429, 500, 502, 503, 504 or 529 is repeated **once**, never more.
 
 - The retry happens only if at least 300 ms of the `timeout_s` deadline remain after the wait. Its own timeout is the remaining budget, so the whole call (attempt, wait, retry) never exceeds `timeout_s`.
 - The wait is the `Retry-After` header (delay-seconds or HTTP-date) when present and usable, otherwise 100 ms. A `Retry-After` that does not fit the remaining budget means no retry, and the first attempt's `http_error` stands.

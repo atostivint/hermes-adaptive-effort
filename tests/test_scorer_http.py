@@ -216,6 +216,24 @@ def test_send_reason_ladder(exc, reason):
     assert scorer_http.send(request, transport, 1.0) == (None, reason)
 
 
+def test_http_error_status_code_is_logged_at_info(caplog):
+    def refused(request, timeout):
+        raise urllib.error.HTTPError("u", 529, "overloaded", {}, io.BytesIO(b""))
+
+    request = scorer_http.build_request("https://scorer.example/s", {}, user_agent="ua")
+    with caplog.at_level("INFO", logger=scorer_http.logger.name):
+        assert scorer_http.send(request, refused, 1.0) == (None, "http_error")
+    assert "HTTP 529" in caplog.text
+    assert "overloaded" not in caplog.text
+
+
+def test_non_2xx_response_status_code_is_logged_at_info(caplog):
+    response = Response(status=529)
+    with caplog.at_level("INFO", logger=scorer_http.logger.name):
+        assert scorer_http.read_json(response) == (None, "http_error")
+    assert "HTTP 529" in caplog.text
+
+
 def test_build_request_adds_authorization_only_with_a_key():
     plain = scorer_http.build_request("https://scorer.example/s", {"a": 1}, user_agent="ua")
     keyed = scorer_http.build_request("https://scorer.example/s", {"a": 1}, key="k",
