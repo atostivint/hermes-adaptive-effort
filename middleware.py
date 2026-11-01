@@ -1671,6 +1671,24 @@ def _latest_user_prompt(request: Dict[str, Any]) -> Optional[str]:
     return _latest_responses_text(request.get("input"))
 
 
+def _has_competing_effort_carrier(request: Dict[str, Any]) -> bool:
+    """Does the request carry a second effort field besides ``verbosity``?"""
+    extra_body = request.get("extra_body")
+    if isinstance(extra_body, dict):
+        if "reasoning_effort" in extra_body:
+            return True
+        reasoning = extra_body.get("reasoning")
+        if isinstance(reasoning, dict) and "effort" in reasoning:
+            return True
+    if "reasoning_effort" in request:
+        return True
+    reasoning = request.get("reasoning")
+    if isinstance(reasoning, dict) and "effort" in reasoning:
+        return True
+    output_config = request.get("output_config")
+    return isinstance(output_config, dict) and "effort" in output_config
+
+
 def _effort_slot(request: Dict[str, Any], provider: Any = None, model: Any = None,
                  api_mode: Any = None, base_url: Any = None,
                  route_choices: Optional[Tuple[str, ...]] = None
@@ -1683,6 +1701,18 @@ def _effort_slot(request: Dict[str, Any], provider: Any = None, model: Any = Non
     absent field, an explicit ``"none"`` level, or ``enabled: false`` is not an
     invitation to turn reasoning on: we refuse and report ``unsupported``.
     """
+    # OpenRouter's exact Claude routes carry effort in the top-level ``verbosity``
+    # field. Never fall through to a generic carrier on these routes: that would
+    # rewrite a different field than the one the route documents.
+    if _effort.openrouter_verbosity_route(provider, model, api_mode, base_url):
+        if _has_competing_effort_carrier(request):
+            return None
+        choices = (route_choices if route_choices is not None
+                   else _effort.route_choice_levels(provider, model, api_mode, base_url))
+        value = request.get("verbosity")
+        if isinstance(value, str) and value.strip().lower() in choices:
+            return request, "verbosity", value.strip().lower()
+        return None
     extra_body = request.get("extra_body")
     if isinstance(extra_body, dict):
         reasoning = extra_body.get("reasoning")
@@ -1799,6 +1829,9 @@ def _injection_path(request: Dict[str, Any], provider: Any, model: Any,
     provider_name = str(provider or "").strip().lower()
     bare_model = str(model or "").strip().lower().rsplit("/", 1)[-1]
     api = str(api_mode or "").strip().lower()
+    if _effort.openrouter_choice_route(provider_name, model, api, base_url):
+        # These exact routes may rewrite an existing carrier, never add one.
+        return None
     claude_choices = (
         (route_choices if route_choices is not None
          else _effort.route_choice_levels(provider_name, model, api, base_url))
