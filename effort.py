@@ -302,7 +302,8 @@ def _route_choice_levels(provider: Optional[str], model: Optional[str], api_mode
     elif (provider_name == "openrouter" and api == "chat_completions"
           and _openrouter_host(base_url)):
         levels = OPENROUTER_CHOICE_ROUTES.get(openrouter_model, ())
-    elif native_gemini_thinking_route(provider_name, model_id, api, base_url):
+    elif (native_gemini_thinking_route(provider_name, model_id, api, base_url)
+          or gemini_openai_thinking_route(provider_name, model_id, api, base_url)):
         levels = GEMINI_NATIVE_THINKING_ROUTES.get(_gemini_model_id(model_id), ())
     return tuple(level for level in levels if level in CHOICE_LEVELS), cacheable
 
@@ -350,20 +351,44 @@ def _gemini_model_id(model_id: str) -> str:
     return model_id
 
 
-def native_gemini_host(base_url: Optional[str]) -> bool:
-    """HTTPS ``generativelanguage.googleapis.com``, not the separate ``/openai`` surface."""
+def _gemini_https_host(base_url: Optional[str]) -> Optional[str]:
+    """Lower-cased path of an HTTPS ``generativelanguage.googleapis.com`` base, else ``None``."""
     try:
         parsed = urlsplit(str(base_url or ""))
-        return (
+        if (
             parsed.scheme.lower() == "https"
             and (parsed.hostname or "").lower() == "generativelanguage.googleapis.com"
             and parsed.port in (None, 443)
             and parsed.username is None
             and parsed.password is None
-            and not parsed.path.rstrip("/").lower().endswith("/openai")
-        )
+        ):
+            return parsed.path.rstrip("/").lower()
     except (TypeError, ValueError):
-        return False
+        pass
+    return None
+
+
+def native_gemini_host(base_url: Optional[str]) -> bool:
+    """HTTPS ``generativelanguage.googleapis.com``, not the separate ``/openai`` surface."""
+    path = _gemini_https_host(base_url)
+    return path is not None and not path.endswith("/openai")
+
+
+def gemini_openai_host(base_url: Optional[str]) -> bool:
+    """HTTPS ``generativelanguage.googleapis.com`` OpenAI-compatible base (path ends ``/openai``)."""
+    path = _gemini_https_host(base_url)
+    return path is not None and path.endswith("/openai")
+
+
+def gemini_openai_thinking_route(provider: Optional[str], model: Optional[str],
+                                 api_mode: Optional[str], base_url: Optional[str]) -> bool:
+    """Exact OpenAI-compatible Gemini route whose carrier is ``extra_body.google.thinking_config``."""
+    return (
+        (provider or "").strip().lower() in GEMINI_NATIVE_PROVIDERS
+        and (api_mode or "").strip().lower() == "chat_completions"
+        and _gemini_model_id((model or "").strip().lower()) in GEMINI_NATIVE_THINKING_ROUTES
+        and gemini_openai_host(base_url)
+    )
 
 
 def _openrouter_model_id(model_id: str) -> str:
