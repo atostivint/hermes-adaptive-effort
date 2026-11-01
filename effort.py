@@ -107,9 +107,17 @@ OPENROUTER_CHOICE_ROUTES = {
 #: Exact native Gemini routes (``generativelanguage.googleapis.com``, Chat Completions
 #: transport) whose carrier is ``extra_body.thinking_config.thinkingLevel``. Native raw
 #: ``minimal``/``xhigh`` returned HTTP 400 on 2026-10-29, so they are not in the vocabulary.
+#: The 2026-11-01 probe accepted low/medium/high for the Gemini 3 Flash and Flash-Lite
+#: IDs; Gemini 3 Pro stays at low/high, matching Hermes' own Pro mapping.
 GEMINI_NATIVE_PROVIDERS = frozenset({"gemini", "google", "google-gemini", "google-ai-studio"})
 GEMINI_NATIVE_THINKING_ROUTES = {
     "gemini-4-argon": ("low", "medium", "high"),
+    "gemini-3.8-flash": ("low", "medium", "high"),
+    "gemini-3.6-flash": ("low", "medium", "high"),
+    "gemini-3.5-flash-lite": ("low", "medium", "high"),
+    "gemini-3.1-flash-lite": ("low", "medium", "high"),
+    "gemini-3-flash-preview": ("low", "medium", "high"),
+    "gemini-3.1-pro-preview": ("low", "high"),
 }
 
 
