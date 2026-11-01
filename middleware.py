@@ -1689,6 +1689,37 @@ def _has_competing_effort_carrier(request: Dict[str, Any]) -> bool:
     return isinstance(output_config, dict) and "effort" in output_config
 
 
+_GEMINI_LEVEL_KEYS = ("thinkingLevel", "thinking_level")
+
+
+def _gemini_thinking_controls_conflict(config: Dict[str, Any]) -> bool:
+    """Hidden thoughts, a disabled budget or a budget next to a level: stand down."""
+    if config.get("includeThoughts") is False or config.get("include_thoughts") is False:
+        return True
+    for budget_key in ("thinkingBudget", "thinking_budget"):
+        if budget_key in config:
+            return True  # any budget is a competing control, or a disabled/malformed one
+    return False
+
+
+def _gemini_thinking_slot(request: Dict[str, Any], choices: Tuple[str, ...]
+                          ) -> Optional[Tuple[Dict[str, Any], str, str]]:
+    """Existing ``extra_body.thinking_config`` level of the native Gemini route, key style kept."""
+    extra_body = request.get("extra_body")
+    if not isinstance(extra_body, dict):
+        return None
+    config = extra_body.get("thinking_config")
+    if not isinstance(config, dict) or _gemini_thinking_controls_conflict(config):
+        return None
+    present = [key for key in _GEMINI_LEVEL_KEYS if key in config]
+    if len(present) != 1:
+        return None  # absent (never injected) or two spellings that may disagree
+    value = config[present[0]]
+    if isinstance(value, str) and value.strip().lower() in choices:
+        return config, present[0], value.strip().lower()
+    return None
+
+
 def _effort_slot(request: Dict[str, Any], provider: Any = None, model: Any = None,
                  api_mode: Any = None, base_url: Any = None,
                  route_choices: Optional[Tuple[str, ...]] = None
@@ -1713,6 +1744,14 @@ def _effort_slot(request: Dict[str, Any], provider: Any = None, model: Any = Non
         if isinstance(value, str) and value.strip().lower() in choices:
             return request, "verbosity", value.strip().lower()
         return None
+    # Exact native Gemini route: the carrier is ``extra_body.thinking_config``; any other
+    # effort field would be ignored by the native adapter, so it never counts.
+    if _effort.native_gemini_thinking_route(provider, model, api_mode, base_url):
+        if _has_competing_effort_carrier(request) or "verbosity" in request:
+            return None
+        choices = (route_choices if route_choices is not None
+                   else _effort.route_choice_levels(provider, model, api_mode, base_url))
+        return _gemini_thinking_slot(request, choices)
     extra_body = request.get("extra_body")
     if isinstance(extra_body, dict):
         reasoning = extra_body.get("reasoning")
@@ -1750,7 +1789,7 @@ def _effort_slot(request: Dict[str, Any], provider: Any = None, model: Any = Non
     return None
 
 
-def _reasoning_is_explicitly_disabled(request: Dict[str, Any]) -> bool:
+def _reasoning_is_explicitly_disabled(request: Dict[str, Any], native_gemini: bool = False) -> bool:
     """Do not rewrite or insert effort when a host control disables or malforms thinking."""
     reasoning = request.get("reasoning")
     if isinstance(reasoning, dict):
@@ -1771,6 +1810,10 @@ def _reasoning_is_explicitly_disabled(request: Dict[str, Any]) -> bool:
                 return True
         thinking = extra.get("thinking")
         if isinstance(thinking, dict) and thinking.get("type") == "disabled":
+            return True
+        config = extra.get("thinking_config") if native_gemini else None
+        if config is not None and (
+                not isinstance(config, dict) or _gemini_thinking_controls_conflict(config)):
             return True
     return False
 
@@ -1796,6 +1839,13 @@ def _apply(request: Dict[str, Any], slot: Tuple[Dict[str, Any], str, str],
         return new
     if container is request.get("output_config"):
         new["output_config"] = new_container
+        return new
+    extra_config = (request.get("extra_body") or {}).get("thinking_config") \
+        if isinstance(request.get("extra_body"), dict) else None
+    if extra_config is not None and container is extra_config:
+        extra_body = dict(request["extra_body"])
+        extra_body["thinking_config"] = new_container
+        new["extra_body"] = extra_body
         return new
     if container is new.get("extra_body", {}).get("reasoning"):
         extra_body = dict(request.get("extra_body") or {})
@@ -1831,6 +1881,11 @@ def _injection_path(request: Dict[str, Any], provider: Any, model: Any,
     api = str(api_mode or "").strip().lower()
     if _effort.openrouter_choice_route(provider_name, model, api, base_url):
         # These exact routes may rewrite an existing carrier, never add one.
+        return None
+    if (provider_name in _effort.GEMINI_NATIVE_PROVIDERS and api == "chat_completions"
+            and _effort.native_gemini_host(base_url)):
+        # The native adapter ignores ``reasoning_effort``: an injection would be an
+        # applied change with no wire effect, even through ``effort_models``.
         return None
     claude_choices = (
         (route_choices if route_choices is not None
@@ -2483,7 +2538,8 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             and isinstance(thinking, dict) and thinking.get("type") == "between_tools"):
         slot = None
         injection_path = None
-    if _reasoning_is_explicitly_disabled(request):
+    if _reasoning_is_explicitly_disabled(
+            request, _effort.native_gemini_thinking_route(provider, model, api_mode, base_url)):
         key = _decision_key(session_id, kwargs.get("turn_id"))
         entry = _touch(key, settings, mode, provider, model, api_mode,
                        conversation_id=session_id)

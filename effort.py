@@ -104,6 +104,14 @@ OPENROUTER_CHOICE_ROUTES = {
     "google/gemini-4-argon": ("low", "medium", "high"),
 }
 
+#: Exact native Gemini routes (``generativelanguage.googleapis.com``, Chat Completions
+#: transport) whose carrier is ``extra_body.thinking_config.thinkingLevel``. Native raw
+#: ``minimal``/``xhigh`` returned HTTP 400 on 2026-10-29, so they are not in the vocabulary.
+GEMINI_NATIVE_PROVIDERS = frozenset({"gemini", "google", "google-gemini", "google-ai-studio"})
+GEMINI_NATIVE_THINKING_ROUTES = {
+    "gemini-4-argon": ("low", "medium", "high"),
+}
+
 
 def score_to_label(score) -> Optional[str]:
     """Rubric score -> normalized label; ``None`` for anything invalid."""
@@ -286,6 +294,8 @@ def _route_choice_levels(provider: Optional[str], model: Optional[str], api_mode
     elif (provider_name == "openrouter" and api == "chat_completions"
           and _openrouter_host(base_url)):
         levels = OPENROUTER_CHOICE_ROUTES.get(openrouter_model, ())
+    elif native_gemini_thinking_route(provider_name, model_id, api, base_url):
+        levels = GEMINI_NATIVE_THINKING_ROUTES.get(_gemini_model_id(model_id), ())
     return tuple(level for level in levels if level in CHOICE_LEVELS), cacheable
 
 
@@ -312,6 +322,40 @@ def openrouter_choice_route(provider: Optional[str], model: Optional[str],
         and _openrouter_model_id((model or "").strip().lower()) in OPENROUTER_CHOICE_ROUTES
         and _openrouter_host(base_url)
     )
+
+
+def native_gemini_thinking_route(provider: Optional[str], model: Optional[str],
+                                 api_mode: Optional[str], base_url: Optional[str]) -> bool:
+    """Is this an exact native Gemini route with a registered ``thinkingLevel`` vocabulary?"""
+    return (
+        (provider or "").strip().lower() in GEMINI_NATIVE_PROVIDERS
+        and (api_mode or "").strip().lower() == "chat_completions"
+        and _gemini_model_id((model or "").strip().lower()) in GEMINI_NATIVE_THINKING_ROUTES
+        and native_gemini_host(base_url)
+    )
+
+
+def _gemini_model_id(model_id: str) -> str:
+    for prefix in ("google/", "gemini/"):
+        if model_id.startswith(prefix):
+            return model_id[len(prefix):]
+    return model_id
+
+
+def native_gemini_host(base_url: Optional[str]) -> bool:
+    """HTTPS ``generativelanguage.googleapis.com``, not the separate ``/openai`` surface."""
+    try:
+        parsed = urlsplit(str(base_url or ""))
+        return (
+            parsed.scheme.lower() == "https"
+            and (parsed.hostname or "").lower() == "generativelanguage.googleapis.com"
+            and parsed.port in (None, 443)
+            and parsed.username is None
+            and parsed.password is None
+            and not parsed.path.rstrip("/").lower().endswith("/openai")
+        )
+    except (TypeError, ValueError):
+        return False
 
 
 def _openrouter_model_id(model_id: str) -> str:

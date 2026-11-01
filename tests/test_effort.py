@@ -179,3 +179,45 @@ def test_openrouter_named_choices_require_exact_host_model_and_api():
 def test_native_named_choice_route_change_does_not_promote_xhigh_to_max():
     assert effort.map_named_choice("medium", ("low", "high", "max")) == "high"
     assert effort.map_named_choice("xhigh", ("low", "high", "max")) == "high"
+
+
+GEMINI_NATIVE = "https://generativelanguage.googleapis.com/v1beta"
+
+
+def test_native_gemini_argon_route_requires_exact_provider_model_api_and_host():
+    for provider in ("gemini", "google", "google-gemini", "google-ai-studio", "Gemini"):
+        for model in ("gemini-4-argon", "google/gemini-4-argon", "gemini/gemini-4-argon"):
+            assert effort.route_choice_levels(
+                provider, model, "chat_completions", GEMINI_NATIVE) == ("low", "medium", "high")
+            assert effort.native_gemini_thinking_route(
+                provider, model, "chat_completions", GEMINI_NATIVE)
+    assert effort.route_choice_levels(
+        "gemini", "gemini-4-argon", "chat_completions",
+        "https://generativelanguage.googleapis.com:443/v1beta/") == ("low", "medium", "high")
+    # The vocabulary never advertises levels native raw values rejected.
+    levels = effort.route_choice_levels("gemini", "gemini-4-argon", "chat_completions",
+                                        GEMINI_NATIVE)
+    assert "minimal" not in levels and "xhigh" not in levels
+
+
+def test_native_gemini_argon_route_rejects_lookalikes():
+    def levels(provider="gemini", model="gemini-4-argon", api="chat_completions",
+               base=GEMINI_NATIVE):
+        return effort.route_choice_levels(provider, model, api, base)
+
+    assert levels(provider="openai") == ()
+    assert levels(provider="vertex") == ()
+    assert levels(model="gemini-4-flash") == ()
+    assert levels(model="gemini-4-argon-preview") == ()
+    assert levels(model="openrouter/google/gemini-4-argon") == ()
+    assert levels(api="codex_responses") == ()
+    assert levels(api="anthropic_messages") == ()
+    for base in (None, "", "http://generativelanguage.googleapis.com/v1beta",
+                 "https://generativelanguage.googleapis.com:8443/v1beta",
+                 "https://user@generativelanguage.googleapis.com/v1beta",
+                 "https://generativelanguage.googleapis.com.evil.example/v1beta",
+                 "https://proxy.example/v1beta",
+                 "https://generativelanguage.googleapis.com/v1beta/openai",
+                 "https://generativelanguage.googleapis.com/v1beta/openai/",
+                 "https://openrouter.ai"):
+        assert levels(base=base) == ()
