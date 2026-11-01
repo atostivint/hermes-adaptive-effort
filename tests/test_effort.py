@@ -300,3 +300,59 @@ def test_gemini_openai_route_rejects_lookalikes():
                 "gemini", "gemini-3.6-flash", "chat_completions", base)
         else:
             assert levels(base=base) == (), base
+
+
+DIRECTSDK = "claude-subscription-directsdk-experimental"
+DIRECTSDK_BASES = (
+    "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-4-8",
+    "claude-sonnet-5",
+)
+DIRECTSDK_MODELS = DIRECTSDK_BASES + tuple(base + "[1m]" for base in DIRECTSDK_BASES)
+DIRECTSDK_LEVELS = ("low", "medium", "high", "xhigh", "max")
+
+
+def test_directsdk_registry_is_exactly_the_ten_listed_ids():
+    assert set(effort.DIRECTSDK_CHOICE_ROUTES) == set(DIRECTSDK_MODELS)
+    assert len(effort.DIRECTSDK_CHOICE_ROUTES) == 10
+
+
+def test_directsdk_routes_have_the_ordered_five_level_vocabulary():
+    for model in DIRECTSDK_MODELS:
+        assert effort.directsdk_choice_route(DIRECTSDK, model, "chat_completions"), model
+        assert effort.route_choice_levels(DIRECTSDK, model, "chat_completions") == (
+            DIRECTSDK_LEVELS), model
+
+
+def test_directsdk_matching_normalizes_case_and_whitespace_only():
+    assert effort.route_choice_levels(
+        "  Claude-Subscription-DirectSDK-Experimental ", " CLAUDE-OPUS-5-5[1M] ",
+        " Chat_Completions ") == DIRECTSDK_LEVELS
+    # No host is required or consulted.
+    assert effort.route_choice_levels(
+        DIRECTSDK, "claude-sonnet-5", "chat_completions", "https://anything.example") == (
+        DIRECTSDK_LEVELS)
+
+
+def test_directsdk_rejects_wrong_provider_model_and_api_mode():
+    for provider in ("anthropic", "claude-subscription-directsdk", "openrouter", "", None):
+        assert effort.route_choice_levels(provider, "claude-opus-5-5", "chat_completions") == ()
+        assert not effort.directsdk_choice_route(provider, "claude-opus-5-5", "chat_completions")
+    for api in ("anthropic_messages", "codex_responses", "", None):
+        assert effort.route_choice_levels(DIRECTSDK, "claude-opus-5-5", api) == ()
+    for model in (
+            # Excluded by the issue: observed fallbacks, unsupported effort, Daybreak.
+            "claude-fable-5-1", "claude-opus-5", "claude-opus-5[1m]", "claude-haiku-4-5",
+            "claude-haiku-4-5[1m]", "daybreak", "claude-daybreak",
+            # Non-registered neighbours and spelling variants.
+            "claude-opus-4-7", "claude-sonnet-4-6", "claude-sonnet-5-6", "claude-opus-5-5-1",
+            "claude-opus-5-5[2m]", "claude-opus-5-5[1m", "claude-opus-5-5 [1m]",
+            "anthropic/claude-opus-5-5", "claude-subscription-directsdk-experimental/claude-opus-5-5",
+            "claude-", "", None):
+        assert effort.route_choice_levels(DIRECTSDK, model, "chat_completions") == (), model
+        assert not effort.directsdk_choice_route(DIRECTSDK, model, "chat_completions"), model
+
+
+def test_directsdk_choice_lookup_does_not_leak_into_other_routes():
+    assert effort.route_choice_levels(
+        "anthropic", "claude-opus-5-5", "chat_completions", "https://api.anthropic.com") == ()
+    assert effort.route_choice_levels("openrouter", "claude-opus-5-5", "chat_completions") == ()
