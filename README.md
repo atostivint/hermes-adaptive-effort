@@ -126,14 +126,15 @@ settings:
 
 </details>
 
-A key exported only in a terminal (`export OPENAI_API_KEY=...`, or `$env:OPENAI_API_KEY = "..."` in PowerShell) reaches only a Hermes started from that terminal, not a running gateway or Desktop agent. The [configuration guide](docs/CONFIGURATION.md#configure-your-scorer) covers each scorer in detail: endpoints, defaults, data handling and failure behavior.
+A key exported only in a terminal (`export OPENAI_API_KEY=...`, or `$env:OPENAI_API_KEY = "..."` in PowerShell) reaches only a Hermes started from that terminal, not a running gateway or Desktop agent. Since Hermes v0.23, `hermes chat` also runs its turns in a gateway that it starts on first use and that keeps running between chats, so a key or `NACE_BASE_URL` exported after that gateway started never reaches the plugin. On the default profile, put scorer keys and endpoint overrides in `$HERMES_HOME/.env` and stop the gateway if it is already running (`hermes gateway stop`; the next `hermes chat` starts a fresh one). Named profiles share the default profile's gateway, so an endpoint override such as `NACE_BASE_URL` belongs in the default profile's environment. The [configuration guide](docs/CONFIGURATION.md#configure-your-scorer) covers each scorer in detail: endpoints, defaults, data handling and failure behavior.
 
 ### 3. Restart the serving Hermes process
 
-Restart your local agent, or restart the gateway:
+Restart your local agent. If `hermes chat` started the gateway, stop it and the next chat starts a fresh one; if you installed the gateway as a service, restart that service:
 
 ```bash
-hermes gateway restart
+hermes gateway stop      # gateway started by hermes chat
+hermes gateway restart   # installed gateway service
 ```
 
 Desktop connections can use separate agent processes. Reconnect the connection that will serve your requests.
