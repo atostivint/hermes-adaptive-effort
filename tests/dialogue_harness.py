@@ -7,9 +7,11 @@ fixture is produced by exactly the code path the tests then exercise.
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from conftest import import_plugin
+from conftest import PLUGIN_DIR, import_plugin
 
 middleware = import_plugin("middleware")
 _ADAPTER_MODULES = tuple(import_plugin(name) for name in (
@@ -17,6 +19,19 @@ _ADAPTER_MODULES = tuple(import_plugin(name) for name in (
     "cloudflare_client", "custom_client"))
 
 ACCOUNT_ID = "0123456789abcdef0123456789abcdef"
+
+GOLDEN_PATH = Path(__file__).parent / "fixtures" / "scorer_request_bodies.json"
+
+
+def load_golden() -> Dict[str, Any]:
+    """The golden request fixture with ``{plugin_version}`` set to ``plugin.yaml``'s version.
+
+    The placeholder keeps the fixture valid across release bumps; the version itself is read
+    here, independently of the adapters, so a stale or hard-coded header still fails.
+    """
+    manifest = (PLUGIN_DIR / "plugin.yaml").read_text(encoding="utf-8")
+    version = re.search(r"^version:\s*(\S+)\s*$", manifest, re.MULTILINE).group(1)
+    return json.loads(GOLDEN_PATH.read_text().replace("{plugin_version}", version))
 
 #: One entry per adapter configuration. Each is a full settings dict for ``_settings_provider``.
 ADAPTERS: Dict[str, Dict[str, Any]] = {

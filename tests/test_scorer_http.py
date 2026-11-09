@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import io
+import os
 import urllib.error
 import urllib.request
 import urllib.response
 
 import pytest
 
-from conftest import import_plugin
+from conftest import PLUGIN_DIR, import_plugin
 
 scorer_http = import_plugin("scorer_http")
 jev_client = import_plugin("jev_client")
@@ -242,6 +243,152 @@ def test_build_request_adds_authorization_only_with_a_key():
     assert keyed.get_header("Authorization") == "Bearer k"
     assert keyed.get_method() == "POST"
     assert keyed.get_header("User-agent") == "ua"
+
+
+def test_build_request_extra_headers_never_replace_the_fixed_headers():
+    request = scorer_http.build_request(
+        "https://scorer.example/s", {}, key="k", user_agent="ua",
+        extra_headers={"X-Client": "id", "User-Agent": "other", "Authorization": "Bearer x",
+                       "Content-Type": "text/plain"})
+    assert request.get_header("X-client") == "id"
+    assert request.get_header("User-agent") == "ua"
+    assert request.get_header("Authorization") == "Bearer k"
+    assert request.get_header("Content-type") == "application/json"
+
+
+
+def test_extra_headers_cannot_override_fixed_headers_in_any_case_or_order():
+    request = scorer_http.build_request(
+        "https://scorer.example/s", {}, key="k", user_agent="ua",
+        extra_headers={"User-Agent": "first", "user-agent": "override", "ACCEPT": "x",
+                       "content-TYPE": "text/plain", "authorization": "Bearer z",
+                       " Authorization": "Bearer w", "X-Client": "id"})
+    names = [name.lower() for name, _ in request.header_items()]
+    assert sorted(names) == ["accept", "authorization", "content-type", "user-agent", "x-client"]
+    assert request.get_header("User-agent") == "ua"
+    assert request.get_header("Accept") == "application/json"
+    assert request.get_header("Content-type") == "application/json"
+    assert request.get_header("Authorization") == "Bearer k"
+
+
+def test_extra_authorization_is_dropped_when_there_is_no_key():
+    request = scorer_http.build_request(
+        "https://scorer.example/s", {}, user_agent="ua",
+        extra_headers={"Authorization": "Bearer x", "AUTHORIZATION": "Bearer y"})
+    assert request.get_header("Authorization") is None
+    assert all(name.lower() != "authorization" for name, _ in request.header_items())
+
+
+@pytest.mark.parametrize("extra", [
+    {"X-Client": "a\r\nX-Injected: 1"}, {"X-Client": "a\nb"}, {"X-Client": "a\rb"},
+    {"X-Client": "a\0b"}, {"X-Client\r\nX-Injected": "1"}, {"User-Agent\n": "x"},
+])
+def test_extra_headers_with_line_breaks_are_rejected(extra):
+    with pytest.raises(ValueError):
+        scorer_http.build_request("https://scorer.example/s", {}, user_agent="ua",
+                                  extra_headers=extra)
+
+# ── client identity ──────────────────────────────────────────────────────────
+
+
+def _plugin_yaml_version():
+    from ruamel.yaml import YAML
+    return YAML(typ="safe").load((PLUGIN_DIR / "plugin.yaml").read_text(encoding="utf-8"))["version"]
+
+
+def test_user_agent_reports_the_plugin_yaml_version():
+    version = _plugin_yaml_version()
+    assert scorer_http.PLUGIN_VERSION == version
+    assert scorer_http.USER_AGENT == f"hermes-adaptive-effort/{version}"
+
+
+@pytest.mark.parametrize("text", ["", "name: x\n", "version:\n", "version: 1.0 junk\n"])
+def test_unreadable_plugin_version_is_unknown(tmp_path, text):
+    path = tmp_path / "plugin.yaml"
+    path.write_text(text, encoding="utf-8")
+    assert scorer_http._read_plugin_version(path) == "unknown"
+    assert scorer_http._read_plugin_version(tmp_path / "missing.yaml") == "unknown"
+
+
+def test_version_of_up_to_64_characters_is_read_and_longer_is_unknown(tmp_path):
+    path = tmp_path / "plugin.yaml"
+    path.write_text("name: x\nversion: 1.0.0-" + "a" * 58 + "\n", encoding="utf-8")
+    assert scorer_http._read_plugin_version(path) == "1.0.0-" + "a" * 58
+    path.write_text("name: x\nversion: 1.0.0-" + "a" * 59 + "\n", encoding="utf-8")
+    assert scorer_http._read_plugin_version(path) == "unknown"
+
+
+def test_crlf_plugin_yaml_still_reports_its_version(tmp_path):
+    # A Windows checkout with autocrlf writes CRLF line endings.
+    path = tmp_path / "plugin.yaml"
+    path.write_bytes(b"name: x\r\nversion: 1.2.3\r\nkind: standalone\r\n")
+    assert scorer_http._read_plugin_version(path) == "1.2.3"
+    path.write_bytes(b"version: 1.2.3\r\r\n")
+    assert scorer_http._read_plugin_version(path) == "unknown"
+
+
+def test_huge_plugin_yaml_is_read_only_up_to_the_limit(tmp_path):
+    limit = scorer_http._VERSION_READ_LIMIT
+    path = tmp_path / "plugin.yaml"
+    path.write_bytes(b"version: 1.2.3\n" + b"#" * (8 * 1024 * 1024))
+    assert scorer_http._read_plugin_version(path) == "1.2.3"
+    path.write_bytes(b"#" * limit + b"\nversion: 1.2.3\n")
+    assert scorer_http._read_plugin_version(path) == "unknown"
+    # A version line cut by the limit is dropped, never matched as a truncated value.
+    content = b"#" * (limit - len(b"version: 1.2") - 1) + b"\nversion: 1.2.3\n" + b"#" * 100
+    assert content[:limit].endswith(b"\nversion: 1.2")
+    path.write_bytes(content)
+    assert scorer_http._read_plugin_version(path) == "unknown"
+
+
+def test_non_regular_plugin_yaml_is_unknown_without_blocking(tmp_path):
+    directory = tmp_path / "dir"
+    directory.mkdir()
+    candidates = [directory]
+    if hasattr(os, "mkfifo"):
+        fifo = tmp_path / "fifo"
+        os.mkfifo(fifo)
+        candidates.append(fifo)
+    for path in candidates:
+        assert scorer_http._read_plugin_version(path) == "unknown", path
+
+
+@pytest.mark.parametrize("error", [MemoryError(), OSError("io"), UnicodeError("bad")])
+def test_any_read_error_is_unknown(tmp_path, monkeypatch, error):
+    path = tmp_path / "plugin.yaml"
+    path.write_text("version: 1.2.3\n", encoding="utf-8")
+
+    def broken(*_args):
+        raise error
+
+    monkeypatch.setattr(scorer_http.os, "read", broken)
+    assert scorer_http._read_plugin_version(path) == "unknown"
+
+
+def test_invalid_utf8_plugin_yaml_is_unknown(tmp_path):
+    path = tmp_path / "plugin.yaml"
+    path.write_bytes(b"version: 1.2.3\n\xff\xfe")
+    assert scorer_http._read_plugin_version(path) == "unknown"
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_every_adapter_sends_the_current_version_and_only_nace_sends_its_client_header(name):
+    module, make = ADAPTERS[name]
+    seen = []
+
+    def transport(request, timeout):
+        seen.append(request)
+        return Response()
+
+    make(transport, api_key="k").classify("prompt")
+    request, = seen
+    version = _plugin_yaml_version()
+    product = "hermes-hermes-adaptive-effort" if name == "jev" else "hermes-adaptive-effort"
+    assert request.get_header("User-agent") == f"{product}/{version}"
+    if name == "nace":
+        assert request.get_header("X-nace-client") == f"hermes-adaptive-effort/{version}"
+    else:
+        assert request.get_header("X-nace-client") is None
 
 
 def test_retry_semantics_are_unchanged_through_the_shared_sender():

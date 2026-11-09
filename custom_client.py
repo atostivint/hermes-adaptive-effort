@@ -125,7 +125,7 @@ class CustomClient:
                 "questions": (rubric.continuation_questions() if continuation else
                               rubric.questions_for(self.classification_instructions, choices))}
         request = scorer_http.build_request(
-            endpoint, body, key=key, user_agent="hermes-adaptive-effort/0.1")
+            endpoint, body, key=key, user_agent=scorer_http.USER_AGENT)
 
         started = time.monotonic()
         payload, failure = scorer_http.send(request, self._transport or _default_transport,

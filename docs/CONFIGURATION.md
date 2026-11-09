@@ -141,7 +141,7 @@ settings:
   nace_model: drex-v2.0
 ```
 
-The plugin posts to `https://console.nace.ai/v1/systemone`. Set `NACE_BASE_URL` in the serving environment to use another base; a bare host or `/v1` base gets `/v1/systemone` appended. `drex-v2.0` is pinned; `drex-latest` is an alias that moves on dates Nace announces. Drex answers requests beyond its documented state limits with an older model at that model's price; the plugin does not retry or upgrade. Nace bills only successful (HTTP 200) answers. A missing key, no credit (402), rate limit (429) or server error fails open for that turn and never falls back to Jev.
+The plugin posts to `https://console.nace.ai/v1/systemone`. Set `NACE_BASE_URL` in the serving environment to use another base; a bare host or `/v1` base gets `/v1/systemone` appended. `drex-v2.0` is pinned; `drex-latest` is an alias that moves on dates Nace announces. Drex answers requests beyond its documented state limits with an older model at that model's price; the plugin does not retry or upgrade. Nace bills only successful (HTTP 200) answers. A missing key, no credit (402), rate limit (429) or server error fails open for that turn and never falls back to Jev. Nace requests identify the plugin with `User-Agent` and `X-Nace-Client` set to `hermes-adaptive-effort/<version>` (name and version only, no key or prompt text); other scorers receive only the `User-Agent`.
 
 ### Custom hosted or local endpoint
 

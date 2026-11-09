@@ -42,6 +42,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A scorer HTTP 529 (Jev `system_overloaded` under load) is now treated like 503: retried once inside the existing `timeout_s` deadline instead of failing the turn open as `http_error` on the first answer. The final non-2xx status code is also logged at INFO, without prompts or response bodies, so `http_error` is diagnosable from the agent log
 - Scorer error responses (non-2xx, unreadable or malformed bodies) are now always closed on every adapter, ending a socket leak on Jev, OpenRouter, Cloudflare and Nace
 - A failure while cleaning up after a middleware error (Claude history invalidation) can no longer escape `on_llm_request`; the request still fails open unchanged
+- Scorer requests now report the real plugin version in `User-Agent` (`hermes-adaptive-effort/<version>`, read from `plugin.yaml`) instead of a fixed `0.1`; Nace requests also send `X-Nace-Client` with the same name and version, and no other scorer receives it. No key or prompt text is added to either header
 
 ## [0.4.0] - 2026-10-20
 

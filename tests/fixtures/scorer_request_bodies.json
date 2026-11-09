@@ -6,7 +6,7 @@
     "accept": "application/json",
     "authorization": "Bearer test-key",
     "content-type": "application/json",
-    "user-agent": "hermes-adaptive-effort/0.1"
+    "user-agent": "hermes-adaptive-effort/{plugin_version}"
    },
    "url": "https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/run/@cf/cloudflare/clef"
   }
@@ -18,7 +18,7 @@
     "accept": "application/json",
     "authorization": "Bearer test-key",
     "content-type": "application/json",
-    "user-agent": "hermes-adaptive-effort/0.1"
+    "user-agent": "hermes-adaptive-effort/{plugin_version}"
    },
    "url": "https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/run/@cf/cloudflare/clef"
   }
@@ -29,7 +29,7 @@
    "headers": {
     "accept": "application/json",
     "content-type": "application/json",
-    "user-agent": "hermes-adaptive-effort/0.1"
+    "user-agent": "hermes-adaptive-effort/{plugin_version}"
    },
    "url": "https://scorer.example/v1/score"
   }
@@ -40,7 +40,7 @@
    "headers": {
     "accept": "application/json",
     "content-type": "application/json",
-    "user-agent": "hermes-adaptive-effort/0.1"
+    "user-agent": "hermes-adaptive-effort/{plugin_version}"
    },
    "url": "https://scorer.example/v1/score"
   }
@@ -52,7 +52,7 @@
     "accept": "application/json",
     "authorization": "Bearer test-key",
     "content-type": "application/json",
-    "user-agent": "hermes-hermes-adaptive-effort/0.1"
+    "user-agent": "hermes-hermes-adaptive-effort/{plugin_version}"
    },
    "url": "https://api.typesafe.ai/v1/systemone"
   }
@@ -64,7 +64,7 @@
     "accept": "application/json",
     "authorization": "Bearer test-key",
     "content-type": "application/json",
-    "user-agent": "hermes-hermes-adaptive-effort/0.1"
+    "user-agent": "hermes-hermes-adaptive-effort/{plugin_version}"
    },
    "url": "https://api.typesafe.ai/v1/systemone"
   }
@@ -76,7 +76,7 @@
     "accept": "application/json",
     "authorization": "Bearer test-key",
     "content-type": "application/json",
-    "user-agent": "hermes-hermes-adaptive-effort/0.1"
+    "user-agent": "hermes-hermes-adaptive-effort/{plugin_version}"
    },
    "url": "https://api.typesafe.ai/v1/systemone"
   }
@@ -88,7 +88,7 @@
     "accept": "application/json",
     "authorization": "Bearer test-key",
     "content-type": "application/json",
-    "user-agent": "hermes-hermes-adaptive-effort/0.1"
+    "user-agent": "hermes-hermes-adaptive-effort/{plugin_version}"
    },
    "url": "https://api.typesafe.ai/v1/systemone"
   }
@@ -100,7 +100,8 @@
     "accept": "application/json",
     "authorization": "Bearer test-key",
     "content-type": "application/json",
-    "user-agent": "hermes-adaptive-effort/0.1"
+    "user-agent": "hermes-adaptive-effort/{plugin_version}",
+    "x-nace-client": "hermes-adaptive-effort/{plugin_version}"
    },
    "url": "https://console.nace.ai/v1/systemone"
   }
@@ -112,7 +113,8 @@
     "accept": "application/json",
     "authorization": "Bearer test-key",
     "content-type": "application/json",
-    "user-agent": "hermes-adaptive-effort/0.1"
+    "user-agent": "hermes-adaptive-effort/{plugin_version}",
+    "x-nace-client": "hermes-adaptive-effort/{plugin_version}"
    },
    "url": "https://console.nace.ai/v1/systemone"
   }
@@ -124,7 +126,7 @@
     "accept": "application/json",
     "authorization": "Bearer test-key",
     "content-type": "application/json",
-    "user-agent": "hermes-adaptive-effort/0.1"
+    "user-agent": "hermes-adaptive-effort/{plugin_version}"
    },
    "url": "https://api.openai.com/v1/decisions"
   }
@@ -136,7 +138,7 @@
     "accept": "application/json",
     "authorization": "Bearer test-key",
     "content-type": "application/json",
-    "user-agent": "hermes-adaptive-effort/0.1"
+    "user-agent": "hermes-adaptive-effort/{plugin_version}"
    },
    "url": "https://api.openai.com/v1/decisions"
   }
@@ -148,7 +150,7 @@
     "accept": "application/json",
     "authorization": "Bearer test-key",
     "content-type": "application/json",
-    "user-agent": "hermes-adaptive-effort/0.1"
+    "user-agent": "hermes-adaptive-effort/{plugin_version}"
    },
    "url": "https://openrouter.ai/api/alpha/decisions"
   }
@@ -160,7 +162,7 @@
     "accept": "application/json",
     "authorization": "Bearer test-key",
     "content-type": "application/json",
-    "user-agent": "hermes-adaptive-effort/0.1"
+    "user-agent": "hermes-adaptive-effort/{plugin_version}"
    },
    "url": "https://openrouter.ai/api/alpha/decisions"
   }
@@ -172,7 +174,7 @@
     "accept": "application/json",
     "authorization": "Bearer test-key",
     "content-type": "application/json",
-    "user-agent": "hermes-adaptive-effort/0.1"
+    "user-agent": "hermes-adaptive-effort/{plugin_version}"
    },
    "url": "https://openrouter.ai/api/alpha/decisions"
   }
@@ -184,7 +186,7 @@
     "accept": "application/json",
     "authorization": "Bearer test-key",
     "content-type": "application/json",
-    "user-agent": "hermes-adaptive-effort/0.1"
+    "user-agent": "hermes-adaptive-effort/{plugin_version}"
    },
    "url": "https://openrouter.ai/api/alpha/decisions"
   }

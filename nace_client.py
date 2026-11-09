@@ -41,6 +41,9 @@ BASE_URL_ENV = "NACE_BASE_URL"
 SENTINEL_ENV = "NACE_API_KEY"
 LEGACY_SENTINEL_ENV = "DREX_API_KEY"
 MODEL = "drex-v2.0"
+#: Nace attributes API traffic by this header; it carries the plugin name and version only.
+CLIENT_HEADER = "X-Nace-Client"
+CLIENT_ID = scorer_http.USER_AGENT
 
 
 def normalize_endpoint(value: Any) -> str:
@@ -136,7 +139,8 @@ class NaceClient:
                           rubric.questions_for(self.classification_instructions, choices)),
         }
         request = scorer_http.build_request(
-            self.endpoint, body, key=key, user_agent="hermes-adaptive-effort/0.1")
+            self.endpoint, body, key=key, user_agent=scorer_http.USER_AGENT,
+            extra_headers={CLIENT_HEADER: CLIENT_ID})
         started = time.monotonic()
         payload, failure = scorer_http.send(request, self._transport or _default_transport,
                                             self.timeout)
