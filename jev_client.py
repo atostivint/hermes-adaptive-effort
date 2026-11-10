@@ -34,6 +34,8 @@ DEFAULT_BASE_URL = "https://api.typesafe.ai/v1"
 DEFAULT_ENDPOINT = DEFAULT_BASE_URL + "/systemone"
 SENTINEL_ENV = "TYPESAFE_API_KEY"
 JEV_MODEL = "jev-latest"
+#: Jev's historical product token (``hermes-`` prefix) is kept; only the version is current.
+JEV_USER_AGENT = "hermes-" + scorer_http.USER_AGENT
 DEFAULT_TIMEOUT_S = 3.0
 DEFAULT_MAX_PROMPT_CHARS = 4000
 
@@ -173,7 +175,7 @@ class JevClient:
                           rubric.questions_for(self.classification_instructions, choices)),
         }
         request = scorer_http.build_request(
-            self.endpoint, body, key=key, user_agent="hermes-hermes-adaptive-effort/0.1")
+            self.endpoint, body, key=key, user_agent=JEV_USER_AGENT)
         started = time.monotonic()
         payload, failure = scorer_http.send(request, self._transport or _default_transport,
                                             self.timeout)

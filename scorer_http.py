@@ -20,11 +20,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import stat
 import threading
 import time
 import urllib.error
 import urllib.request
-from typing import Any, Callable, Optional
+from pathlib import Path
+from typing import Any, Callable, Mapping, Optional
 
 from . import scorer_retry
 
@@ -32,6 +35,43 @@ logger = logging.getLogger(__name__)
 
 #: How long a resolved API key is reused before the secret scope / environment is read again.
 KEY_TTL_S = 30.0
+
+
+_PLUGIN_YAML = Path(__file__).with_name("plugin.yaml")
+#: Bytes of ``plugin.yaml`` read for the version (the key sits near the top of the file).
+_VERSION_READ_LIMIT = 8192
+_VERSION_LINE = re.compile(r"^version:[ \t]*([0-9A-Za-z.+-]{1,64})[ \t]*\r?$", re.MULTILINE)
+
+
+def _read_plugin_version(path: Path = _PLUGIN_YAML) -> str:
+    """The ``version:`` in ``plugin.yaml`` (bumped by the release script); ``unknown`` otherwise.
+
+    Bounded: only a regular file is read (opened non-blocking, so a FIFO cannot stall the
+    import), at most :data:`_VERSION_READ_LIMIT` bytes, and the value must be 1-64 characters
+    of ``[0-9A-Za-z.+-]``. Any error, including ``MemoryError``, gives ``unknown``.
+    """
+    try:
+        fd = os.open(str(path), os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+                     | getattr(os, "O_BINARY", 0))
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return "unknown"
+            data = os.read(fd, _VERSION_READ_LIMIT + 1)
+        finally:
+            os.close(fd)
+        if len(data) > _VERSION_READ_LIMIT:
+            # Drop the possibly cut-off last line rather than match a truncated value.
+            data = data[:_VERSION_READ_LIMIT].rpartition(b"\n")[0]
+        match = _VERSION_LINE.search(data.decode("utf-8"))
+        return match.group(1) if match else "unknown"
+    except Exception:
+        return "unknown"
+
+
+#: Plugin version reported to scorers, read from ``plugin.yaml`` so it cannot drift from a release.
+PLUGIN_VERSION = _read_plugin_version()
+#: ``User-Agent`` product token shared by the scorer adapters.
+USER_AGENT = f"hermes-adaptive-effort/{PLUGIN_VERSION}"
 
 _KEY_CACHE: "dict[str, tuple[float, str]]" = {}
 _KEY_LOCK = threading.Lock()
@@ -97,11 +137,27 @@ def default_transport(request: urllib.request.Request, timeout: float):
     return _get_opener().open(request, timeout=timeout)
 
 
-def build_request(url: str, body: Any, *, key: str = "",
-                  user_agent: str) -> urllib.request.Request:
-    """JSON POST request; ``Authorization: Bearer`` only when *key* is non-empty."""
-    headers = {"Accept": "application/json", "Content-Type": "application/json",
-               "User-Agent": user_agent}
+#: Headers only :func:`build_request` sets; compared case-insensitively against extras.
+_FIXED_HEADERS = frozenset({"accept", "content-type", "user-agent", "authorization"})
+
+
+def build_request(url: str, body: Any, *, key: str = "", user_agent: str,
+                  extra_headers: Optional[Mapping[str, str]] = None) -> urllib.request.Request:
+    """JSON POST request; ``Authorization: Bearer`` only when *key* is non-empty.
+
+    *extra_headers* carry provider-specific, non-secret identity only. An extra header named
+    like a fixed one (:data:`_FIXED_HEADERS`, any case, even ``Authorization`` without a key)
+    is dropped, and a name or value containing CR, LF or NUL raises ``ValueError``.
+    """
+    headers = {}
+    for name, value in (extra_headers or {}).items():
+        name, value = str(name), str(value)
+        if any(char in name or char in value for char in "\r\n\0"):
+            raise ValueError("header name or value contains a line break")
+        if name.strip().lower() not in _FIXED_HEADERS:
+            headers[name] = value
+    headers.update({"Accept": "application/json", "Content-Type": "application/json",
+                    "User-Agent": user_agent})
     if key:
         headers["Authorization"] = f"Bearer {key}"
     return urllib.request.Request(

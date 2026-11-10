@@ -82,7 +82,7 @@ class OpenAIDecisionClient:
                           rubric.decisions_question(self.classification_instructions, choices)],
         }
         request = scorer_http.build_request(
-            self.endpoint, body, key=key, user_agent="hermes-adaptive-effort/0.1")
+            self.endpoint, body, key=key, user_agent=scorer_http.USER_AGENT)
 
         started = time.monotonic()
         payload, failure = scorer_http.send(request, self._transport or _default_transport,
