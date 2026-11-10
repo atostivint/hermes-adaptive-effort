@@ -70,7 +70,7 @@ Windows PowerShell:
 $env:TYPESAFE_API_KEY = "YOUR_KEY"
 ```
 
-Substitute the selected scorer's variable name. An already running gateway or Desktop agent does not inherit a later shell export: configure that service's environment and restart it.
+Substitute the selected scorer's variable name. An already running gateway or Desktop agent does not inherit a later shell export: configure that service's environment and restart it. Since Hermes v0.23 this includes `hermes chat`, which runs its turns in a gateway that it starts on first use and that keeps running between chats; a key or `NACE_BASE_URL` exported after that gateway started never reaches the plugin. On the default profile, use the `.env` above and stop the gateway (`hermes gateway stop`) if it is already running; the next `hermes chat` starts a fresh one. Named profiles share the default profile's gateway by default: their keys are read through Hermes' secret scope, but `NACE_BASE_URL` is read only from the gateway process environment, so set it for the default profile.
 
 A secrets manager can supply the environment before launch. The plugin reads Hermes' secret scope and environment; it has no direct Bitwarden, 1Password or vault integration.
 

@@ -43,6 +43,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Scorer error responses (non-2xx, unreadable or malformed bodies) are now always closed on every adapter, ending a socket leak on Jev, OpenRouter, Cloudflare and Nace
 - A failure while cleaning up after a middleware error (Claude history invalidation) can no longer escape `on_llm_request`; the request still fails open unchanged
 - Scorer requests now report the real plugin version in `User-Agent` (`hermes-adaptive-effort/<version>`, read from `plugin.yaml`) instead of a fixed `0.1`; Nace requests also send `X-Nace-Client` with the same name and version, and no other scorer receives it. No key or prompt text is added to either header
+- The dashboard manifest description now lists every supported scorer (Jev, OpenAI Decisions, OpenRouter, Cloudflare Clef, Nace Drex, custom)
+- Documented that since Hermes v0.23 `hermes chat` runs turns in an auto-started gateway, so a scorer key or `NACE_BASE_URL` exported after it started never reaches the plugin; use the profile `.env` and stop the gateway so the next chat starts a fresh one
 
 ## [0.4.0] - 2026-10-20
 
