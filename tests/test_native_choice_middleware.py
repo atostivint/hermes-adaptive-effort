@@ -989,3 +989,215 @@ def test_gemini_openai_route_change_reclamps_the_same_label(monkeypatch):
     assert len(scorer.calls) == 1  # the label is reused, not re-scored
     assert result["extra_body"]["extra_body"]["google"]["thinking_config"][
         "thinking_level"] == "high"
+
+
+DIRECTSDK_ROUTE = {
+    "provider": "claude-subscription-directsdk-experimental",
+    "model": "claude-opus-5-5[1m]",
+    "api_mode": "chat_completions",
+    "base_url": "",
+}
+DIRECTSDK_LEVELS = ("low", "medium", "high", "xhigh", "max")
+DIRECTSDK_BASES = (
+    "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-4-8",
+    "claude-sonnet-5",
+)
+
+
+def directsdk_body(effort="medium", **extra):
+    body = {
+        "model": DIRECTSDK_ROUTE["model"],
+        "temperature": 0.2,
+        "extra_body": {"reasoning": {"effort": effort, "summary": "auto"},
+                       "metadata": {"keep": True}},
+        "messages": [{"role": "user", "content": "task"}],
+    }
+    body.update(extra)
+    return body
+
+
+def directsdk_call(body, turn_id="turn-1", route=None):
+    return request_for(**dict(route or DIRECTSDK_ROUTE), body=body, turn_id=turn_id)
+
+
+def test_directsdk_rewrites_existing_carrier_for_every_id_and_level(monkeypatch):
+    index = 0
+    for base in DIRECTSDK_BASES:
+        for model in (base, base + "[1m]"):
+            for choice in DIRECTSDK_LEVELS:
+                index += 1
+                middleware.reset_state()
+                scorer = ChoiceScorer(choice)
+                configure(monkeypatch, scorer, mode="always")
+                initial = "medium" if choice != "medium" else "low"
+                body = directsdk_body(initial, model=model)
+                snapshot = copy.deepcopy(body)
+                result = directsdk_call(body, route=dict(DIRECTSDK_ROUTE, model=model))
+
+                assert result is not None, (model, choice)
+                rewritten = result["request"]
+                assert rewritten["extra_body"]["reasoning"] == {
+                    "effort": choice, "summary": "auto"}
+                assert rewritten["extra_body"]["metadata"] == {"keep": True}
+                assert rewritten["temperature"] == 0.2
+                assert "reasoning_effort" not in rewritten
+                assert "output_config" not in rewritten
+                assert body == snapshot  # caller's request is never mutated
+                assert scorer.calls[0][1] == DIRECTSDK_LEVELS
+                entry = middleware.session_state()[f"{SESSION}/turn-1"]
+                assert (entry["decision_type"], entry["score"], entry["target"]) == (
+                    "native_choice", None, choice)
+                assert tuple(entry["choices"]) == DIRECTSDK_LEVELS
+                assert entry["dynamic"] is False
+
+
+def test_directsdk_missing_malformed_disabled_or_competing_controls_stand_down(monkeypatch):
+    bodies = {
+        "no_extra_body": {"model": "m", "messages": [{"role": "user", "content": "t"}]},
+        "no_reasoning": {"extra_body": {"metadata": {}}, "messages": []},
+        "reasoning_not_dict": {"extra_body": {"reasoning": "high"}, "messages": []},
+        "no_effort": {"extra_body": {"reasoning": {"summary": "auto"}}, "messages": []},
+        "none": {"extra_body": {"reasoning": {"effort": "none"}}, "messages": []},
+        "non_string": {"extra_body": {"reasoning": {"effort": 3}}, "messages": []},
+        "blank": {"extra_body": {"reasoning": {"effort": "  "}}, "messages": []},
+        "enabled_false": {"extra_body": {"reasoning": {"effort": "low", "enabled": False}},
+                          "messages": []},
+        "enabled_malformed": {"extra_body": {"reasoning": {"effort": "low", "enabled": "no"}},
+                              "messages": []},
+        "thinking_disabled": {"extra_body": {"reasoning": {"effort": "low"},
+                                             "thinking": {"type": "disabled"}},
+                              "messages": []},
+        "top_level_reasoning_disabled": {"extra_body": {"reasoning": {"effort": "low"}},
+                                         "reasoning": {"enabled": False}, "messages": []},
+    }
+    for name, body in bodies.items():
+        middleware.reset_state()
+        scorer = ChoiceScorer("max")
+        configure(monkeypatch, scorer, mode="always")
+        snapshot = copy.deepcopy(body)
+        assert directsdk_call(body) is None, name
+        assert body == snapshot, name
+        assert scorer.calls == [], name
+
+
+def test_directsdk_never_injects_a_missing_carrier_even_through_effort_models(monkeypatch):
+    scorer = ChoiceScorer("max")
+    configure(monkeypatch, scorer, mode="always",
+              effort_models="claude-opus-5-5[1m],claude-opus-5-5")
+    body = {"model": DIRECTSDK_ROUTE["model"], "messages": [{"role": "user", "content": "t"}]}
+    assert directsdk_call(body) is None
+    assert body == {"model": DIRECTSDK_ROUTE["model"],
+                    "messages": [{"role": "user", "content": "t"}]}
+    assert scorer.calls == []
+
+
+def test_directsdk_competing_top_level_effort_is_not_a_second_carrier(monkeypatch):
+    # The existing nested carrier is the one rewritten; a top-level sibling is left alone.
+    scorer = ChoiceScorer("max")
+    configure(monkeypatch, scorer, mode="always")
+    body = directsdk_body("low", reasoning_effort="low")
+    result = directsdk_call(body)
+    assert result["request"]["reasoning_effort"] == "low"
+    assert result["request"]["extra_body"]["reasoning"]["effort"] == "max"
+    assert body["reasoning_effort"] == "low"
+    assert body["extra_body"]["reasoning"]["effort"] == "low"
+
+
+def test_directsdk_wrong_route_makes_no_change_and_no_scorer_call(monkeypatch):
+    routes = [
+        dict(DIRECTSDK_ROUTE, provider="claude-subscription-directsdk"),
+        dict(DIRECTSDK_ROUTE, provider="anthropic"),
+        dict(DIRECTSDK_ROUTE, api_mode="anthropic_messages"),
+        dict(DIRECTSDK_ROUTE, api_mode="codex_responses"),
+        dict(DIRECTSDK_ROUTE, model="claude-fable-5-1"),
+        dict(DIRECTSDK_ROUTE, model="claude-opus-5"),
+        dict(DIRECTSDK_ROUTE, model="claude-opus-5[1m]"),
+        dict(DIRECTSDK_ROUTE, model="claude-haiku-4-5"),
+        dict(DIRECTSDK_ROUTE, model="claude-opus-5-5-1"),
+        dict(DIRECTSDK_ROUTE, model="anthropic/claude-opus-5-5"),
+    ]
+    for index, route in enumerate(routes):
+        middleware.reset_state()
+        scorer = ChoiceScorer("max")
+        configure(monkeypatch, scorer, mode="always")
+        body = directsdk_body("low", model=route["model"])
+        result = directsdk_call(body, turn_id=f"turn-{index}", route=route)
+        # An unregistered route never gets named choices; if the generic numeric path acts, it
+        # must not be offered the five-level vocabulary.
+        assert all(call[1] != DIRECTSDK_LEVELS for call in scorer.calls), route
+        if result is not None:
+            entry = middleware.session_state()[f"{SESSION}/turn-{index}"]
+            assert entry["decision_type"] != "native_choice", route
+
+
+def test_directsdk_auto_retains_one_decision_and_always_classifies_each_turn(monkeypatch):
+    scorer = ChoiceScorer("xhigh", "low")
+    configure(monkeypatch, scorer, mode="auto")
+    first = directsdk_call(directsdk_body())
+    second = directsdk_call(directsdk_body(), turn_id="turn-2")
+    tool_loop = directsdk_call(directsdk_body(), turn_id="turn-2")
+    assert [r["request"]["extra_body"]["reasoning"]["effort"]
+            for r in (first, second, tool_loop)] == ["xhigh", "xhigh", "xhigh"]
+    assert len(scorer.calls) == 1
+    # Retained, never promoted: the route is not dynamic and is not on trial.
+    entry = middleware.session_state()[f"{SESSION}/turn-2"]
+    assert entry["dynamic"] is False
+    assert entry["dynamic_reason"] not in ("listed", "observed", "trial")
+    middleware.reset_state()
+
+    scorer = ChoiceScorer("xhigh", "low")
+    configure(monkeypatch, scorer, mode="always")
+    one = directsdk_call(directsdk_body())
+    loop = directsdk_call(directsdk_body())
+    two = directsdk_call(directsdk_body(), turn_id="turn-2")
+    assert one["request"]["extra_body"]["reasoning"]["effort"] == "xhigh"
+    assert loop["request"]["extra_body"]["reasoning"]["effort"] == "xhigh"
+    assert two["request"]["extra_body"]["reasoning"]["effort"] == "low"
+    assert len(scorer.calls) == 2
+
+
+def test_directsdk_out_of_list_or_refused_answers_fail_open_once(monkeypatch):
+    for answer in ("none", "ultra", "minimal", "XHIGH!", ""):
+        middleware.reset_state()
+        scorer = ChoiceScorer(answer)
+        configure(monkeypatch, scorer, mode="always")
+        body = directsdk_body()
+        assert directsdk_call(body) is None
+        assert body["extra_body"]["reasoning"]["effort"] == "medium"
+        assert len(scorer.calls) == 1
+
+
+def test_directsdk_route_change_reclamps_the_same_label_without_a_second_call(monkeypatch):
+    scorer = ChoiceScorer("xhigh")
+    configure(monkeypatch, scorer, mode="always")
+    first = directsdk_call(directsdk_body())
+    second = openrouter_call({
+        "model": OPENROUTER_ARGON["model"],
+        "extra_body": {"reasoning": {"effort": "low"}},
+        "messages": [{"role": "user", "content": "task"}],
+    }, route=OPENROUTER_ARGON)
+    back = directsdk_call(directsdk_body("low"))
+    assert first["request"]["extra_body"]["reasoning"]["effort"] == "xhigh"
+    assert second["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    assert back["request"]["extra_body"]["reasoning"]["effort"] == "xhigh"
+    assert len(scorer.calls) == 1
+
+
+def test_directsdk_manual_change_stands_down(monkeypatch):
+    scorer = ChoiceScorer("xhigh")
+    configure(monkeypatch, scorer, mode="auto")
+    first = directsdk_call(directsdk_body())
+    assert first["request"]["extra_body"]["reasoning"]["effort"] == "xhigh"
+    changed = directsdk_body("low")
+    assert directsdk_call(changed, turn_id="turn-2") is None
+    assert changed["extra_body"]["reasoning"]["effort"] == "low"
+    assert len(scorer.calls) == 1
+    assert middleware.session_state()[f"{SESSION}/turn-2"]["manual_effort"] is True
+
+
+def test_directsdk_subagent_mode_off_by_default_keeps_the_route_untouched(monkeypatch):
+    scorer = ChoiceScorer("max")
+    configure(monkeypatch, scorer, mode="off")
+    body = directsdk_body()
+    assert directsdk_call(body) is None
+    assert scorer.calls == []
