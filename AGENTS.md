@@ -94,6 +94,19 @@ Releases and deployment:
 - Never delete remote branches or tags, change repository settings or rulesets, or edit `~/.hermes/config.yaml` without an explicit request.
 - Never commit secrets, scorer keys, prompts, personal paths or host addresses. Gitleaks scans the full history and cannot un-publish a leak.
 
+## Orchestrator and worker workflow
+
+This repository also runs under an orchestrator/worker split. `.orchestrator/POLICY.md` is the contract; read it before taking a task.
+
+- **The orchestrator never edits a file.** It triages, writes briefs, checks proofs and updates `.orchestrator/` and `.opencode/domains/` only.
+- **Every task is a brief**: GOAL, SCOPE (exact files), ACCEPTANCE (exact commands), PROOF (diff + commands + outputs + gaps), STOP. A worker touching a file outside SCOPE fails the task.
+- **One worker per independent task**, in parallel only when the files are disjoint and each worker has its own worktree. Shared files (`middleware.py`, `effort.py`, `command.py`, `__init__.py`, `plugin.yaml`, `dashboard/manifest.json`, `tests/conftest.py`, `CHANGELOG.md`) take one task at a time.
+- **Proofs are mandatory**: `git diff --stat` plus `.\scripts\run_tests.ps1 -q` and `.\scripts\run_lint.ps1` with their output, named tests for anything new, and `gaps:` for what could not be verified. A report without a diff is rejected once, then closed as failed.
+- **Nothing irreversible without an explicit request**: no commit, push, tag, PR, release, deployment, `~/.hermes/config.yaml` edit, host change, package install, or remote branch/rule change.
+- **Two agents never edit the same file.** Ownership and current sessions live in `.orchestrator/registry.md`; domain notes in `.opencode/domains/` say what each surface owns.
+- **Machine constraints** (one heavy job at a time, no full-parallel builds on a shared desktop) are in `MACHINE-AGENTS.md`.
+- **Language**: answer in the language of the last user message (usually French), short and factual, in French for reports. Code, comments and docs stay English.
+
 ## Tool configuration
 
 - `target-version = "py310"`, `line-length = 100`.
