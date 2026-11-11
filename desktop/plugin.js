@@ -56,7 +56,7 @@ const OUTCOME_HELP = {
 }
 const DECISION_EVENT = `plugin.${ID}.decision.updated`
 const SESSION_INFO_EVENT = 'session.info'
-const EFFORT_VALUES = new Set(['minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+const EFFORT_VALUES = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
 // Display-only compaction: the wire values and status payload keep their full
 // names. `absent` is the internal marker for a request without an effort field.
 const EFFORT_LABELS = { absent: 'default', minimal: 'min', medium: 'med' }
