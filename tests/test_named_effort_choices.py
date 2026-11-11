@@ -344,3 +344,103 @@ def test_commandcode_vocabulary_reaches_every_scorer_and_is_read_back(provider, 
     else:
         sent = tuple(body["questions"]["effort"]["criteria"])
     assert sent == COMMANDCODE_CHOICES
+
+
+# ── OpenCode Go routes measured on 2026-11-11 (acceptance, not intensity) ────────────────
+
+#: One live POST per level against https://opencode.ai/zen/go/v1 answered 200 for each
+#: list below. A 200 means the gateway took the value; it is not evidence that the level
+#: changes how much the model reasons.
+GO_MEASURED_ROUTES = {
+    "minimax-m3.1-flash": ("low", "medium", "high", "xhigh", "max"),
+    "step-5-preview": ("low", "medium", "high"),
+    "glm-5.3-flash": ("low", "high", "max"),
+}
+
+
+@pytest.mark.parametrize(("model", "levels"), sorted(GO_MEASURED_ROUTES.items()))
+def test_measured_go_chat_routes_resolve_to_their_declared_vocabulary(model, levels):
+    assert effort.route_choice_levels("opencode-go", model, "chat_completions") == levels
+    assert effort.wire_efforts("opencode-go", model) == levels
+    assert effort.OPEN_CODE_GO_INJECTION_ROUTES["chat_completions"][model] == (
+        "reasoning_effort", levels)
+    # Acceptance never widens the vocabulary beyond the route's own list, and no
+    # measured route declares ``none`` (the #83 gate stays shut).
+    assert "none" not in levels
+    assert effort.route_declares_none(
+        "opencode-go", model, "chat_completions") is False
+    for level in levels:
+        assert effort.map_effort(level, "opencode-go", model) == level, level
+
+
+def test_measurement_confirms_the_three_already_registered_go_entries():
+    # The probe confirms these rather than changing them. The OpenCode CLI catalog lists
+    # only ``low/high/max`` for deepseek-v4.1-flash; the live 200 on ``medium`` is the
+    # deciding evidence, so the four-level list is pinned.
+    assert effort.OPEN_CODE_GO_INJECTION_ROUTES["chat_completions"] == {
+        "glm-5.2": ("reasoning_effort", ("high", "max")),
+        "glm-5.3": ("paired_effort", ("low", "high", "max")),
+        "glm-5.3-flash": ("reasoning_effort", ("low", "high", "max")),
+        "kimi-k3": ("reasoning_effort", ("low", "high", "max")),
+        "mimo-v2.6-flash": ("reasoning_effort", ("low", "medium", "high")),
+        "deepseek-v4-pro": ("paired_effort", ("low", "high", "max")),
+        "deepseek-v4-flash": ("paired_effort", ("low", "high", "max")),
+        "deepseek-v4.1-flash": ("paired_effort", ("low", "medium", "high", "max")),
+        "minimax-m3.1-flash": ("reasoning_effort", ("low", "medium", "high", "xhigh",
+                                                    "max")),
+        "step-5-preview": ("reasoning_effort", ("low", "medium", "high")),
+    }
+    assert effort.route_choice_levels(
+        "opencode-go", "deepseek-v4.1-flash", "chat_completions") == (
+        "low", "medium", "high", "max")
+    assert effort.OPEN_CODE_GO_INJECTION_ROUTES["codex_responses"]["grok-4.7"] == (
+        "reasoning", ("low", "medium", "high", "xhigh"))
+
+
+def test_registry_never_infers_a_neighbouring_go_model():
+    # ``glm-5.3-flash`` is a different id from ``glm-5.3``: same levels, different carrier.
+    assert effort.OPEN_CODE_GO_INJECTION_ROUTES["chat_completions"]["glm-5.3"] == (
+        "paired_effort", ("low", "high", "max"))
+    assert effort.route_choice_levels("opencode-go", "glm-5.3", "chat_completions") == (
+        "low", "high", "max")
+    for model in ("minimax-m3.1", "minimax-m3.1-flash-preview", "minimax-m3-flash",
+                  "step-5", "step-5-preview-mini", "glm-5.3-flash-2026",
+                  "glm-5.3-preview", "glm-5.2-flash", "beam-free",
+                  "muse-spark-1.3-contributor", "deepseek-v4.1"):
+        assert effort.route_choice_levels(
+            "opencode-go", model, "chat_completions") == (), model
+
+
+@pytest.mark.parametrize("model", sorted(GO_MEASURED_ROUTES))
+def test_measured_go_routes_require_the_chat_completions_api_mode(model):
+    for api in ("codex_responses", "anthropic_messages", "openai_responses", "", None):
+        assert effort.route_choice_levels("opencode-go", model, api) == (), api
+
+
+@pytest.mark.parametrize(("model", "levels"), sorted(GO_MEASURED_ROUTES.items()))
+def test_measured_go_routes_require_the_opencode_go_provider(model, levels):
+    for provider in ("openai", "opencode-zen", "zai", "openrouter", "anthropic", "", None):
+        assert effort.route_choice_levels(
+            provider, model, "chat_completions") == (), provider
+    # The inherited "last path segment" normalisation is unchanged: a prefixed *exact*
+    # slug resolves, a prefixed neighbouring id never does.
+    assert effort.route_choice_levels(
+        "opencode-go", "minimax/" + model, "chat_completions") == levels
+    assert effort.route_choice_levels(
+        "opencode-go", model.rsplit("-", 1)[0] + "/preview", "chat_completions") == ()
+
+
+@pytest.mark.parametrize("provider", SCORER_PROVIDERS)
+@pytest.mark.parametrize(("model", "value"), [
+    ("minimax-m3.1-flash", "minimal"),
+    ("step-5-preview", "max"),
+    ("glm-5.3-flash", "medium"),
+])
+def test_measured_go_vocabulary_rejects_an_answer_outside_the_route_list(provider, model,
+                                                                        value):
+    transport = FakeTransport(response(provider, value))
+    client = make_client(provider, transport)
+    # Fail open: no rewrite, and a received answer is never retried.
+    assert client.classify_effort_detail(
+        "bounded task", GO_MEASURED_ROUTES[model]) == (None, "malformed_response")
+    assert len(transport.calls) == 1
