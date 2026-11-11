@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hermes Adaptive Effort — plugin catalog illustration</title>
+<style>
+  /* ---- palette tokens ------------------------------------------------- */
+  :root{
+    --bg:#0F1113;          /* page background   */
+    --panel:#141619;       /* panel / tile fill */
+    --line:#23272C;        /* 1px-2px borders   */
+    --lit:#2E3339;         /* lit top edge      */
+    --ink:#E8EAED;         /* primary text      */
+    --ink-2:#C9CDD2;       /* secondary text    */
+    --ink-3:#7C8288;       /* tertiary text     */
+    --accent:#5C4BDD;      /* subject accent    */
+
+    /* data colours: computed from the accent token, never hand-picked */
+    --accent-80:rgba(92,75,221,.80);
+    --accent-64:rgba(92,75,221,.64);
+    --accent-26:rgba(92,75,221,.26);
+    --accent-16:rgba(92,75,221,.16);
+    --accent-10:rgba(92,75,221,.10);
+    --hair-04:rgba(232,234,237,.045);
+    --muted-30:rgba(124,130,136,.30);
+  }
+
+  html,body{
+    margin:0; padding:0;
+    width:1600px; height:900px;
+    overflow:hidden;
+    background:var(--bg);
+  }
+  body{
+    position:relative;
+    font-family:'Segoe UI Variable Display','Segoe UI',system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    color:var(--ink);
+  }
+
+  /* ---- aura: 3 radial gradients pinned to the bottom, under content ---- */
+  .aura{
+    position:absolute; inset:0; z-index:0; pointer-events:none;
+    background:
+      /* radii are kept small enough that every corner falls past the 72% stop */
+      radial-gradient(620px 420px at 34% 106%,
+        var(--accent-26) 0%, var(--accent-10) 46%, rgba(92,75,221,0) 72%),
+      radial-gradient(560px 400px at 70% 102%,
+        rgba(92,75,221,.18) 0%, rgba(92,75,221,.07) 50%, rgba(92,75,221,0) 72%),
+      radial-gradient(820px 260px at 50% 118%,
+        rgba(124,130,136,.12) 0%, rgba(124,130,136,0) 72%);
+  }
+
+  .layer{position:absolute; inset:0; z-index:1;}
+
+  /* ---- brand block, top-left, ink edge at y = 95 ---- */
+  .brand{
+    position:absolute; left:95px; top:95px;
+    display:flex; align-items:flex-start; gap:20px;
+  }
+  .mark{
+    position:relative;
+    width:64px; height:64px;
+    box-sizing:border-box;
+    border-radius:18px;
+    border:1px solid var(--line);
+    border-top-color:var(--lit);
+    background:var(--panel);
+    flex:none;
+  }
+  /* gauge dial: accent sweep, ring cut out with a radial mask */
+  .mark .dial{
+    position:absolute; left:10px; top:10px;
+    width:42px; height:42px; border-radius:50%;
+    background:conic-gradient(from 132deg,
+      var(--accent) 0deg 206deg,
+      var(--lit) 206.5deg 360deg);
+    -webkit-mask:radial-gradient(circle at 50% 50%,
+      rgba(0,0,0,0) 0 13px, #000 13.5px 21px, rgba(0,0,0,0) 21.5px);
+    mask:radial-gradient(circle at 50% 50%,
+      rgba(0,0,0,0) 0 13px, #000 13.5px 21px, rgba(0,0,0,0) 21.5px);
+  }
+  .mark .needle{
+    position:absolute; left:31px; top:16px;
+    width:2px; height:17px; border-radius:1px;
+    background:var(--ink);
+    transform-origin:50% 100%;
+    transform:rotate(40deg);
+  }
+  .mark .hub{
+    position:absolute; left:29px; top:29px;
+    width:6px; height:6px; border-radius:50%;
+    background:var(--ink);
+  }
+
+  .names{padding-top:1px;}
+  .names h1{
+    margin:0;
+    font-size:56px; line-height:1; font-weight:600;
+    letter-spacing:-0.6px;
+    color:var(--ink);
+    white-space:nowrap;
+  }
+  .names .sub{
+    margin:11px 0 0;
+    font-size:24px; line-height:1.3; font-weight:400;
+    letter-spacing:-0.1px;
+    color:var(--ink-2);
+    white-space:nowrap;
+  }
+
+  /* ---- composer panel: 1408x132, radius 26, vertical centre 666 ---- */
+  .panel{
+    position:absolute;
+    left:96px; top:600px;
+    width:1408px; height:132px;
+    box-sizing:border-box;
+    border:2px solid var(--line);
+    border-radius:26px;
+    background:var(--panel);
+    padding:0 22px;
+    display:flex; align-items:center; justify-content:flex-end; gap:18px;
+    box-shadow:
+      0 28px 64px -24px rgba(92,75,221,.35),
+      inset 0 1px 0 0 var(--lit);
+  }
+
+  /* the left of the panel is deliberately empty: it is the conversation */
+
+  .ctl{
+    height:52px;
+    box-sizing:border-box;
+    border-radius:15px;
+    border:1px solid var(--line);
+    background:var(--hair-04);
+    display:flex; align-items:center; gap:12px;
+    padding:0 18px;
+    font-size:20px; line-height:1;
+    color:var(--ink);
+    flex:none;
+  }
+
+  .ctl .led{
+    width:10px; height:10px; border-radius:50%;
+    background:var(--accent);
+    box-shadow:0 0 0 4px var(--accent-16);
+    flex:none;
+  }
+
+  .meter{display:flex; align-items:flex-end; gap:3px; height:21px; flex:none;}
+  .meter i{display:block; width:4px; border-radius:2px; background:var(--muted-30);}
+  .meter i:nth-child(1){height:9px;}
+  .meter i:nth-child(2){height:13px;}
+  .meter i:nth-child(3){height:17px;}
+  .meter i:nth-child(4){height:21px;}
+  .meter i.on-1{background:var(--accent-64);}
+  .meter i.on-2{background:var(--accent-80);}
+  .meter i.on-3{background:var(--accent);}
+
+  .chev{
+    width:8px; height:8px; flex:none;
+    margin-left:2px; margin-top:-3px;
+    border-right:2px solid var(--ink-3);
+    border-bottom:2px solid var(--ink-3);
+    border-radius:1px;
+    transform:rotate(45deg);
+  }
+
+  .primary{
+    width:132px; height:52px;
+    box-sizing:border-box;
+    border-radius:15px;
+    background:var(--accent);
+    display:flex; align-items:center;
+    padding-left:22px;
+    flex:none;
+    box-shadow:0 12px 28px -14px rgba(92,75,221,.60);
+  }
+  .arrow{position:relative; width:22px; height:22px; flex:none;}
+  .arrow::before{           /* shaft */
+    content:"";
+    position:absolute; left:10px; top:4px;
+    width:2px; height:15px; border-radius:1px;
+    background:var(--ink);
+  }
+  .arrow::after{            /* head */
+    content:"";
+    position:absolute; left:5.5px; top:4px;
+    width:11px; height:11px;
+    border-top:2px solid var(--ink);
+    border-left:2px solid var(--ink);
+    border-radius:1px;
+    transform:rotate(45deg);
+  }
+
+  /* ---- caption, centred under the panel, baseline ~= 800 ---- */
+  .caption{
+    position:absolute; left:0; right:0; top:784px;
+    margin:0;                 /* a <p> default margin would shift an abs box */
+    text-align:center;
+    font-size:19px; line-height:1; font-weight:400;
+    letter-spacing:.1px;
+    color:var(--ink-3);
+    white-space:nowrap;
+  }
+</style>
+</head>
+<body>
+  <div class="aura"></div>
+
+  <div class="layer">
+    <header class="brand">
+      <div class="mark" aria-hidden="true">
+        <div class="dial"></div>
+        <div class="needle"></div>
+        <div class="hub"></div>
+      </div>
+      <div class="names">
+        <h1>Hermes Adaptive Effort</h1>
+        <p class="sub">one scorer chooses the effort, not the model</p>
+      </div>
+    </header>
+
+    <section class="panel" aria-label="composer">
+      <div class="ctl mode">
+        <span class="led" aria-hidden="true"></span>
+        <span class="v">auto</span>
+      </div>
+      <div class="ctl effort">
+        <span class="meter" aria-hidden="true">
+          <i class="on-1"></i><i class="on-2"></i><i class="on-3"></i><i></i>
+        </span>
+        <span class="v">high</span>
+        <span class="chev" aria-hidden="true"></span>
+      </div>
+      <div class="primary" aria-hidden="true">
+        <span class="arrow"></span>
+      </div>
+    </section>
+
+    <p class="caption">four modes · auto, once, always, off</p>
+  </div>
+</body>
+</html>
