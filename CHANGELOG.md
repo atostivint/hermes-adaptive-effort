@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-11
+
 ### Changed
 
 - Tool-error escalation now updates the route's continuation memory, so a later turn classified as the same task holds the raised level under the existing vote rule instead of dropping back to the pre-escalation label at once. A new, unrelated turn is unaffected; no new setting.
@@ -116,7 +118,8 @@ First tagged pre-release with four routing modes, five scorer providers, and rou
 
 See [full release notes](docs/releases/v0.3.0.md) for validation limits and contract changes.
 
-[Unreleased]: https://github.com/atostivint/hermes-adaptive-effort/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/atostivint/hermes-adaptive-effort/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v0.5.0
 [0.4.0]: https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v0.4.0
 [0.3.1]: https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v0.3.1
 [0.3.0]: https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v0.3.0
