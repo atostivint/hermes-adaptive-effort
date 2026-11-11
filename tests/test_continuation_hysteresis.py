@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import json
 import threading
-from pathlib import Path
 
 import pytest
 
@@ -22,7 +21,6 @@ openai_client = import_plugin("openai_decision_client")
 cloudflare_client = import_plugin("cloudflare_client")
 custom_client = import_plugin("custom_client")
 
-GOLDEN = Path(__file__).parent / "fixtures" / "scorer_request_bodies.json"
 SESSION = "CONT"
 LOW, MEDIUM, HIGH = 0.2, 1.0, 1.8
 HISTORY = [
@@ -298,7 +296,7 @@ def test_native_choice_route_uses_route_levels(monkeypatch):
 # ── off, or no dialogue context: nothing changes ─────────────────────────────
 
 def test_off_and_inactive_reproduce_master_bodies_and_make_no_second_call(monkeypatch):
-    golden = json.loads(GOLDEN.read_text())
+    golden = harness.load_golden()
     for extra in ({}, {"continuation_downgrade_votes": 0},
                   {"continuation_downgrade_votes": 3},
                   {"continuation_downgrade_votes": 3, "dialogue_context_messages": 0}):
@@ -333,8 +331,9 @@ def test_status_reports_inactive_without_dialogue_context(monkeypatch):
     assert "continuation: inactive (no dialogue context)" in \
         command.handle("status full").lower()
     configure(monkeypatch, None, continuation_downgrade_votes=0)
-    assert "continuation" not in command.handle("status full").lower().replace(
-        "continuation_", "")
+    full = command.handle("status full").lower()
+    assert "continuation" not in full.replace("continuation_", "").replace(
+        "goal continuation escalation: off", "")
     configure(monkeypatch, None, continuation_downgrade_votes=2)
     assert "Continuation: active" in command.handle("status full")
 

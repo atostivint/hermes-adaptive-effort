@@ -87,6 +87,7 @@ def test_provider_rejects_a_choice_outside_the_route_vocabulary(provider):
 
 
 NONE_CHOICES = ("none", "low", "high")
+DIRECTSDK_CHOICES = ("low", "medium", "high", "xhigh", "max")
 
 
 @pytest.mark.parametrize("provider", [
@@ -103,6 +104,22 @@ def test_provider_carries_none_only_when_the_route_offered_it(provider):
     else:
         assert tuple(option["value"] for option in body["questions"][0]["choices"]) == \
             NONE_CHOICES
+
+
+@pytest.mark.parametrize("provider", [
+    "jev", "nace", "decisions", "cloudflare", "openrouter", "custom-systemone",
+])
+def test_directsdk_five_level_vocabulary_reaches_every_scorer_and_is_read_back(provider):
+    for level in DIRECTSDK_CHOICES:
+        transport = FakeTransport(response(provider, level))
+        client = make_client(provider, transport)
+        assert client.classify_effort_detail("bounded task", DIRECTSDK_CHOICES) == (level, None)
+        body = json.loads(transport.calls[0].data.decode("utf-8"))
+        if provider == "decisions":
+            sent = tuple(option["value"] for option in body["questions"][0]["choices"])
+        else:
+            sent = tuple(body["questions"]["effort"]["criteria"])
+        assert sent == DIRECTSDK_CHOICES
 
 
 @pytest.mark.parametrize("provider", [
@@ -137,3 +154,13 @@ def test_none_stays_out_of_the_score_contract_and_is_the_lowest_choice_level():
     assert effort.raise_choice_level("none", ("none", "low", "high"), 1) == "low"
     assert effort.raise_choice_level("none", ("low", "high"), 1) == "none"
     assert effort.raise_choice_level("none", ("low", "high"), 5) == "none"
+
+
+@pytest.mark.parametrize("provider", [
+    "jev", "nace", "decisions", "cloudflare", "openrouter", "custom-systemone",
+])
+@pytest.mark.parametrize("value", ["none", "ultra", "minimal", "MAX "])
+def test_directsdk_rejects_out_of_list_answers(provider, value):
+    client = make_client(provider, FakeTransport(response(provider, value)))
+    assert client.classify_effort_detail("bounded task", DIRECTSDK_CHOICES) == (
+        None, "malformed_response")

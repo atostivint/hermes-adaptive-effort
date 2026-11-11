@@ -599,6 +599,8 @@ def _status_full_text() -> str:
         f"Effort bounds: floor={settings.get('effort_floor') or 'off'} · "
         f"ceiling={settings.get('effort_ceiling') or 'off'}",
         f"Tool error escalation: {'on' if settings.get('tool_error_escalation') else 'off'}",
+        f"Goal continuation escalation: "
+        f"{'on' if settings.get('goal_continuation_escalation') else 'off'}",
         f"Respect manual effort: {'on' if settings.get('respect_manual_effort') else 'off'}",
         f"Dynamic trial: {'on' if settings.get('dynamic_trial') else 'off'}",
         f"Display: TUI={'on' if settings['show_tui_status'] else 'off'} · "

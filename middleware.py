@@ -38,6 +38,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import cache_safety as _cache_safety
 from . import effort as _effort
+from . import goal_loop as _goal_loop
 from . import history_store as _history_store
 from . import jev_client as _jev_client
 from . import model_profiles as _model_profiles
@@ -78,6 +79,7 @@ DEFAULTS: Dict[str, Any] = {
     "effort_ceiling": "",
     "allow_none": False,
     "tool_error_escalation": True,
+    "goal_continuation_escalation": False,
     "respect_manual_effort": True,
     "dynamic_trial": True,
     "show_tui_status": True,
@@ -1059,6 +1061,8 @@ def _settings() -> Dict[str, Any]:
         "allow_none": _bool("allow_none", DEFAULTS["allow_none"]),
         "tool_error_escalation": _bool(
             "tool_error_escalation", DEFAULTS["tool_error_escalation"]),
+        "goal_continuation_escalation": _bool(
+            "goal_continuation_escalation", DEFAULTS["goal_continuation_escalation"]),
         "respect_manual_effort": _bool(
             "respect_manual_effort", DEFAULTS["respect_manual_effort"]),
         "dynamic_trial": _bool("dynamic_trial", DEFAULTS["dynamic_trial"]),
@@ -1473,6 +1477,7 @@ def _dialogue_context(request: Any, count: int) -> "List[Tuple[str, str]]":
 
 CONTINUATION_MAX_VOTES = 5
 ESCALATION_REASON = "repeated_tool_error"
+GOAL_ESCALATION_REASON = "goal_continuation"
 _ESCALATION_SEEN_LIMIT = 64
 _LEVEL_RANK = {level: index for index, level in enumerate(_rubric.CHOICE_LEVELS)}
 #: Rank that includes ``none`` below ``minimal``; used only for the ceiling comparison.
@@ -1589,6 +1594,29 @@ def _hysteresis(route_key: str, session_id: str, label: str, continuation: Optio
     return applied, held
 
 
+def _remember_escalation(route_key: str, session_id: str, target: str) -> None:
+    """Let a same-task continuation remember the level actually sent after a local raise.
+
+    ``_hysteresis`` stores the scorer's applied label when the turn is classified, before
+    ``tool_error_escalation`` may raise the target. Updating that continuity record here keeps
+    the raise under the existing vote rule instead of comparing the next continuation against
+    the pre-escalation label. A new, unrelated turn still starts from the scorer's decision.
+    Only an existing record is touched, so hysteresis remains the gate; values only are kept.
+    """
+    if target not in _LEVEL_RANK:
+        return
+    with _lock:
+        record = _CONTINUITY.get(route_key)
+        if not record or record.get("session_id") != session_id:
+            return
+        previous = record.get("label")
+        if previous in _LEVEL_RANK and _LEVEL_RANK[target] < _LEVEL_RANK[previous]:
+            return
+        record["label"] = target
+        record["streak"] = 0
+        _CONTINUITY.move_to_end(route_key)
+
+
 def _latest_user_text(messages: Any) -> Optional[str]:
     """Latest user message: history and trailing tool results are not the new task."""
     if not isinstance(messages, list):
@@ -1647,6 +1675,79 @@ def _latest_user_prompt(request: Dict[str, Any]) -> Optional[str]:
     return _latest_responses_text(request.get("input"))
 
 
+def _has_competing_effort_carrier(request: Dict[str, Any]) -> bool:
+    """Does the request carry a second effort field besides ``verbosity``?"""
+    extra_body = request.get("extra_body")
+    if isinstance(extra_body, dict):
+        if "reasoning_effort" in extra_body:
+            return True
+        reasoning = extra_body.get("reasoning")
+        if isinstance(reasoning, dict) and "effort" in reasoning:
+            return True
+    if "reasoning_effort" in request:
+        return True
+    reasoning = request.get("reasoning")
+    if isinstance(reasoning, dict) and "effort" in reasoning:
+        return True
+    output_config = request.get("output_config")
+    return isinstance(output_config, dict) and "effort" in output_config
+
+
+_GEMINI_LEVEL_KEYS = ("thinkingLevel", "thinking_level")
+
+
+def _gemini_thinking_controls_conflict(config: Dict[str, Any]) -> bool:
+    """Hidden thoughts, a disabled budget or a budget next to a level: stand down."""
+    if config.get("includeThoughts") is False or config.get("include_thoughts") is False:
+        return True
+    for budget_key in ("thinkingBudget", "thinking_budget"):
+        if budget_key in config:
+            return True  # any budget is a competing control, or a disabled/malformed one
+    return False
+
+
+def _gemini_thinking_slot(request: Dict[str, Any], choices: Tuple[str, ...]
+                          ) -> Optional[Tuple[Dict[str, Any], str, str]]:
+    """Existing ``extra_body.thinking_config`` level of the native Gemini route, key style kept."""
+    extra_body = request.get("extra_body")
+    if not isinstance(extra_body, dict):
+        return None
+    config = extra_body.get("thinking_config")
+    if not isinstance(config, dict) or _gemini_thinking_controls_conflict(config):
+        return None
+    present = [key for key in _GEMINI_LEVEL_KEYS if key in config]
+    if len(present) != 1:
+        return None  # absent (never injected) or two spellings that may disagree
+    value = config[present[0]]
+    if isinstance(value, str) and value.strip().lower() in choices:
+        return config, present[0], value.strip().lower()
+    return None
+
+
+def _gemini_openai_config(request: Dict[str, Any]) -> Any:
+    """``extra_body.extra_body.google.thinking_config`` or ``None`` when any level is absent."""
+    node: Any = request
+    for key in ("extra_body", "extra_body", "google", "thinking_config"):
+        if not isinstance(node, dict):
+            return None
+        node = node.get(key)
+    return node
+
+
+def _gemini_openai_slot(request: Dict[str, Any], choices: Tuple[str, ...]
+                        ) -> Optional[Tuple[Dict[str, Any], str, str]]:
+    """Existing snake_case ``thinking_level`` of the OpenAI-compatible Gemini route."""
+    config = _gemini_openai_config(request)
+    if not isinstance(config, dict) or _gemini_thinking_controls_conflict(config):
+        return None
+    if "thinkingLevel" in config:
+        return None  # camelCase is not this surface's key; both spellings may disagree
+    value = config.get("thinking_level")
+    if isinstance(value, str) and value.strip().lower() in choices:
+        return config, "thinking_level", value.strip().lower()
+    return None
+
+
 def _effort_slot(request: Dict[str, Any], provider: Any = None, model: Any = None,
                  api_mode: Any = None, base_url: Any = None,
                  route_choices: Optional[Tuple[str, ...]] = None
@@ -1659,6 +1760,34 @@ def _effort_slot(request: Dict[str, Any], provider: Any = None, model: Any = Non
     absent field, an explicit ``"none"`` level, or ``enabled: false`` is not an
     invitation to turn reasoning on: we refuse and report ``unsupported``.
     """
+    # OpenRouter's exact Claude routes carry effort in the top-level ``verbosity``
+    # field. Never fall through to a generic carrier on these routes: that would
+    # rewrite a different field than the one the route documents.
+    if _effort.openrouter_verbosity_route(provider, model, api_mode, base_url):
+        if _has_competing_effort_carrier(request):
+            return None
+        choices = (route_choices if route_choices is not None
+                   else _effort.route_choice_levels(provider, model, api_mode, base_url))
+        value = request.get("verbosity")
+        if isinstance(value, str) and value.strip().lower() in choices:
+            return request, "verbosity", value.strip().lower()
+        return None
+    # Exact native Gemini route: the carrier is ``extra_body.thinking_config``; any other
+    # effort field would be ignored by the native adapter, so it never counts.
+    if _effort.native_gemini_thinking_route(provider, model, api_mode, base_url):
+        if _has_competing_effort_carrier(request) or "verbosity" in request:
+            return None
+        choices = (route_choices if route_choices is not None
+                   else _effort.route_choice_levels(provider, model, api_mode, base_url))
+        return _gemini_thinking_slot(request, choices)
+    # Exact OpenAI-compatible Gemini route: nested snake_case carrier. The server rejects a
+    # top-level ``reasoning_effort`` next to it (HTTP 400), so any other field stands down.
+    if _effort.gemini_openai_thinking_route(provider, model, api_mode, base_url):
+        if _has_competing_effort_carrier(request) or "verbosity" in request:
+            return None
+        choices = (route_choices if route_choices is not None
+                   else _effort.route_choice_levels(provider, model, api_mode, base_url))
+        return _gemini_openai_slot(request, choices)
     extra_body = request.get("extra_body")
     if isinstance(extra_body, dict):
         reasoning = extra_body.get("reasoning")
@@ -1696,7 +1825,8 @@ def _effort_slot(request: Dict[str, Any], provider: Any = None, model: Any = Non
     return None
 
 
-def _reasoning_is_explicitly_disabled(request: Dict[str, Any]) -> bool:
+def _reasoning_is_explicitly_disabled(request: Dict[str, Any], native_gemini: bool = False,
+                                      gemini_openai: bool = False) -> bool:
     """Do not rewrite or insert effort when a host control disables or malforms thinking."""
     reasoning = request.get("reasoning")
     if isinstance(reasoning, dict):
@@ -1718,7 +1848,25 @@ def _reasoning_is_explicitly_disabled(request: Dict[str, Any]) -> bool:
         thinking = extra.get("thinking")
         if isinstance(thinking, dict) and thinking.get("type") == "disabled":
             return True
+        config = extra.get("thinking_config") if native_gemini else None
+        if config is not None and (
+                not isinstance(config, dict) or _gemini_thinking_controls_conflict(config)):
+            return True
+        if gemini_openai and _gemini_openai_unusable(extra):
+            return True
     return False
+
+
+def _gemini_openai_unusable(extra: Dict[str, Any]) -> bool:
+    """Malformed or hidden/budgeted nested Gemini controls (absent containers are not)."""
+    node: Any = extra
+    for key in ("extra_body", "google", "thinking_config"):
+        if not isinstance(node, dict) or key not in node:
+            return False
+        node = node[key]
+        if not isinstance(node, dict):
+            return True
+    return _gemini_thinking_controls_conflict(node)
 
 
 def _apply(request: Dict[str, Any], slot: Tuple[Dict[str, Any], str, str],
@@ -1742,6 +1890,23 @@ def _apply(request: Dict[str, Any], slot: Tuple[Dict[str, Any], str, str],
         return new
     if container is request.get("output_config"):
         new["output_config"] = new_container
+        return new
+    nested_config = _gemini_openai_config(request)
+    if nested_config is not None and container is nested_config:
+        extra_body = dict(request["extra_body"])
+        inner = dict(extra_body["extra_body"])
+        google = dict(inner["google"])
+        google["thinking_config"] = new_container
+        inner["google"] = google
+        extra_body["extra_body"] = inner
+        new["extra_body"] = extra_body
+        return new
+    extra_config = (request.get("extra_body") or {}).get("thinking_config") \
+        if isinstance(request.get("extra_body"), dict) else None
+    if extra_config is not None and container is extra_config:
+        extra_body = dict(request["extra_body"])
+        extra_body["thinking_config"] = new_container
+        new["extra_body"] = extra_body
         return new
     if container is new.get("extra_body", {}).get("reasoning"):
         extra_body = dict(request.get("extra_body") or {})
@@ -1775,6 +1940,25 @@ def _injection_path(request: Dict[str, Any], provider: Any, model: Any,
     provider_name = str(provider or "").strip().lower()
     bare_model = str(model or "").strip().lower().rsplit("/", 1)[-1]
     api = str(api_mode or "").strip().lower()
+    if _effort.openrouter_choice_route(provider_name, model, api, base_url):
+        # These exact routes may rewrite an existing carrier, never add one.
+        return None
+    if _effort.directsdk_choice_route(provider_name, model, api):
+        # The adapter reads only ``extra_body.reasoning.effort``; a top-level
+        # ``reasoning_effort`` would be an applied change with no wire effect.
+        return None
+    if (provider_name in _effort.GEMINI_NATIVE_PROVIDERS and api == "chat_completions"
+            and _effort.native_gemini_host(base_url)):
+        # The native adapter ignores ``reasoning_effort``: an injection would be an
+        # applied change with no wire effect, even through ``effort_models``.
+        return None
+    if (provider_name in _effort.GEMINI_NATIVE_PROVIDERS and api == "chat_completions"
+            and _effort.gemini_openai_host(base_url)
+            and (_effort.gemini_openai_thinking_route(provider_name, model, api, base_url)
+                 or _gemini_openai_config(request) is not None)):
+        # The server answers HTTP 400 when ``thinking_config`` and a top-level
+        # ``reasoning_effort`` are both present, so never add one next to the nested carrier.
+        return None
     claude_choices = (
         (route_choices if route_choices is not None
          else _effort.route_choice_levels(provider_name, model, api, base_url))
@@ -2250,6 +2434,52 @@ def _cap_to_ceiling(raised: str, target: str, choices: Any, ceiling: Optional[st
     return mapped
 
 
+def _level_rank(value: Any) -> int:
+    return _LEVEL_RANK.get(value, -1) if isinstance(value, str) else -1
+
+
+def _previous_applied_target(session_id: str, route: Tuple[str, str, str],
+                             current_key: str) -> Optional[str]:
+    """The last applied level for this session and route before the current turn.
+
+    The goal and kanban loops retry the same task in a new turn. Their continuation prompt is
+    short for kanban, so the previous attempt is a better baseline than a fresh score of the
+    prompt. Reads only the bounded in-memory turn ledger; no prompt text.
+    """
+    provider, model, api_mode = route
+    with _lock:
+        for key, prior in reversed(_SESSIONS.items()):
+            if key == current_key or prior.get("conversation_id") != session_id:
+                continue
+            if (prior.get("provider"), prior.get("model"), prior.get("api_mode")) != (
+                    provider, model, api_mode):
+                continue
+            if prior.get("state") == "decided":
+                applied = prior.get("_applied_target") or prior.get("target")
+                if applied in _LEVEL_RANK:
+                    return applied
+    return None
+
+
+def _goal_continuation_target(request: Dict[str, Any], session_id: str,
+                              route: Tuple[str, str, str], current_key: str, target: str,
+                              choices: Any) -> str:
+    """One level above the previous attempt for a host-generated goal continuation.
+
+    The host sends a new turn only after the goal judge or a quality gate rejected the previous
+    attempt (``hermes_cli/goals.py``). The marker is compared locally and never stored. A missing
+    or evicted previous entry falls back to the current decision, so the ladder still moves;
+    the caller applies the operator ceiling and takes the higher of this and tool-error escalation.
+    """
+    if not _goal_loop.is_goal_continuation(_latest_user_prompt(request)):
+        return target
+    baseline = _previous_applied_target(session_id, route, current_key) or target
+    raised = _effort.raise_choice_level(baseline, choices, 1)
+    if raised not in choices or _level_rank(raised) < _level_rank(target):
+        return target
+    return raised
+
+
 def _copy_decision(source: Dict[str, Any], target: Dict[str, Any]) -> None:
     """Copy only prompt-free decision fields between the turn and route ledgers."""
     for field in ("state", "label", "target", "score", "failure", "elapsed_ms",
@@ -2417,7 +2647,9 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             and isinstance(thinking, dict) and thinking.get("type") == "between_tools"):
         slot = None
         injection_path = None
-    if _reasoning_is_explicitly_disabled(request):
+    if _reasoning_is_explicitly_disabled(
+            request, _effort.native_gemini_thinking_route(provider, model, api_mode, base_url),
+            _effort.gemini_openai_thinking_route(provider, model, api_mode, base_url)):
         key = _decision_key(session_id, kwargs.get("turn_id"))
         entry = _touch(key, settings, mode, provider, model, api_mode,
                        conversation_id=session_id)
@@ -2755,16 +2987,40 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "reason": f"{mode} {before} -> {target} ({entry.get('label')}, per-message)",
         }
     escalated = False
-    if (settings["tool_error_escalation"] and dynamic_route and route_choices
-            and str(provider or "").strip().lower() != "anthropic"):
+    escalation_reason = None
+    local_escalation = (dynamic_route and route_choices
+                        and str(provider or "").strip().lower() != "anthropic")
+    goal_scope = local_escalation and mode in ("auto", "always") and not persistent_scope
+    goal_raised = target
+    if settings["goal_continuation_escalation"] and goal_scope:
+        goal_raised = _cap_to_ceiling(
+            _goal_continuation_target(request, session_id, route, turn_key, target,
+                                      route_choices),
+            target, route_choices, settings["effort_ceiling"])
+    tool_raised = target
+    if settings["tool_error_escalation"] and local_escalation:
         # Local signal, no scorer: only ever raises, only on cache-safe dynamic routes.
-        raised = _cap_to_ceiling(
+        tool_raised = _cap_to_ceiling(
             _escalated_target(request, turn_entry, target, route_choices),
             target, route_choices, settings["effort_ceiling"])
-        if raised != target:
-            target, escalated = raised, True
-            if entry is not turn_entry:
-                entry = dict(entry, escalated=True, escalation_reason=ESCALATION_REASON)
+    decided_target = target
+    if (_level_rank(goal_raised) > _level_rank(target)
+            and _level_rank(goal_raised) >= _level_rank(tool_raised)):
+        target, escalated, escalation_reason = goal_raised, True, GOAL_ESCALATION_REASON
+    elif _level_rank(tool_raised) > _level_rank(target):
+        target, escalated, escalation_reason = tool_raised, True, ESCALATION_REASON
+    if escalated:
+        if entry is not turn_entry:
+            entry = dict(entry, escalated=True, escalation_reason=escalation_reason)
+        else:
+            entry["escalated"] = True
+            entry["escalation_reason"] = escalation_reason
+        if _level_rank(tool_raised) > _level_rank(decided_target):
+            # Let a same-task continuation remember the level actually sent after a local raise.
+            _remember_escalation(route_key, session_id, tool_raised)
+    with _lock:
+        # The applied level, not the decision label, is the baseline for the next goal retry.
+        turn_entry["_applied_target"] = target
     before = slot[2] if slot is not None else "absent"
     entry["previous"] = turn_entry["previous"] = before
     if target == before:

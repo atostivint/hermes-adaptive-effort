@@ -136,6 +136,223 @@ def test_named_effort_mapping_preserves_wire_vocabulary():
     assert effort.map_effort("xhigh", "openai-codex", "gpt-6.1-sol") == "xhigh"
 
 
+def test_openrouter_named_choices_require_exact_host_model_and_api():
+    assert effort.route_choice_levels(
+        "openrouter", "anthropic/claude-opus-5.5", "chat_completions",
+        "https://openrouter.ai") == ("low", "medium", "high", "xhigh", "max")
+    assert effort.route_choice_levels(
+        "openrouter", "anthropic/claude-opus-5.5", "chat_completions",
+        "https://openrouter.ai:443") == ("low", "medium", "high", "xhigh", "max")
+    assert effort.route_choice_levels(
+        "openrouter", "openrouter/anthropic/claude-opus-5.5", "chat_completions",
+        "https://openrouter.ai") == ("low", "medium", "high", "xhigh", "max")
+    assert effort.route_choice_levels(
+        "openrouter", "google/gemini-4-argon", "chat_completions",
+        "https://openrouter.ai") == ("low", "medium", "high")
+    assert effort.route_choice_levels(
+        "openrouter", "openrouter/google/gemini-4-argon", "chat_completions",
+        "https://openrouter.ai") == ("low", "medium", "high")
+    assert effort.openrouter_verbosity_route(
+        "openrouter", "anthropic/claude-opus-5.5", "chat_completions",
+        "https://openrouter.ai")
+    assert effort.openrouter_choice_route(
+        "openrouter", "google/gemini-4-argon", "chat_completions",
+        "https://openrouter.ai")
+
+    for host in ("https://proxy.example", "http://openrouter.ai",
+                 "https://openrouter.ai:8443", "https://user@openrouter.ai",
+                 "https://openrouter.ai.evil.example"):
+        assert effort.route_choice_levels(
+            "openrouter", "anthropic/claude-opus-5.5", "chat_completions", host) == ()
+        assert not effort.openrouter_verbosity_route(
+            "openrouter", "anthropic/claude-opus-5.5", "chat_completions", host)
+    for model in ("claude-opus-5.5", "anthropic/claude-opus-5.5:free",
+                  "anthropic/claude-opus-5.5-2026", "anthropic/claude-opus-4.8"):
+        assert effort.route_choice_levels(
+            "openrouter", model, "chat_completions", "https://openrouter.ai") == ()
+    assert effort.route_choice_levels(
+        "openrouter", "anthropic/claude-opus-5.5", "anthropic_messages",
+        "https://openrouter.ai") == ()
+
+
+
 def test_native_named_choice_route_change_does_not_promote_xhigh_to_max():
     assert effort.map_named_choice("medium", ("low", "high", "max")) == "high"
     assert effort.map_named_choice("xhigh", ("low", "high", "max")) == "high"
+
+
+GEMINI_NATIVE = "https://generativelanguage.googleapis.com/v1beta"
+
+
+def test_native_gemini_argon_route_requires_exact_provider_model_api_and_host():
+    for provider in ("gemini", "google", "google-gemini", "google-ai-studio", "Gemini"):
+        for model in ("gemini-4-argon", "google/gemini-4-argon", "gemini/gemini-4-argon"):
+            assert effort.route_choice_levels(
+                provider, model, "chat_completions", GEMINI_NATIVE) == ("low", "medium", "high")
+            assert effort.native_gemini_thinking_route(
+                provider, model, "chat_completions", GEMINI_NATIVE)
+    assert effort.route_choice_levels(
+        "gemini", "gemini-4-argon", "chat_completions",
+        "https://generativelanguage.googleapis.com:443/v1beta/") == ("low", "medium", "high")
+    # The vocabulary never advertises levels native raw values rejected.
+    levels = effort.route_choice_levels("gemini", "gemini-4-argon", "chat_completions",
+                                        GEMINI_NATIVE)
+    assert "minimal" not in levels and "xhigh" not in levels
+
+
+def test_native_gemini_argon_route_rejects_lookalikes():
+    def levels(provider="gemini", model="gemini-4-argon", api="chat_completions",
+               base=GEMINI_NATIVE):
+        return effort.route_choice_levels(provider, model, api, base)
+
+    assert levels(provider="openai") == ()
+    assert levels(provider="vertex") == ()
+    assert levels(model="gemini-4-flash") == ()
+    assert levels(model="gemini-4-argon-preview") == ()
+    assert levels(model="openrouter/google/gemini-4-argon") == ()
+    assert levels(api="codex_responses") == ()
+    assert levels(api="anthropic_messages") == ()
+    for base in (None, "", "http://generativelanguage.googleapis.com/v1beta",
+                 "https://generativelanguage.googleapis.com:8443/v1beta",
+                 "https://user@generativelanguage.googleapis.com/v1beta",
+                 "https://generativelanguage.googleapis.com.evil.example/v1beta",
+                 "https://proxy.example/v1beta",
+                 "https://openrouter.ai"):
+        assert levels(base=base) == ()
+    # The /openai surface is a different carrier: never the native predicate.
+    for base in ("https://generativelanguage.googleapis.com/v1beta/openai",
+                 "https://generativelanguage.googleapis.com/v1beta/openai/"):
+        assert not effort.native_gemini_thinking_route(
+            "gemini", "gemini-4-argon", "chat_completions", base)
+        assert not effort.native_gemini_host(base)
+        assert effort.gemini_openai_host(base)
+
+
+def test_native_gemini3_routes_have_their_exact_levels():
+    expected = {
+        "gemini-3.8-flash": ("low", "medium", "high"),
+        "gemini-3.6-flash": ("low", "medium", "high"),
+        "gemini-3.5-flash-lite": ("low", "medium", "high"),
+        "gemini-3.1-flash-lite": ("low", "medium", "high"),
+        "gemini-3-flash-preview": ("low", "medium", "high"),
+        "gemini-3.1-pro-preview": ("low", "high"),
+    }
+    for model, levels in expected.items():
+        for provider in ("gemini", "google", "google-gemini", "google-ai-studio"):
+            assert effort.route_choice_levels(
+                provider, model, "chat_completions", GEMINI_NATIVE) == levels, model
+            assert effort.native_gemini_thinking_route(
+                provider, model, "chat_completions", GEMINI_NATIVE), model
+        assert effort.route_choice_levels(
+            "gemini", f"google/{model}", "chat_completions", GEMINI_NATIVE) == levels, model
+        assert effort.route_choice_levels(
+            "google", f"gemini/{model}", "chat_completions", GEMINI_NATIVE) == levels, model
+    assert "medium" not in effort.route_choice_levels(
+        "gemini", "gemini-3.1-pro-preview", "chat_completions", GEMINI_NATIVE)
+
+
+def test_native_gemini3_routes_reject_unregistered_or_inexact_ids():
+    for model in (
+            "gemini-3.1-pro",  # not a serveable native ID
+            "gemini-3-pro-preview",  # shut down, not registered
+            "gemini-3.7-flash",  # present in Hermes, absent from current vendor docs
+            "gemini-3.8-flash-preview",  # exact-ID gate, no suffix inference
+            "gemini-3.1-flash-lite-preview",  # shut down, not registered
+            "gemini-3.1-flash-lite-image",  # image model, not a text route
+    ):
+        assert effort.route_choice_levels(
+            "gemini", model, "chat_completions", GEMINI_NATIVE) == (), model
+        assert not effort.native_gemini_thinking_route(
+            "gemini", model, "chat_completions", GEMINI_NATIVE), model
+
+
+GEMINI_OPENAI = "https://generativelanguage.googleapis.com/v1beta/openai"
+
+
+def test_gemini_openai_route_uses_the_registered_vocabularies():
+    for provider in ("gemini", "google", "google-gemini", "google-ai-studio"):
+        for model, levels in effort.GEMINI_NATIVE_THINKING_ROUTES.items():
+            assert effort.gemini_openai_thinking_route(
+                provider, model, "chat_completions", GEMINI_OPENAI), model
+            assert effort.route_choice_levels(
+                provider, f"google/{model}", "chat_completions", GEMINI_OPENAI + "/") == levels
+    assert effort.route_choice_levels(
+        "gemini", "gemini-3.1-pro-preview", "chat_completions", GEMINI_OPENAI) == ("low", "high")
+
+
+def test_gemini_openai_route_rejects_lookalikes():
+    def levels(provider="gemini", model="gemini-3.6-flash", api="chat_completions",
+               base=GEMINI_OPENAI):
+        return effort.route_choice_levels(provider, model, api, base)
+
+    assert levels(provider="openai") == ()
+    assert levels(model="gemini-3.6-flash-001") == ()
+    assert levels(api="codex_responses") == ()
+    for base in (None, "", GEMINI_NATIVE,
+                 "http://generativelanguage.googleapis.com/v1beta/openai",
+                 "https://generativelanguage.googleapis.com:8443/v1beta/openai",
+                 "https://user@generativelanguage.googleapis.com/v1beta/openai",
+                 "https://generativelanguage.googleapis.com.evil.example/v1beta/openai",
+                 "https://proxy.example/v1beta/openai"):
+        if base == GEMINI_NATIVE:
+            assert levels(base=base) == ("low", "medium", "high")  # native, not /openai
+            assert not effort.gemini_openai_thinking_route(
+                "gemini", "gemini-3.6-flash", "chat_completions", base)
+        else:
+            assert levels(base=base) == (), base
+
+
+DIRECTSDK = "claude-subscription-directsdk-experimental"
+DIRECTSDK_BASES = (
+    "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-4-8",
+    "claude-sonnet-5",
+)
+DIRECTSDK_MODELS = DIRECTSDK_BASES + tuple(base + "[1m]" for base in DIRECTSDK_BASES)
+DIRECTSDK_LEVELS = ("low", "medium", "high", "xhigh", "max")
+
+
+def test_directsdk_registry_is_exactly_the_ten_listed_ids():
+    assert set(effort.DIRECTSDK_CHOICE_ROUTES) == set(DIRECTSDK_MODELS)
+    assert len(effort.DIRECTSDK_CHOICE_ROUTES) == 10
+
+
+def test_directsdk_routes_have_the_ordered_five_level_vocabulary():
+    for model in DIRECTSDK_MODELS:
+        assert effort.directsdk_choice_route(DIRECTSDK, model, "chat_completions"), model
+        assert effort.route_choice_levels(DIRECTSDK, model, "chat_completions") == (
+            DIRECTSDK_LEVELS), model
+
+
+def test_directsdk_matching_normalizes_case_and_whitespace_only():
+    assert effort.route_choice_levels(
+        "  Claude-Subscription-DirectSDK-Experimental ", " CLAUDE-OPUS-5-5[1M] ",
+        " Chat_Completions ") == DIRECTSDK_LEVELS
+    # No host is required or consulted.
+    assert effort.route_choice_levels(
+        DIRECTSDK, "claude-sonnet-5", "chat_completions", "https://anything.example") == (
+        DIRECTSDK_LEVELS)
+
+
+def test_directsdk_rejects_wrong_provider_model_and_api_mode():
+    for provider in ("anthropic", "claude-subscription-directsdk", "openrouter", "", None):
+        assert effort.route_choice_levels(provider, "claude-opus-5-5", "chat_completions") == ()
+        assert not effort.directsdk_choice_route(provider, "claude-opus-5-5", "chat_completions")
+    for api in ("anthropic_messages", "codex_responses", "", None):
+        assert effort.route_choice_levels(DIRECTSDK, "claude-opus-5-5", api) == ()
+    for model in (
+            # Excluded by the issue: observed fallbacks, unsupported effort, Daybreak.
+            "claude-fable-5-1", "claude-opus-5", "claude-opus-5[1m]", "claude-haiku-4-5",
+            "claude-haiku-4-5[1m]", "daybreak", "claude-daybreak",
+            # Non-registered neighbours and spelling variants.
+            "claude-opus-4-7", "claude-sonnet-4-6", "claude-sonnet-5-6", "claude-opus-5-5-1",
+            "claude-opus-5-5[2m]", "claude-opus-5-5[1m", "claude-opus-5-5 [1m]",
+            "anthropic/claude-opus-5-5", "claude-subscription-directsdk-experimental/claude-opus-5-5",
+            "claude-", "", None):
+        assert effort.route_choice_levels(DIRECTSDK, model, "chat_completions") == (), model
+        assert not effort.directsdk_choice_route(DIRECTSDK, model, "chat_completions"), model
+
+
+def test_directsdk_choice_lookup_does_not_leak_into_other_routes():
+    assert effort.route_choice_levels(
+        "anthropic", "claude-opus-5-5", "chat_completions", "https://api.anthropic.com") == ()
+    assert effort.route_choice_levels("openrouter", "claude-opus-5-5", "chat_completions") == ()

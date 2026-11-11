@@ -70,7 +70,7 @@ Windows PowerShell:
 $env:TYPESAFE_API_KEY = "YOUR_KEY"
 ```
 
-Substitute the selected scorer's variable name. An already running gateway or Desktop agent does not inherit a later shell export: configure that service's environment and restart it.
+Substitute the selected scorer's variable name. An already running gateway or Desktop agent does not inherit a later shell export: configure that service's environment and restart it. Since Hermes v0.23 this includes `hermes chat`, which runs its turns in a gateway that it starts on first use and that keeps running between chats; a key or `NACE_BASE_URL` exported after that gateway started never reaches the plugin. On the default profile, use the `.env` above and stop the gateway (`hermes gateway stop`) if it is already running; the next `hermes chat` starts a fresh one. Named profiles share the default profile's gateway by default: their keys are read through Hermes' secret scope, but `NACE_BASE_URL` is read only from the gateway process environment, so set it for the default profile.
 
 A secrets manager can supply the environment before launch. The plugin reads Hermes' secret scope and environment; it has no direct Bitwarden, 1Password or vault integration.
 
@@ -141,7 +141,7 @@ settings:
   nace_model: drex-v2.0
 ```
 
-The plugin posts to `https://console.nace.ai/v1/systemone`. Set `NACE_BASE_URL` in the serving environment to use another base; a bare host or `/v1` base gets `/v1/systemone` appended. `drex-v2.0` is pinned; `drex-latest` is an alias that moves on dates Nace announces. Drex answers requests beyond its documented state limits with an older model at that model's price; the plugin does not retry or upgrade. Nace bills only successful (HTTP 200) answers. A missing key, no credit (402), rate limit (429) or server error fails open for that turn and never falls back to Jev.
+The plugin posts to `https://console.nace.ai/v1/systemone`. Set `NACE_BASE_URL` in the serving environment to use another base; a bare host or `/v1` base gets `/v1/systemone` appended. `drex-v2.0` is pinned; `drex-latest` is an alias that moves on dates Nace announces. Drex answers requests beyond its documented state limits with an older model at that model's price; the plugin does not retry or upgrade. Nace bills only successful (HTTP 200) answers. A missing key, no credit (402), rate limit (429) or server error fails open for that turn and never falls back to Jev. Nace requests identify the plugin with `User-Agent` and `X-Nace-Client` set to `hermes-adaptive-effort/<version>` (name and version only, no key or prompt text); other scorers receive only the `User-Agent`.
 
 ### Custom hosted or local endpoint
 
@@ -188,8 +188,9 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | `dialogue_context_messages` | `4` | Earlier user/assistant text messages (0-6, each at most 1,200 characters) also sent to the scorer as untrusted context; `0` sends none and turns continuation hysteresis off, larger values clamp to 6, invalid or negative values mean `0` |
 | `continuation_downgrade_votes` | `2` | `0` is off (no second scorer request); `1`-`5` enables continuation hysteresis (default `2`; larger clamps to 5, invalid or negative means `0`). Active only with `dialogue_context_messages` above 0, otherwise ignored and `/hae status full` reports `Continuation: inactive (no dialogue context)` |
 | `effort_floor` | empty | Lowest named level the scorer's choice may take (`low`, `medium`, `high`, ...). Empty, `off` or `none` means no floor; an unrecognised value is ignored. A floor above the ceiling makes both ignored |
-| `effort_ceiling` | empty | Highest named level the scorer's choice may take. Empty, `off` or `none` means no ceiling; also caps tool-error escalation. Applied to the scorer's answer before the route clamp, so a level the route lacks resolves to the nearest allowed one |
+| `effort_ceiling` | empty | Highest named level the scorer's choice may take. Empty, `off` or `none` means no ceiling; also caps tool-error and goal-continuation escalation. Applied to the scorer's answer before the route clamp, so a level the route lacks resolves to the nearest allowed one |
 | `tool_error_escalation` | `true` | Raise effort one level, locally, when the same tool error repeats after a file edit within one turn. Applies only on exact dynamic-effort routes (never Claude); `false` disables it entirely. See [Raise effort on repeated tool errors](#raise-effort-on-repeated-tool-errors) |
+| `goal_continuation_escalation` | `false` | Raise effort one level above the previous attempt when a `/goal`, `/subgoal`, failed-gate or kanban goal-loop continuation says the previous turn was not done. Local marker only; no scorer call and no prompt text stored. Applies only on exact dynamic-effort routes with per-turn decisions (never Claude, `once` or retained `auto`); the ceiling caps it. Off by default because the goal judge can fail open. See [Raise effort after a failed goal check](#raise-effort-after-a-failed-goal-check) |
 | `respect_manual_effort` | `true` | Stand down for a conversation once its effort is changed by hand (config or selector): no scorer call, no rewrite, nothing shared, until `/hae <mode> here` or the Desktop mode popup re-enables it, or the session resets. Inference only: a manual choice equal to a value the plugin last read or wrote is invisible. Parent sessions only. `false` is the previous behaviour. See [Stand down on a manual effort change](#stand-down-on-a-manual-effort-change) |
 | `dynamic_trial` | `true` | In `auto`, change effort every turn *on trial* on an unlisted cache-safe route that already has an effort field, and watch the provider's cache counters (token counts only). Three effort changes that keep the cache make the route dynamic; a clear cache drop, a rejected level or no cache counters pin it. Verdicts persist in the profile data directory. `false` keeps one decision per unlisted route. Cost and cache effect are unmeasured. See [Trial of unlisted routes](#trial-of-unlisted-routes) |
 | `effort_models` | empty | Exact model IDs whose effort support the operator asserts |
@@ -247,14 +248,29 @@ In `always` mode (and `auto` on an exact dynamic route) every new user turn is s
 
 ### Raise effort on repeated tool errors
 
-`tool_error_escalation` is on by default and needs no scorer call. When the same tool error appears twice in one user turn with a `write_file` or `patch` call in between (a turn stuck on the same failing test), the plugin raises the effort one level within the route's own choices for the rest of that turn. It acts once per distinct error, never lowers effort, never selects `none` or `ultra`, and does nothing at the top of the route's list. The next user turn starts from its normal decision again.
+`tool_error_escalation` is on by default and needs no scorer call. When the same tool error appears twice in one user turn with a `write_file` or `patch` call in between (a turn stuck on the same failing test), the plugin raises the effort one level within the route's own choices for the rest of that turn. It acts once per distinct error, never lowers effort, never selects `none` or `ultra`, and does nothing at the top of the route's list. A new, unrelated user turn starts from its normal decision again.
 
 - Only exact dynamic-effort routes (the OpenCode Go/Zen control routes and `openai-codex/gpt-6.1-sol`) are affected. Claude routes, `effort_models` additions and every other route keep their previous behaviour, so no cache-sensitive route is touched. The effect on cost, latency and cache hits is unmeasured.
 - An error is a tool result whose JSON has a non-empty `error` or a non-zero `exit_code` (or an Anthropic `tool_result` with `is_error`). Only the last 20 tool results of the current turn are compared.
 - The error text is normalised (colours, line endings, `file.py:123` positions, timings, hex addresses, temp paths) and only its SHA-256 is compared in memory. Nothing is sent anywhere, and the text or hash never appears in status, logs, the history store or the change feed.
+- With continuation hysteresis active, the raised level replaces the route's remembered level. A later turn that the continuation question marks as the same task holds the raise under the existing vote rule instead of dropping back to the scorer's lower label at once; a new, unrelated turn is unaffected. This is the closest local approximation of the [paper's retry at a higher level](https://arxiv.org/abs/2610.34491), but it is still a continuation, not a fresh retry.
 - The raise is recorded in the applied-change feed like any rewrite; the status entry shows `escalated: true` and `escalation_reason: repeated_tool_error`.
 
 Set `tool_error_escalation: false` to turn it off.
+
+### Raise effort after a failed goal check
+
+`goal_continuation_escalation` is off by default. Hermes' goal loops retry the same task in a new turn after a failed check, and the host starts that turn with a fixed marker:
+
+- `[Continuing toward your standing goal...` for `/goal`, `/subgoal` and quality-gate retries
+- `[Continuing toward this kanban task...` for a kanban goal-mode worker whose judge says the task is not done
+
+The marker means the previous turn did not satisfy the goal judge or a quality gate. With the setting on, the plugin uses the previous turn's applied effort on the same session and route as the baseline and raises one level within the route's own choices for this retry turn. It combines with `tool_error_escalation` by taking the higher target. The status entry shows `escalated: true` and `escalation_reason: goal_continuation`; the decision's `target` stays the scorer's level, and a rewrite that changes the request is recorded in the change feed. A normal user turn is unaffected; a new goal kickoff (`[Goal set]...`), a kanban finalize nudge (`[The work looks complete...]`), a pause and a done verdict do not match.
+
+- Scope: exact dynamic-effort routes with named choices, `always` or `auto` on a dynamic route, parent or child per its mode. A kanban goal-mode worker runs as its own session, so enable the routing `mode` (and this setting) in the worker's profile; `subagent_mode` only governs any registered child sessions it starts. `once`, retained `auto`, trial routes and Claude's per-message path are unchanged. The `effort_ceiling` caps the raise.
+- The check is local: the plugin compares the first characters of the latest user text, sends no scorer call and stores no prompt text.
+- The goal judge can fail open: a judge transport or parse failure also produces a continuation prompt, and the plugin cannot tell that from a real "not done" verdict. That is why the setting is off by default. Enable it when the goal judge is healthy and one bounded raise per retry is acceptable.
+- The effect on cost, latency and cache hits is unmeasured.
 
 ### Cost-conscious configuration
 

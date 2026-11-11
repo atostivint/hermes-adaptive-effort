@@ -121,6 +121,10 @@ def test_config_schema_types_and_defaults_match_middleware():
     assert schema["tool_error_escalation"]["type"] == "bool"
     assert schema["tool_error_escalation"]["default"] is True
     assert middleware.DEFAULTS["tool_error_escalation"] is True
+    assert schema["goal_continuation_escalation"]["type"] == "bool"
+    assert schema["goal_continuation_escalation"]["default"] is False
+    assert middleware.DEFAULTS["goal_continuation_escalation"] is False
+    assert "goal" in schema["goal_continuation_escalation"]["description"]
     assert schema["dynamic_trial"]["type"] == "bool"
     assert schema["dynamic_trial"]["default"] is True
     assert middleware.DEFAULTS["dynamic_trial"] is True

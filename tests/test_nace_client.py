@@ -10,7 +10,7 @@ import urllib.error
 
 import pytest
 
-from conftest import import_plugin
+from conftest import PLUGIN_DIR, import_plugin
 
 nace_client = import_plugin("nace_client")
 
@@ -193,6 +193,20 @@ def test_prompt_and_key_never_reach_reason_codes_or_logs(transport, caplog):
     for text in (repr(score), repr(failure), caplog.text):
         if PROMPT_MARKER in text or SECRET in text:
             raise AssertionError("prompt or key leaked into a reason code or log line")
+
+
+def test_requests_carry_the_client_header_with_name_and_version_only():
+    transport = Transport()
+    make_client(transport, api_key=SECRET).classify(PROMPT_MARKER)
+    request = transport.calls[0][0]
+    from ruamel.yaml import YAML
+    version = YAML(typ="safe").load(
+        (PLUGIN_DIR / "plugin.yaml").read_text(encoding="utf-8"))["version"]
+    assert request.get_header("X-nace-client") == f"hermes-adaptive-effort/{version}"
+    assert request.get_header("User-agent") == f"hermes-adaptive-effort/{version}"
+    for name, value in request.header_items():
+        if name != "Authorization":
+            assert SECRET not in value and PROMPT_MARKER not in value, name
 
 
 def test_classify_never_raises_even_if_internals_do(monkeypatch):

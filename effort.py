@@ -88,10 +88,62 @@ ANTHROPIC_EFFORT_ROUTES = {
     "claude-sonnet-4-6": ("low", "medium", "high", "max"),
 }
 
+#: Exact Claude Code DirectSDK routes (``chat_completions`` through the experimental
+#: subscription adapter). The adapter maps the existing ``extra_body.reasoning.effort`` to
+#: ``output_config.effort`` / ``--effort``. Claude Code 2.1.308 accepted all five levels for
+#: the ``[1m]`` variants on 2026-10-29 (acceptance, not proof each level was independently
+#: applied; not an end-to-end DirectSDK test). Fable 5.1, Opus 5 (observed fallbacks), Haiku 4.5
+#: (effort unsupported) and Daybreak are deliberately absent; ids are never inferred from the
+#: ``claude-*`` family and the ``[1m]`` suffix is never stripped. Naming a vocabulary says nothing
+#: about cache behaviour: these routes are never dynamic and never trialled.
+DIRECTSDK_PROVIDER = "claude-subscription-directsdk-experimental"
+_DIRECTSDK_LEVELS = ("low", "medium", "high", "xhigh", "max")
+_DIRECTSDK_BASE_MODELS = (
+    "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-4-8",
+    "claude-sonnet-5",
+)
+DIRECTSDK_CHOICE_ROUTES = {
+    model_id: _DIRECTSDK_LEVELS
+    for base in _DIRECTSDK_BASE_MODELS for model_id in (base, base + "[1m]")
+}
+
 ANTHROPIC_PER_MESSAGE_MODELS = frozenset({
     "claude-fable-5-1", "claude-mythos-5-1", "claude-opus-5-5",
     "claude-opus-5", "claude-sonnet-5-5",
 })
+
+#: Exact OpenRouter Chat Completions routes with a documented named vocabulary.
+#: The Claude entries use the top-level ``verbosity`` control (answer effort for
+#: Anthropic models); Argon uses the existing ``extra_body.reasoning.effort``.
+OPENROUTER_CLAUDE_VERBOSITY_ROUTES = {
+    "anthropic/claude-opus-5.5": ("low", "medium", "high", "xhigh", "max"),
+    "anthropic/claude-sonnet-5.5": ("low", "medium", "high", "xhigh", "max"),
+    "anthropic/claude-haiku-5.5": ("low", "medium", "high", "xhigh", "max"),
+    "anthropic/claude-fable-5.1": ("low", "medium", "high", "xhigh", "max"),
+    "anthropic/claude-opus-5": ("low", "medium", "high", "xhigh", "max"),
+    "anthropic/claude-sonnet-5": ("low", "medium", "high", "xhigh", "max"),
+    "anthropic/claude-fable-5": ("low", "medium", "high", "xhigh", "max"),
+}
+OPENROUTER_CHOICE_ROUTES = {
+    **OPENROUTER_CLAUDE_VERBOSITY_ROUTES,
+    "google/gemini-4-argon": ("low", "medium", "high"),
+}
+
+#: Exact native Gemini routes (``generativelanguage.googleapis.com``, Chat Completions
+#: transport) whose carrier is ``extra_body.thinking_config.thinkingLevel``. Native raw
+#: ``minimal``/``xhigh`` returned HTTP 400 on 2026-10-29, so they are not in the vocabulary.
+#: The 2026-11-01 probe accepted low/medium/high for the Gemini 3 Flash and Flash-Lite
+#: IDs; Gemini 3 Pro stays at low/high, matching Hermes' own Pro mapping.
+GEMINI_NATIVE_PROVIDERS = frozenset({"gemini", "google", "google-gemini", "google-ai-studio"})
+GEMINI_NATIVE_THINKING_ROUTES = {
+    "gemini-4-argon": ("low", "medium", "high"),
+    "gemini-3.8-flash": ("low", "medium", "high"),
+    "gemini-3.6-flash": ("low", "medium", "high"),
+    "gemini-3.5-flash-lite": ("low", "medium", "high"),
+    "gemini-3.1-flash-lite": ("low", "medium", "high"),
+    "gemini-3-flash-preview": ("low", "medium", "high"),
+    "gemini-3.1-pro-preview": ("low", "high"),
+}
 
 
 def score_to_label(score) -> Optional[str]:
@@ -276,6 +328,7 @@ def _route_declared_levels(provider: Optional[str], model: Optional[str],
     api = (api_mode or "").strip().lower()
     model_id = (model or "").strip().lower()
     bare = model_id.rsplit("/", 1)[-1]
+    openrouter_model = _openrouter_model_id(model_id)
     levels: Sequence[str] = ()
     if provider_name in _OPEN_CODE_GO_PROVIDERS:
         declared = OPEN_CODE_GO_INJECTION_ROUTES.get(api, {}).get(bare)
@@ -292,13 +345,137 @@ def _route_declared_levels(provider: Optional[str], model: Optional[str],
         except Exception:
             levels = ()
             cacheable = False
+    elif directsdk_choice_route(provider_name, model_id, api):
+        levels = DIRECTSDK_CHOICE_ROUTES[model_id]
     elif (provider_name == "anthropic" and api == "anthropic_messages"
           and _native_anthropic_host(base_url)):
         levels = ANTHROPIC_EFFORT_ROUTES.get(bare, ())
+    elif (provider_name == "openrouter" and api == "chat_completions"
+          and _openrouter_host(base_url)):
+        levels = OPENROUTER_CHOICE_ROUTES.get(openrouter_model, ())
+    elif (native_gemini_thinking_route(provider_name, model_id, api, base_url)
+          or gemini_openai_thinking_route(provider_name, model_id, api, base_url)):
+        levels = GEMINI_NATIVE_THINKING_ROUTES.get(_gemini_model_id(model_id), ())
     normalized = tuple(
         str(level).strip().lower() for level in levels
         if isinstance(level, str) and level.strip())
     return normalized, cacheable
+
+
+def directsdk_choice_route(provider: Optional[str], model: Optional[str],
+                           api_mode: Optional[str]) -> bool:
+    """Is this an exact DirectSDK route with a registered named vocabulary?
+
+    The provider name plus the exact model string and API mode is the gate (no host exists
+    to check); the model is compared whole, so a prefix or a stripped ``[1m]`` never matches.
+    """
+    return (
+        (provider or "").strip().lower() == DIRECTSDK_PROVIDER
+        and (api_mode or "").strip().lower() == "chat_completions"
+        and (model or "").strip().lower() in DIRECTSDK_CHOICE_ROUTES
+    )
+
+
+def openrouter_verbosity_route(provider: Optional[str], model: Optional[str],
+                               api_mode: Optional[str],
+                               base_url: Optional[str]) -> bool:
+    """Is this the exact OpenRouter Claude route whose carrier is ``verbosity``?"""
+    return (
+        (provider or "").strip().lower() == "openrouter"
+        and (api_mode or "").strip().lower() == "chat_completions"
+        and _openrouter_model_id((model or "").strip().lower())
+        in OPENROUTER_CLAUDE_VERBOSITY_ROUTES
+        and _openrouter_host(base_url)
+    )
+
+
+def openrouter_choice_route(provider: Optional[str], model: Optional[str],
+                            api_mode: Optional[str],
+                            base_url: Optional[str]) -> bool:
+    """Is this an exact OpenRouter route with a registered named vocabulary?"""
+    return (
+        (provider or "").strip().lower() == "openrouter"
+        and (api_mode or "").strip().lower() == "chat_completions"
+        and _openrouter_model_id((model or "").strip().lower()) in OPENROUTER_CHOICE_ROUTES
+        and _openrouter_host(base_url)
+    )
+
+
+def native_gemini_thinking_route(provider: Optional[str], model: Optional[str],
+                                 api_mode: Optional[str], base_url: Optional[str]) -> bool:
+    """Is this an exact native Gemini route with a registered ``thinkingLevel`` vocabulary?"""
+    return (
+        (provider or "").strip().lower() in GEMINI_NATIVE_PROVIDERS
+        and (api_mode or "").strip().lower() == "chat_completions"
+        and _gemini_model_id((model or "").strip().lower()) in GEMINI_NATIVE_THINKING_ROUTES
+        and native_gemini_host(base_url)
+    )
+
+
+def _gemini_model_id(model_id: str) -> str:
+    for prefix in ("google/", "gemini/"):
+        if model_id.startswith(prefix):
+            return model_id[len(prefix):]
+    return model_id
+
+
+def _gemini_https_host(base_url: Optional[str]) -> Optional[str]:
+    """Lower-cased path of an HTTPS ``generativelanguage.googleapis.com`` base, else ``None``."""
+    try:
+        parsed = urlsplit(str(base_url or ""))
+        if (
+            parsed.scheme.lower() == "https"
+            and (parsed.hostname or "").lower() == "generativelanguage.googleapis.com"
+            and parsed.port in (None, 443)
+            and parsed.username is None
+            and parsed.password is None
+        ):
+            return parsed.path.rstrip("/").lower()
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+def native_gemini_host(base_url: Optional[str]) -> bool:
+    """HTTPS ``generativelanguage.googleapis.com``, not the separate ``/openai`` surface."""
+    path = _gemini_https_host(base_url)
+    return path is not None and not path.endswith("/openai")
+
+
+def gemini_openai_host(base_url: Optional[str]) -> bool:
+    """HTTPS ``generativelanguage.googleapis.com`` OpenAI-compatible base (path ends ``/openai``)."""
+    path = _gemini_https_host(base_url)
+    return path is not None and path.endswith("/openai")
+
+
+def gemini_openai_thinking_route(provider: Optional[str], model: Optional[str],
+                                 api_mode: Optional[str], base_url: Optional[str]) -> bool:
+    """Exact OpenAI-compatible Gemini route whose carrier is ``extra_body.google.thinking_config``."""
+    return (
+        (provider or "").strip().lower() in GEMINI_NATIVE_PROVIDERS
+        and (api_mode or "").strip().lower() == "chat_completions"
+        and _gemini_model_id((model or "").strip().lower()) in GEMINI_NATIVE_THINKING_ROUTES
+        and gemini_openai_host(base_url)
+    )
+
+
+def _openrouter_model_id(model_id: str) -> str:
+    prefix = "openrouter/"
+    return model_id[len(prefix):] if model_id.startswith(prefix) else model_id
+
+
+def _openrouter_host(base_url: Optional[str]) -> bool:
+    try:
+        parsed = urlsplit(str(base_url or ""))
+        return (
+            parsed.scheme.lower() == "https"
+            and (parsed.hostname or "").lower() == "openrouter.ai"
+            and parsed.port in (None, 443)
+            and parsed.username is None
+            and parsed.password is None
+        )
+    except (TypeError, ValueError):
+        return False
 
 
 def _native_anthropic_host(base_url: Optional[str]) -> bool:
