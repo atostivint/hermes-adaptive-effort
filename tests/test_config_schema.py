@@ -47,7 +47,7 @@ def test_effort_model_setting_replaces_the_injection_setting():
 def test_scorer_schema_keeps_jev_default_and_requires_model_for_openrouter():
     schema = _load_manifest()["config_schema"]
     assert set(schema["scorer_provider"].get("choices") or []) == {
-        "jev", "openrouter", "cloudflare", "custom", "openai_decision", "nace"}
+        "jev", "openrouter", "cloudflare", "custom", "openai_decision", "nace", "ollama"}
     assert schema["scorer_provider"].get("default") == middleware.DEFAULTS["scorer_provider"]
     assert schema["jev_model"].get("default") == middleware.DEFAULTS["jev_model"]
     assert schema["jev_model"].get("type") == "str"
