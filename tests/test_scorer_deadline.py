@@ -20,6 +20,7 @@ PROVIDER_DEFAULTS = {
     "openai_decision": 3.0,
     "nace": 3.0,
     "custom": 10.0,
+    "ollama": 10.0,
 }
 
 

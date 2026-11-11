@@ -59,6 +59,9 @@ OPEN_CODE_GO_INJECTION_ROUTES = {
     "chat_completions": {
         "glm-5.2": ("reasoning_effort", ("high", "max")),
         "glm-5.3": ("paired_effort", ("low", "high", "max")),
+        # Go accepted these levels on 2026-11-11 (one 200 per level): acceptance only,
+        # it does not prove the level changes reasoning intensity.
+        "glm-5.3-flash": ("reasoning_effort", ("low", "high", "max")),
         "kimi-k3": ("reasoning_effort", ("low", "high", "max")),
         # Exact Go Chat route: live calls accepted all three values. Xiaomi does
         # not currently promise distinct reasoning intensity among them.
@@ -66,9 +69,43 @@ OPEN_CODE_GO_INJECTION_ROUTES = {
         "deepseek-v4-pro": ("paired_effort", ("low", "high", "max")),
         "deepseek-v4-flash": ("paired_effort", ("low", "high", "max")),
         "deepseek-v4.1-flash": ("paired_effort", ("low", "medium", "high", "max")),
+        # Measured 2026-11-11: Go answered 200 to each listed level, once. Acceptance
+        # (the value was taken) is not evidence of a distinct reasoning intensity.
+        "minimax-m3.1-flash": ("reasoning_effort", ("low", "medium", "high", "xhigh", "max")),
+        "step-5-preview": ("reasoning_effort", ("low", "medium", "high")),
     },
 }
 _OPEN_CODE_GO_PROVIDERS = frozenset({"opencode-go", "opencode_go", "go", "opencode-go-sub"})
+
+# Exact OpenAI Codex Responses routes allowed to use native named-choice classification.
+# The vocabulary itself always comes from the host's own per-model table
+# (``agent.reasoning_effort.codex_supported_efforts``): a hand-written list would drift from
+# the ladder Hermes actually sends, and the host already knows that ``none`` 400s on the
+# ``gpt-6.1-sol`` ladder while the GPT-5.6 one lists it. Only these fifteen IDs are
+# registered; ``gpt-6.1-terra-900k`` does not exist, Daybreak stays out, and no neighbouring
+# or suffixed ID is ever inferred. Naming a vocabulary says nothing about cache behaviour:
+# only ``gpt-6.1-sol`` is a dynamic route, the other fourteen keep one retained decision.
+CODEX_PROVIDER = "openai-codex"
+CODEX_CHOICE_MODELS = frozenset({
+    "gpt-6.1-sol", "gpt-6.1-sol-900k",
+    "gpt-6-astra", "gpt-6-astra-900k",
+    "gpt-6.1-terra",
+    "gpt-6-sol", "gpt-6-sol-900k",
+    "gpt-6-luna", "gpt-6-luna-900k",
+    "gpt-5.6-sol", "gpt-5.6-sol-900k",
+    "gpt-5.6-terra", "gpt-5.6-terra-900k",
+    "gpt-5.6-luna", "gpt-5.6-luna-900k",
+})
+
+#: Exact CommandCode Chat Completions route. DeepSeek documents ``low``/``high``/``max`` and
+#: maps ``medium`` to ``high``, so ``medium`` is not offered as a choice; the shared
+#: ``medium -> high`` vocabulary override stays the only path to it. The carrier is the
+#: existing top-level ``reasoning_effort``: no field is ever injected here, no thinking
+#: toggle is touched, and the model is matched whole (a bare slug is a different id).
+COMMANDCODE_PROVIDER = "commandcode"
+COMMANDCODE_CHOICE_ROUTES = {
+    "deepseek/deepseek-v4.1-flash": ("low", "high", "max"),
+}
 
 # Exact Anthropic API model registry. Profiles are documentation only; this
 # table is the plugin's explicit assertion that the native Messages route can
@@ -337,14 +374,17 @@ def _route_declared_levels(provider: Optional[str], model: Optional[str],
     elif provider_name in {"opencode", "opencode-zen", "opencode_zen", "zen"} \
             and api == "codex_responses":
         levels = MUSE_INJECTION_EFFORTS.get(bare, ())
-    elif (provider_name == "openai-codex" and api == "codex_responses"
-          and bare == "gpt-6.1-sol"):
+    elif (provider_name == CODEX_PROVIDER and api == "codex_responses"
+          and bare in CODEX_CHOICE_MODELS):
         try:
             from agent.reasoning_effort import codex_supported_efforts
             levels = codex_supported_efforts(model_id)
         except Exception:
             levels = ()
             cacheable = False
+    elif (provider_name == COMMANDCODE_PROVIDER and api == "chat_completions"
+          and model_id in COMMANDCODE_CHOICE_ROUTES):
+        levels = COMMANDCODE_CHOICE_ROUTES[model_id]
     elif directsdk_choice_route(provider_name, model_id, api):
         levels = DIRECTSDK_CHOICE_ROUTES[model_id]
     elif (provider_name == "anthropic" and api == "anthropic_messages"

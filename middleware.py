@@ -71,6 +71,8 @@ DEFAULTS: Dict[str, Any] = {
     "cloudflare_account_id": "",
     "cloudflare_model": _scorers.cloudflare_client.DEFAULT_MODEL_SELECTOR,
     "nace_model": _scorers.nace_client.MODEL,
+    "ollama_endpoint": _scorers.ollama_client.DEFAULT_ENDPOINT,
+    "ollama_model": "",
     "classification_instructions": "",
     "use_target_model_context": False,
     "dialogue_context_messages": 4,
@@ -1049,6 +1051,11 @@ def _settings() -> Dict[str, Any]:
         "nace_model": str(read_setting(
             "nace_model", DEFAULTS["nace_model"]) or DEFAULTS["nace_model"]).strip()
         or DEFAULTS["nace_model"],
+        "ollama_endpoint": str(read_setting(
+            "ollama_endpoint", DEFAULTS["ollama_endpoint"])
+            or DEFAULTS["ollama_endpoint"]).strip() or DEFAULTS["ollama_endpoint"],
+        "ollama_model": str(read_setting(
+            "ollama_model", DEFAULTS["ollama_model"]) or "").strip(),
         "classification_instructions": _rubric.normalize_classification_instructions(
             read_setting("classification_instructions", DEFAULTS["classification_instructions"])),
         "use_target_model_context": _bool(
@@ -1076,11 +1083,11 @@ def _settings() -> Dict[str, Any]:
         read_setting("effort_ceiling", DEFAULTS["effort_ceiling"]))
     settings["scorer_model_effective"] = _scorers.model_for(
         settings["scorer_provider"], settings["scorer_model"], settings["cloudflare_model"],
-        settings["jev_model"], settings["nace_model"])
+        settings["jev_model"], settings["nace_model"], settings["ollama_model"])
     (settings["scorer_endpoint"], settings["scorer_endpoint_effective"]) = \
         _scorers.endpoint_for(settings["scorer_provider"], settings["endpoint"],
                               settings["cloudflare_account_id"], settings["cloudflare_model"],
-                              settings["custom_endpoint"])
+                              settings["custom_endpoint"], settings["ollama_endpoint"])
     settings["cloudflare_account_ready"] = _scorers.cloudflare_client.valid_account_id(
         settings["cloudflare_account_id"])
     # This compatibility key has always meant "where the active scorer posts";

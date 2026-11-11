@@ -10,6 +10,7 @@ cloudflare_client = import_plugin("cloudflare_client")
 custom_client = import_plugin("custom_client")
 openai_decision_client = import_plugin("openai_decision_client")
 nace_client = import_plugin("nace_client")
+ollama_client = import_plugin("ollama_client")
 scorers = import_plugin("scorers")
 middleware = import_plugin("middleware")
 
@@ -210,11 +211,12 @@ def test_build_client_returns_the_right_client_for_every_provider():
         "custom": custom_client.CustomClient,
         "openai_decision": openai_decision_client.OpenAIDecisionClient,
         "nace": nace_client.NaceClient,
+        "ollama": ollama_client.OllamaClient,
     }
     assert set(expected) == set(scorers.PROVIDERS)
     for provider, cls in expected.items():
         client, failure = scorers.build_client(settings(
-            scorer_provider=provider, scorer_model="m/x",
+            scorer_provider=provider, scorer_model="m/x", ollama_model="m/x",
             cloudflare_account_id="0" * 32, custom_endpoint="https://example.test/v1/systemone"))
         assert failure is None, (provider, failure)
         assert isinstance(client, cls), provider
