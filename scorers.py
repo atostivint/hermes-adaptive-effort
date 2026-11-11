@@ -9,10 +9,10 @@ from __future__ import annotations
 import importlib
 from typing import Any, Dict, Optional, Tuple
 
-# jev, cloudflare and nace stay eager: middleware reads their constants and validators when
-# it builds its defaults and on every settings read. The other adapters load on first use
+# jev, cloudflare, nace and ollama stay eager: middleware reads their constants and validators
+# when it builds its defaults and on every settings read. The other adapters load on first use
 # (PEP 562 ``__getattr__`` below), so a profile that never selects them never imports them.
-from . import cloudflare_client, jev_client, nace_client
+from . import cloudflare_client, jev_client, nace_client, ollama_client
 
 _LAZY_ADAPTERS = frozenset({"custom_client", "openai_decision_client", "openrouter_client"})
 
@@ -31,7 +31,8 @@ CLOUDFLARE = "cloudflare"
 CUSTOM = "custom"
 OPENAI_DECISION = "openai_decision"
 NACE = "nace"
-PROVIDERS = (JEV, OPENROUTER, CLOUDFLARE, CUSTOM, OPENAI_DECISION, NACE)
+OLLAMA = "ollama"
+PROVIDERS = (JEV, OPENROUTER, CLOUDFLARE, CUSTOM, OPENAI_DECISION, NACE, OLLAMA)
 
 # Default scoring deadline (seconds) used when the operator leaves ``timeout_s`` at 0.
 # Not measured on this plugin's traffic: the Jev/Clef figures come from claude-router's
@@ -44,6 +45,9 @@ PROVIDER_TIMEOUT_S = {
     OPENAI_DECISION: 3.0,
     NACE: 3.0,
     CUSTOM: 10.0,
+    # A local model may have to load into memory on the first call; a longer cold start still
+    # fails open on that call.
+    OLLAMA: 10.0,
 }
 
 
@@ -103,6 +107,23 @@ def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]
             ), None
         except Exception:
             return None, "classifier_error"
+    if provider == OLLAMA:
+        model = str(settings.get("ollama_model") or "").strip()
+        if not model:
+            return None, "model_missing"
+        endpoint = str(settings.get("ollama_endpoint") or "").strip()
+        if not ollama_client.valid_endpoint(endpoint):
+            return None, "endpoint_invalid"
+        try:
+            return ollama_client.OllamaClient(
+                endpoint=endpoint,
+                model=model,
+                timeout=settings["timeout_s"],
+                max_prompt_chars=settings["prompt_chars"],
+                classification_instructions=settings.get("classification_instructions", ""),
+            ), None
+        except Exception:
+            return None, "classifier_error"
     if provider == CLOUDFLARE:
         account_id = str(settings.get("cloudflare_account_id") or "").strip()
         if not cloudflare_client.valid_account_id(account_id):
@@ -151,6 +172,9 @@ def credential_present(provider: Any = JEV, custom_auth: Any = "none") -> bool:
         return cloudflare_client.credential_present()
     if selected == NACE:
         return nace_client.credential_present()
+    if selected == OLLAMA:
+        # No credential at all: the chat surface is unauthenticated by default.
+        return ollama_client.credential_present()
     if selected == CUSTOM and str(custom_auth or "none").strip().lower() == "bearer":
         return __getattr__("custom_client").credential_present()
     return False
@@ -166,7 +190,7 @@ def credential_required(provider: Any = JEV, custom_auth: Any = "none") -> bool:
 
 def endpoint_for(provider: Any, jev_endpoint: Any, cloudflare_account_id: Any = "",
                  cloudflare_model: Any = cloudflare_client.DEFAULT_MODEL_SELECTOR,
-                 custom_endpoint: Any = "") -> Tuple[str, str]:
+                 custom_endpoint: Any = "", ollama_endpoint: Any = "") -> Tuple[str, str]:
     """Return the raw and effective endpoint for the selected scorer."""
     selected = str(provider or JEV).strip().lower()
     if selected == OPENROUTER:
@@ -178,6 +202,9 @@ def endpoint_for(provider: Any, jev_endpoint: Any, cloudflare_account_id: Any = 
     if selected == NACE:
         raw = nace_client.configured_base_url()
         return raw, nace_client.normalize_endpoint(raw)
+    if selected == OLLAMA:
+        raw = str(ollama_endpoint or "").strip()
+        return raw, ollama_client.chat_url(raw)
     if selected == CLOUDFLARE:
         endpoint = cloudflare_client.endpoint_for(cloudflare_account_id, cloudflare_model)
         return endpoint, endpoint
@@ -191,7 +218,8 @@ def endpoint_for(provider: Any, jev_endpoint: Any, cloudflare_account_id: Any = 
 def model_for(provider: Any, configured_model: Any,
               cloudflare_model: Any = cloudflare_client.DEFAULT_MODEL_SELECTOR,
               jev_model: Any = jev_client.JEV_MODEL,
-              nace_model: Any = nace_client.MODEL) -> str:
+              nace_model: Any = nace_client.MODEL,
+              ollama_model: Any = "") -> str:
     """Return the model reported in status for the selected scorer."""
     selected = str(provider or JEV).strip().lower()
     if selected == JEV:
@@ -200,6 +228,8 @@ def model_for(provider: Any, configured_model: Any,
         return cloudflare_client.model_path_for(cloudflare_model)
     if selected == NACE:
         return str(nace_model or nace_client.MODEL).strip() or nace_client.MODEL
+    if selected == OLLAMA:
+        return str(ollama_model or "").strip()
     if selected == OPENAI_DECISION:
         default_model = __getattr__("openai_decision_client").DEFAULT_MODEL
         return str(configured_model or default_model).strip() or default_model
