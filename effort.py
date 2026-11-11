@@ -59,6 +59,9 @@ OPEN_CODE_GO_INJECTION_ROUTES = {
     "chat_completions": {
         "glm-5.2": ("reasoning_effort", ("high", "max")),
         "glm-5.3": ("paired_effort", ("low", "high", "max")),
+        # Go accepted these levels on 2026-11-11 (one 200 per level): acceptance only,
+        # it does not prove the level changes reasoning intensity.
+        "glm-5.3-flash": ("reasoning_effort", ("low", "high", "max")),
         "kimi-k3": ("reasoning_effort", ("low", "high", "max")),
         # Exact Go Chat route: live calls accepted all three values. Xiaomi does
         # not currently promise distinct reasoning intensity among them.
@@ -66,6 +69,10 @@ OPEN_CODE_GO_INJECTION_ROUTES = {
         "deepseek-v4-pro": ("paired_effort", ("low", "high", "max")),
         "deepseek-v4-flash": ("paired_effort", ("low", "high", "max")),
         "deepseek-v4.1-flash": ("paired_effort", ("low", "medium", "high", "max")),
+        # Measured 2026-11-11: Go answered 200 to each listed level, once. Acceptance
+        # (the value was taken) is not evidence of a distinct reasoning intensity.
+        "minimax-m3.1-flash": ("reasoning_effort", ("low", "medium", "high", "xhigh", "max")),
+        "step-5-preview": ("reasoning_effort", ("low", "medium", "high")),
     },
 }
 _OPEN_CODE_GO_PROVIDERS = frozenset({"opencode-go", "opencode_go", "go", "opencode-go-sub"})
