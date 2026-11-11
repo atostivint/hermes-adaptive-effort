@@ -1,244 +1,165 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="en" class="dark">
 <head>
 <meta charset="utf-8">
-<title>Hermes Adaptive Effort — plugin catalog illustration</title>
+<title>Hermes Adaptive Effort — status-bar chip with its mode popover</title>
+<!-- The app's own compiled CSS (verbatim) + the dark side of its default theme.
+     Provenance in README.md; nothing here is hand-transcribed except the frame
+     below, whose classes are prefixed `ill-` so they cannot collide with the
+     app's own utilities and component classes. -->
+<link rel="stylesheet" href="vendor/hermes-desktop-index-C9U-kDt2.css">
+<link rel="stylesheet" href="vendor/hermes-theme-nous-dark.css">
+<link rel="stylesheet" href="vendor/plugin-fallbacks.css">
 <style>
-  /* ---- palette tokens ------------------------------------------------- */
-  :root{
-    --bg:#0F1113;          /* page background   */
-    --panel:#141619;       /* panel / tile fill */
-    --line:#23272C;        /* 1px-2px borders   */
-    --lit:#2E3339;         /* lit top edge      */
-    --ink:#E8EAED;         /* primary text      */
-    --ink-2:#C9CDD2;       /* secondary text    */
-    --ink-3:#7C8288;       /* tertiary text     */
-    --accent:#5C4BDD;      /* subject accent    */
-
-    /* data colours: computed from the accent token, never hand-picked */
-    --accent-80:rgba(92,75,221,.80);
-    --accent-64:rgba(92,75,221,.64);
-    --accent-26:rgba(92,75,221,.26);
-    --accent-16:rgba(92,75,221,.16);
-    --accent-10:rgba(92,75,221,.10);
-    --hair-04:rgba(232,234,237,.045);
-    --muted-30:rgba(124,130,136,.30);
+  /* Frame only: canvas, placement, the 4x magnification of the chip + popover,
+     the two aura gradients and the coloured shadow. No component styling. */
+  html, body {
+    width: 1600px;
+    height: 900px;
+    overflow: hidden;
+  }
+  body {
+    background: var(--ui-bg-chrome);
+    color: var(--ui-text-primary);
+    font-family: var(--dt-font-sans);
+    -webkit-font-smoothing: antialiased;
   }
 
-  html,body{
-    margin:0; padding:0;
-    width:1600px; height:900px;
-    overflow:hidden;
-    background:var(--bg);
+  /* Aura: two radial gradients from the accent token, transparent at 72%,
+     radii short enough that no viewport corner receives any paint. */
+  .ill-aura { position: absolute; z-index: 0; pointer-events: none; }
+  .ill-aura-a {
+    left: 610px; top: 340px; width: 840px; height: 520px;
+    background: radial-gradient(ellipse 420px 260px at 50% 50%,
+      color-mix(in srgb, var(--ui-accent) 26%, transparent) 0%,
+      color-mix(in srgb, var(--ui-accent) 0%, transparent) 72%);
   }
-  body{
-    position:relative;
-    font-family:'Segoe UI Variable Display','Segoe UI',system-ui,sans-serif;
-    -webkit-font-smoothing:antialiased;
-    color:var(--ink);
-  }
-
-  /* ---- aura: 3 radial gradients pinned to the bottom, under content ---- */
-  .aura{
-    position:absolute; inset:0; z-index:0; pointer-events:none;
-    background:
-      /* radii are kept small enough that every corner falls past the 72% stop */
-      radial-gradient(620px 420px at 34% 106%,
-        var(--accent-26) 0%, var(--accent-10) 46%, rgba(92,75,221,0) 72%),
-      radial-gradient(560px 400px at 70% 102%,
-        rgba(92,75,221,.18) 0%, rgba(92,75,221,.07) 50%, rgba(92,75,221,0) 72%),
-      radial-gradient(820px 260px at 50% 118%,
-        rgba(124,130,136,.12) 0%, rgba(124,130,136,0) 72%);
+  .ill-aura-b {
+    left: 120px; top: 660px; width: 600px; height: 280px;
+    background: radial-gradient(ellipse 300px 140px at 50% 50%,
+      color-mix(in srgb, var(--ui-accent) 10%, transparent) 0%,
+      color-mix(in srgb, var(--ui-accent) 0%, transparent) 72%);
   }
 
-  .layer{position:absolute; inset:0; z-index:1;}
-
-  /* ---- brand block, top-left, ink edge at y = 95 ---- */
-  .brand{
-    position:absolute; left:95px; top:95px;
-    display:flex; align-items:flex-start; gap:20px;
+  /* Brand lockup, top left — the plugin's own icon.png in a tile. */
+  .ill-brand {
+    position: absolute; z-index: 1;
+    left: 64px; top: 48px;
+    display: flex; align-items: center; gap: 18px;
   }
-  .mark{
-    position:relative;
-    width:64px; height:64px;
-    box-sizing:border-box;
-    border-radius:18px;
-    border:1px solid var(--line);
-    border-top-color:var(--lit);
-    background:var(--panel);
-    flex:none;
+  .ill-brand .ill-tile {
+    width: 56px; height: 56px; box-sizing: border-box;
+    border-radius: 16px; overflow: hidden;
+    border: 1px solid var(--ui-stroke-secondary);
+    background: var(--ui-bg-elevated);
   }
-  /* gauge dial: accent sweep, ring cut out with a radial mask */
-  .mark .dial{
-    position:absolute; left:10px; top:10px;
-    width:42px; height:42px; border-radius:50%;
-    background:conic-gradient(from 132deg,
-      var(--accent) 0deg 206deg,
-      var(--lit) 206.5deg 360deg);
-    -webkit-mask:radial-gradient(circle at 50% 50%,
-      rgba(0,0,0,0) 0 13px, #000 13.5px 21px, rgba(0,0,0,0) 21.5px);
-    mask:radial-gradient(circle at 50% 50%,
-      rgba(0,0,0,0) 0 13px, #000 13.5px 21px, rgba(0,0,0,0) 21.5px);
-  }
-  .mark .needle{
-    position:absolute; left:31px; top:16px;
-    width:2px; height:17px; border-radius:1px;
-    background:var(--ink);
-    transform-origin:50% 100%;
-    transform:rotate(40deg);
-  }
-  .mark .hub{
-    position:absolute; left:29px; top:29px;
-    width:6px; height:6px; border-radius:50%;
-    background:var(--ink);
+  .ill-brand .ill-tile img { display: block; width: 100%; height: 100%; }
+  .ill-wordmark {
+    font-size: 24px; line-height: 32px; font-weight: 600; letter-spacing: -0.01em;
+    color: var(--ui-text-primary);
   }
 
-  .names{padding-top:1px;}
-  .names h1{
-    margin:0;
-    font-size:56px; line-height:1; font-weight:600;
-    letter-spacing:-0.6px;
-    color:var(--ink);
-    white-space:nowrap;
-  }
-  .names .sub{
-    margin:11px 0 0;
-    font-size:24px; line-height:1.3; font-weight:400;
-    letter-spacing:-0.1px;
-    color:var(--ink-2);
-    white-space:nowrap;
+  .ill-caption {
+    position: absolute; z-index: 1;
+    left: 64px; bottom: 36px; width: 380px; margin: 0;
+    font-size: 22px; line-height: 32px; color: var(--ui-text-tertiary);
   }
 
-  /* ---- composer panel: 1408x132, radius 26, vertical centre 666 ---- */
-  .panel{
-    position:absolute;
-    left:96px; top:600px;
-    width:1408px; height:132px;
-    box-sizing:border-box;
-    border:2px solid var(--line);
-    border-radius:26px;
-    background:var(--panel);
-    padding:0 22px;
-    display:flex; align-items:center; justify-content:flex-end; gap:18px;
-    box-shadow:
-      0 28px 64px -24px rgba(92,75,221,.35),
-      inset 0 1px 0 0 var(--lit);
+  /* The subject: the chip and its open popover, built at the app's real sizes
+     and magnified 4.2x. transform-origin bottom-right keeps the chip's right
+     edge and its baseline where the layout put them. */
+  .ill-hero {
+    position: absolute; z-index: 2;
+    right: 48px; bottom: 28px; width: 256px;
+    transform: scale(4.2);
+    transform-origin: 100% 100%;
+  }
+  /* The bar segment the chip lives in, so the chip keeps its real `h-full`
+     context. Frame lighting: a hairline on top so the band reads as a surface
+     at thumbnail size (the app's footer has no border of its own). */
+  .ill-hero-bar {
+    border-top: 1px solid var(--ui-stroke-secondary);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ui-base) 10%, transparent);
+  }
+  /* Operator rule 0 28px 64px -24px at 35% — divided by the 4.2x scale so the
+     rendered shadow is exactly those values on the 1600x900 canvas.
+     `margin-bottom: 6px` is PopoverContent's sideOffset (6) at product scale, so
+     the panel floats the same distance above the chip's bar slice as it does in
+     the app. */
+  .ill-hero-pop {
+    /* The panel's own radius: rounded-lg in this build is
+       calc(var(--radius-scalar) * .75rem) = 2.4px (--radius-scalar: .2),
+       so the shadow's silhouette must use the same 2.4px, not 8px. */
+    border-radius: 2.4px;
+    margin-bottom: 6px;
+    box-shadow: 0 6.6667px 15.2381px -5.7143px color-mix(in srgb, var(--ui-accent) 35%, transparent);
   }
 
-  /* the left of the panel is deliberately empty: it is the conversation */
-
-  .ctl{
-    height:52px;
-    box-sizing:border-box;
-    border-radius:15px;
-    border:1px solid var(--line);
-    background:var(--hair-04);
-    display:flex; align-items:center; gap:12px;
-    padding:0 18px;
-    font-size:20px; line-height:1;
-    color:var(--ink);
-    flex:none;
-  }
-
-  .ctl .led{
-    width:10px; height:10px; border-radius:50%;
-    background:var(--accent);
-    box-shadow:0 0 0 4px var(--accent-16);
-    flex:none;
-  }
-
-  .meter{display:flex; align-items:flex-end; gap:3px; height:21px; flex:none;}
-  .meter i{display:block; width:4px; border-radius:2px; background:var(--muted-30);}
-  .meter i:nth-child(1){height:9px;}
-  .meter i:nth-child(2){height:13px;}
-  .meter i:nth-child(3){height:17px;}
-  .meter i:nth-child(4){height:21px;}
-  .meter i.on-1{background:var(--accent-64);}
-  .meter i.on-2{background:var(--accent-80);}
-  .meter i.on-3{background:var(--accent);}
-
-  .chev{
-    width:8px; height:8px; flex:none;
-    margin-left:2px; margin-top:-3px;
-    border-right:2px solid var(--ink-3);
-    border-bottom:2px solid var(--ink-3);
-    border-radius:1px;
-    transform:rotate(45deg);
-  }
-
-  .primary{
-    width:132px; height:52px;
-    box-sizing:border-box;
-    border-radius:15px;
-    background:var(--accent);
-    display:flex; align-items:center;
-    padding-left:22px;
-    flex:none;
-    box-shadow:0 12px 28px -14px rgba(92,75,221,.60);
-  }
-  .arrow{position:relative; width:22px; height:22px; flex:none;}
-  .arrow::before{           /* shaft */
-    content:"";
-    position:absolute; left:10px; top:4px;
-    width:2px; height:15px; border-radius:1px;
-    background:var(--ink);
-  }
-  .arrow::after{            /* head */
-    content:"";
-    position:absolute; left:5.5px; top:4px;
-    width:11px; height:11px;
-    border-top:2px solid var(--ink);
-    border-left:2px solid var(--ink);
-    border-radius:1px;
-    transform:rotate(45deg);
-  }
-
-  /* ---- caption, centred under the panel, baseline ~= 800 ---- */
-  .caption{
-    position:absolute; left:0; right:0; top:784px;
-    margin:0;                 /* a <p> default margin would shift an abs box */
-    text-align:center;
-    font-size:19px; line-height:1; font-weight:400;
-    letter-spacing:.1px;
-    color:var(--ink-3);
-    white-space:nowrap;
+  /* The real status bar, at real size, at the very bottom of the frame. */
+  .ill-bar {
+    position: absolute; z-index: 3;
+    left: 40px; right: 44px; bottom: 0; height: 20px;
   }
 </style>
 </head>
 <body>
-  <div class="aura"></div>
+  <div class="ill-aura ill-aura-a"></div>
+  <div class="ill-aura ill-aura-b"></div>
 
-  <div class="layer">
-    <header class="brand">
-      <div class="mark" aria-hidden="true">
-        <div class="dial"></div>
-        <div class="needle"></div>
-        <div class="hub"></div>
-      </div>
-      <div class="names">
-        <h1>Hermes Adaptive Effort</h1>
-        <p class="sub">one scorer chooses the effort, not the model</p>
-      </div>
-    </header>
+  <header class="ill-brand">
+    <span class="ill-tile"><img src="../icon.png" alt=""></span>
+    <span class="ill-wordmark">Hermes Adaptive Effort</span>
+  </header>
 
-    <section class="panel" aria-label="composer">
-      <div class="ctl mode">
-        <span class="led" aria-hidden="true"></span>
-        <span class="v">auto</span>
-      </div>
-      <div class="ctl effort">
-        <span class="meter" aria-hidden="true">
-          <i class="on-1"></i><i class="on-2"></i><i class="on-3"></i><i></i>
-        </span>
-        <span class="v">high</span>
-        <span class="chev" aria-hidden="true"></span>
-      </div>
-      <div class="primary" aria-hidden="true">
-        <span class="arrow"></span>
-      </div>
-    </section>
+  <p class="ill-caption">One chip in the status bar; one panel to set the mode.</p>
 
-    <p class="caption">four modes · auto, once, always, off</p>
+  <!-- Enlarged chip + open popover: the plugin's own markup (desktop/plugin.js
+       lines 1026-1230) inside the app's Popover primitives and utilities. -->
+  <div class="ill-hero">
+    <div class="ill-hero-pop">
+      <div data-slot="popover-content" role="dialog"
+           aria-label="Hermes Adaptive Effort"
+           class="z-50 rounded-lg outline-hidden border border-(--ui-stroke-secondary) bg-(--popover-surface) text-popover-foreground backdrop-blur-md [--popover-surface:color-mix(in_srgb,var(--ui-bg-elevated)_92%,transparent)] max-h-80 w-64 space-y-2 overflow-y-auto p-3">
+        <div class="space-y-3">
+          <section class="space-y-1.5">
+            <div class="flex items-center justify-between text-xs font-medium">
+              <span>This conversation</span>
+              <span class="text-(--ui-accent)">default</span>
+            </div>
+            <div class="flex flex-wrap gap-1">
+              <button type="button" class="rounded-md bg-(--ui-fill-secondary) px-2 py-1 text-[0.6875rem] text-(--ui-text-secondary)">auto</button>
+              <button type="button" class="rounded-md bg-(--ui-fill-secondary) px-2 py-1 text-[0.6875rem] text-(--ui-text-secondary)">once</button>
+              <button type="button" class="rounded-md bg-(--ui-fill-secondary) px-2 py-1 text-[0.6875rem] text-(--ui-text-secondary)">always</button>
+              <button type="button" disabled class="rounded-md bg-(--ui-accent) px-2 py-1 text-[0.6875rem] font-medium text-white">&#9679; Use default</button>
+            </div>
+          </section>
+          <section class="space-y-1">
+            <div class="text-[0.6875rem] text-(--ui-text-secondary)">med &#8594; high</div>
+            <div class="break-all text-[0.6875rem] text-(--ui-text-tertiary)">Route: opencode-go &#183; deepseek-v4.1-flash</div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <!-- The chip in a slice of the bar: same classes as the real one below. -->
+    <div class="ill-hero-bar flex h-5 items-stretch justify-end gap-2 bg-(--ui-sidebar-surface-background) px-1">
+      <button type="button" aria-haspopup="dialog" aria-expanded="true"
+              class="inline-flex h-full items-center gap-1 px-1.5 text-[0.6875rem] text-(--ui-accent)">
+        <i class="codicon codicon-zap text-[0.75rem]"></i>med &#8594; high
+      </button>
+    </div>
   </div>
+
+  <!-- The app's real status bar (src/app/shell/statusbar-controls.tsx:102). -->
+  <footer data-slot="statusbar"
+          class="ill-bar flex h-5 shrink-0 items-stretch justify-between gap-2 bg-(--ui-sidebar-surface-background) px-1 py-0 text-(--ui-text-tertiary)">
+    <div class="flex min-w-0 items-stretch gap-0.5 overflow-x-clip"></div>
+    <div class="flex min-w-0 items-stretch gap-0.5 overflow-x-clip">
+      <button type="button" aria-haspopup="dialog"
+              class="inline-flex h-full items-center gap-1 px-1.5 text-[0.6875rem] text-(--ui-accent)">
+        <i class="codicon codicon-zap text-[0.75rem]"></i>med &#8594; high
+      </button>
+    </div>
+  </footer>
 </body>
 </html>

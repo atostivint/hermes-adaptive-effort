@@ -1,0 +1,19 @@
+/* Utilities the plugin's popover markup asks for that the app's compiled bundle
+   does not carry. The bundle is compiled from the app's own sources, so a class
+   only a third-party plugin uses is absent unless the app happens to use it too.
+
+   Reported in the README:
+     - `space-y-1.5`      — absent; the rule below restores it with the bundle's
+                            own formula (index-C9U-kDt2.css `.space-y-2` /
+                            `.space-y-3`), value 1.5 instead of 2 / 3.
+     - `bg-(--ui-fill-secondary)` — absent, and `--ui-fill-secondary` is not
+                            defined by this app build (`:root` in the bundle nor
+                            `:root.dark` in src/styles.css). Nothing is invented
+                            to replace it: the inactive mode buttons stay
+                            unfilled, exactly as this build renders them.
+     - `text-(--ui-warning)` — absent, unused in this composition. */
+:where(.space-y-1\.5 > :not(:last-child)) {
+  --tw-space-y-reverse: 0;
+  margin-block-start: calc(calc(var(--spacing) * 1.5) * var(--tw-space-y-reverse));
+  margin-block-end: calc(calc(var(--spacing) * 1.5) * calc(1 - var(--tw-space-y-reverse)));
+}

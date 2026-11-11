@@ -1,0 +1,52 @@
+/* Dark side of the app's default theme ("nous"), applied the way
+   `applyTheme()` does it (apps/desktop/src/themes/context.tsx): it writes these
+   custom properties inline on <html>, and toggles `class="dark"` when the
+   rendered palette is dark. Here they are a stylesheet on :root.dark, so
+   <html class="dark"> resolves the same variables in the same order.
+
+   Values are the `nous.darkColors` record of the preset table as compiled into
+   apps/desktop/dist/assets/i18n-ClA-B5fN.js (background #0d1117, foreground
+   #e6edf3, card #010409, popover #161b22, midground #4a84fe, ...).
+
+   The `--theme-mix-*` / `--theme-neutral-*` knobs are NOT repeated here: the
+   vendored app bundle already ships them in its own `.dark` rule, which
+   matches <html class="dark">.
+
+   Provenance: hermes-agent @ ecf9655b5a (apps/desktop). Read-only source of
+   truth; this file only restates values the app computes at runtime. */
+:root.dark {
+  /* Seeds — applyTheme() `seeds` record. */
+  --theme-foreground: #e6edf3;
+  --theme-primary: #4a84fe;
+  --theme-secondary: #1d2e4f;
+  --theme-accent-soft: #17243a;
+  --theme-midground: #4a84fe;
+  --theme-warm: #4a84fe;
+  --theme-background-seed: #0d1117;
+  --theme-sidebar-seed: #010409;
+  --theme-card-seed: #010409;
+  --theme-elevated-seed: #161b22;
+  --theme-bubble-seed: #07162c;
+
+  /* shadcn tokens that are not derived from the seed chain — applyTheme()
+     `palette` record. */
+  --dt-primary-foreground: #161616;
+  --dt-secondary-foreground: #e6edf3;
+  --dt-accent-foreground: #e6edf3;
+  --dt-border: #30363d;
+  --dt-input: #0d1117;
+  --dt-ring: #4a84fe;
+  --dt-muted: #1a1e24;
+  --dt-midground-foreground: #161616;
+  --dt-sidebar-border: #30363d;
+  --dt-user-bubble-border: #30363d;
+  --dt-destructive: #f85149;
+  --dt-destructive-foreground: #ffffff;
+  --dt-font-sans: 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
+  --dt-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* The app paints a per-mode grain overlay through this multiplier. The
+     illustration brief forbids grain, so the overlay is switched off here
+     rather than removed from the bundle. */
+  --noise-opacity-mul: 0;
+}
