@@ -43,7 +43,7 @@ CHOICE_LEVELS = ("minimal", "low", "medium", "high", "xhigh", "max")
 #: ``allow_none``) put it in the offered list; it is never a score-derived label.
 CHOICE_LEVELS_WITH_NONE = ("none",) + CHOICE_LEVELS
 _CHOICE_DESCRIPTIONS = {
-    "none": "No reasoning is needed: only when the task is purely mechanical and the user explicitly wants the cheapest fastest reply.",
+    "none": "Reserved for a turn that needs no reasoning at all.",
     "minimal": "The lowest available effort. Use only when the task is exceptionally simple and the user clearly prioritizes minimal cost or latency.",
     "low": "For short, scoped tasks with an obvious answer or one straightforward step.",
     "medium": "For a well-defined task with several steps and some judgment; a balanced level.",

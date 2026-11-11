@@ -542,7 +542,7 @@ def _distribution_lines(payload: Dict[str, Any], entry: Dict[str, Any],
 
     routes = ([r for r in routes if route_key(r) == own]
               + [r for r in reversed(routes) if route_key(r) != own])
-    levels = _middleware._rubric.CHOICE_LEVELS
+    levels = _middleware._effort.EFFORT_ORDER
     def level_order(name):
         return (levels.index(name) if name in levels else len(levels), name)
 

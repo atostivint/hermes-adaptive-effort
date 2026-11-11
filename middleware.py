@@ -1479,8 +1479,8 @@ CONTINUATION_MAX_VOTES = 5
 ESCALATION_REASON = "repeated_tool_error"
 GOAL_ESCALATION_REASON = "goal_continuation"
 _ESCALATION_SEEN_LIMIT = 64
-_LEVEL_RANK = {level: index for index, level in enumerate(_rubric.CHOICE_LEVELS)}
-#: Rank that includes ``none`` below ``minimal``; used only for the ceiling comparison.
+#: The one effort order: ``none`` below ``minimal`` when the route offers it. Every comparison
+#: of two effort levels uses this table, so a decision at ``none`` ranks like any other level.
 _EFFORT_RANK = {level: index for index, level in enumerate(_effort.EFFORT_ORDER)}
 
 
@@ -1580,8 +1580,8 @@ def _hysteresis(route_key: str, session_id: str, label: str, continuation: Optio
             del _CONTINUITY[other]
         applied, held, streak = label, False, 0
         previous = prior.get("label") if prior else None
-        if continuation is True and previous in _LEVEL_RANK and label in _LEVEL_RANK:
-            if _LEVEL_RANK[label] < _LEVEL_RANK[previous]:
+        if continuation is True and previous in _EFFORT_RANK and label in _EFFORT_RANK:
+            if _EFFORT_RANK[label] < _EFFORT_RANK[previous]:
                 streak = int(prior.get("streak") or 0) + 1
                 if streak < votes:
                     applied, held = previous, True
@@ -1603,14 +1603,14 @@ def _remember_escalation(route_key: str, session_id: str, target: str) -> None:
     the pre-escalation label. A new, unrelated turn still starts from the scorer's decision.
     Only an existing record is touched, so hysteresis remains the gate; values only are kept.
     """
-    if target not in _LEVEL_RANK:
+    if target not in _EFFORT_RANK:
         return
     with _lock:
         record = _CONTINUITY.get(route_key)
         if not record or record.get("session_id") != session_id:
             return
         previous = record.get("label")
-        if previous in _LEVEL_RANK and _LEVEL_RANK[target] < _LEVEL_RANK[previous]:
+        if previous in _EFFORT_RANK and _EFFORT_RANK[target] < _EFFORT_RANK[previous]:
             return
         record["label"] = target
         record["streak"] = 0
@@ -2435,7 +2435,7 @@ def _cap_to_ceiling(raised: str, target: str, choices: Any, ceiling: Optional[st
 
 
 def _level_rank(value: Any) -> int:
-    return _LEVEL_RANK.get(value, -1) if isinstance(value, str) else -1
+    return _EFFORT_RANK.get(value, -1) if isinstance(value, str) else -1
 
 
 def _previous_applied_target(session_id: str, route: Tuple[str, str, str],
@@ -2456,7 +2456,7 @@ def _previous_applied_target(session_id: str, route: Tuple[str, str, str],
                 continue
             if prior.get("state") == "decided":
                 applied = prior.get("_applied_target") or prior.get("target")
-                if applied in _LEVEL_RANK:
+                if applied in _EFFORT_RANK:
                     return applied
     return None
 
