@@ -351,6 +351,6 @@ These limits describe the plugin. They do not guarantee how an external service 
 
 - OpenRouter requests ask for ZDR endpoints and deny data-collecting endpoints (`provider` preferences; documented in the Decisions request schema). OpenRouter still processes the input; see its [ZDR policy and routing controls](https://openrouter.ai/docs/guides/features/zdr).
 - OpenAI documents Decisions ZDR support for eligible customers. The plugin cannot verify account eligibility; see the [Decisions guide](https://developers.openai.com/api/docs/guides/decisions).
-- The plugin gives no ZDR guarantee for Jev, Cloudflare, Nace or custom endpoints.
+- The plugin gives no ZDR guarantee for Jev, Cloudflare, Nace or custom endpoints. With `scorer_provider: ollama`, task text stays on this machine only when `ollama_endpoint` is local; the plugin cannot vouch for a remote URL an operator types.
 
 No provider falls back to another scorer. Missing configuration, transport errors, timeouts or malformed scores leave requests unchanged and appear in status. See [troubleshooting](USAGE.md#troubleshooting).

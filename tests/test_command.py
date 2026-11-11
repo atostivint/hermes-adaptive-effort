@@ -154,6 +154,23 @@ def test_openai_decisions_status_reports_default_model_fixed_endpoint_and_creden
     assert "configured: https://api.typesafe.ai" not in rendered
 
 
+def test_ollama_status_reports_the_local_chat_endpoint_not_the_jev_base(monkeypatch):
+    configured = {"scorer_provider": "ollama", "ollama_model": "llama3.2:3b"}
+    monkeypatch.setattr(middleware, "_settings_provider",
+                        lambda key, default=None: configured.get(key, default))
+
+    payload = json.loads(command.handle("status json"))
+    rendered = command.handle("status full")
+    endpoint = "http://localhost:11434/v1/chat/completions"
+    assert payload["settings"]["scorer_provider"] == "ollama"
+    assert payload["settings"]["scorer_model_effective"] == "llama3.2:3b"
+    assert payload["settings"]["endpoint_effective"] == endpoint
+    assert payload["credential_required"] is False
+    assert payload["credential"] is True
+    assert f"Endpoint: {endpoint} (configured: http://localhost:11434)" in rendered
+    assert "configured: https://api.typesafe.ai" not in rendered
+
+
 def test_custom_scorer_status_redacts_endpoint_query_values(monkeypatch):
     configured = {
         "scorer_provider": "custom",

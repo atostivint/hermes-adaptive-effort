@@ -68,7 +68,7 @@ def valid_endpoint(value: Any) -> bool:
         return False
     try:
         parts = urllib.parse.urlsplit(text)
-        parts.port  # raises ValueError on a malformed or out-of-range port
+        _port = parts.port  # raises ValueError on a malformed or out-of-range port
     except ValueError:
         return False
     return parts.scheme in ("http", "https") and bool(parts.hostname)
@@ -84,7 +84,7 @@ def answer_key(choices: Optional[Sequence[str]] = None) -> Tuple[Dict[str, Any],
     """``(allowed answer token -> value, kind)`` for a named-choice or numeric-score call."""
     levels = rubric.normalize_effort_choices(choices)
     if levels:
-        return dict(zip(CHOICE_LETTERS, levels)), "choice"
+        return dict(zip(CHOICE_LETTERS, levels, strict=False)), "choice"
     return {"0": 0.0, "1": 1.0, "2": 2.0}, "score"
 
 
@@ -93,7 +93,8 @@ def _answer_instructions(choices: Optional[Sequence[str]]) -> str:
     levels = rubric.normalize_effort_choices(choices)
     if levels:
         mapping = ", ".join(
-            f"{letter} = {level}" for letter, level in zip(CHOICE_LETTERS, levels))
+            f"{letter} = {level}"
+            for letter, level in zip(CHOICE_LETTERS, levels, strict=False))
         return f"Answer with exactly one letter and nothing else: {mapping}."
     return "Answer with exactly one digit and nothing else: 0 = low, 1 = medium, 2 = high."
 
@@ -110,7 +111,7 @@ def build_messages(prompt: str, classification_instructions: Any = None,
         labels = ("low", "medium", "high")
         digits = ("0", "1", "2")
         lines = [f"- {digit} ({label}): {text}"
-                 for digit, label, text in zip(digits, labels, criteria)]
+                 for digit, label, text in zip(digits, labels, criteria, strict=False)]
     system = "\n".join([
         str(question["instructions"]),
         "",

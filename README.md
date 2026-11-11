@@ -4,7 +4,7 @@
 
 A Hermes plugin that asks a separate scorer to judge a task, then adjusts the reasoning effort of the outgoing model request.
 
-Your conversation model still answers the task. You choose the scorer: Jev (the default), OpenAI Decisions, an OpenRouter decision model (Decisions API), Cloudflare Clef / Clef Flash / Clef Omni, Nace Drex (`drex-v2.0`, key `NACE_API_KEY`), or a custom System One endpoint.
+Your conversation model still answers the task. You choose the scorer: Jev (the default), OpenAI Decisions, an OpenRouter decision model (Decisions API), Cloudflare Clef / Clef Flash / Clef Omni, Nace Drex (`drex-v2.0`, key `NACE_API_KEY`), a local Ollama model (no key), or a custom System One endpoint.
 
 > **Preview:** v0.3.0 is a pre-release. Live effort acceptance is only partially validated; see the [release notes](docs/releases/v0.3.0.md#validation-status--read-before-relying-on-it).
 
@@ -37,6 +37,7 @@ Any one scorer is enough; Jev is only the default. Pick one:
 | OpenRouter Decisions | `openrouter` | `OPENROUTER_API_KEY` | A decision model in `scorer_model` |
 | Cloudflare Clef | `cloudflare` | `CLOUDFLARE_AUTH_TOKEN` | Your 32-hex `cloudflare_account_id` |
 | Nace Drex | `nace` | `NACE_API_KEY` | Nothing (`drex-v2.0` by default) |
+| Ollama (local) | `ollama` | No key | `ollama_model` |
 | Custom / local System One server | `custom` | none, or `CUSTOM_SCORER_API_KEY` | `custom_endpoint` and `scorer_model` |
 
 Put the key in the `.env` file of the Hermes profile that serves your requests (`~/.hermes/.env` on Linux/macOS, `%LOCALAPPDATA%\hermes\.env` on Windows for the default profile), for example:
@@ -108,6 +109,22 @@ settings:
   scorer_provider: nace
   nace_model: drex-v2.0
 ```
+
+</details>
+
+<details>
+<summary><b>Ollama (local model)</b></summary>
+
+No key and no account. Point the plugin at your own Ollama server and name a model you already pulled:
+
+```yaml
+settings:
+  scorer_provider: ollama
+  ollama_endpoint: "http://localhost:11434"   # default
+  ollama_model: "llama3.2:3b"
+```
+
+The plugin posts to `<ollama_endpoint>/v1/chat/completions`, asks for one token with `logprobs`, and reads the allowed letter or digit from `top_logprobs`; an answer outside that set fails open. Use a non-thinking model: only one token is requested, so a thinking model can spend it on reasoning and the answer is rejected. Only a local endpoint keeps task text on your machine. See the [configuration guide](docs/CONFIGURATION.md#ollama-local-model).
 
 </details>
 
