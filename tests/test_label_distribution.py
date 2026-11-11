@@ -28,6 +28,11 @@ class Scorer:
         self.calls += 1
         return self.outcomes.pop(0) if len(self.outcomes) > 1 else self.outcomes[0]
 
+    def classify_effort_detail(self, prompt, choices):
+        score, failure = self.classify_detail(prompt)
+        label = middleware._effort.score_to_label(score) if score is not None else None
+        return (label if label in choices else None), failure
+
 
 def configure(monkeypatch, scorer, **overrides):
     values = {"mode": "always", "subagent_mode": "always"}

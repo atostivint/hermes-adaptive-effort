@@ -37,6 +37,11 @@ class Scorer:
         outcome = self.outcomes.pop(0) if len(self.outcomes) > 1 else self.outcomes[0]
         return outcome
 
+    def classify_effort_detail(self, prompt, choices):
+        score, failure = self.classify_detail(prompt)
+        label = middleware._effort.score_to_label(score) if score is not None else None
+        return (label if label in choices else None), failure
+
 
 FAIL = (None, "timeout")
 OK = (1.9, None)
