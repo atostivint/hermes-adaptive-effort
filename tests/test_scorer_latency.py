@@ -40,6 +40,11 @@ class Scorer:
         self.clock.now += self.duration_ms / 1000.0
         return self.outcome
 
+    def classify_effort_detail(self, prompt, choices):
+        score, failure = self.classify_detail(prompt)
+        label = middleware._effort.score_to_label(score) if score is not None else None
+        return (label if label in choices else None), failure
+
 
 @pytest.fixture
 def clock(monkeypatch):
