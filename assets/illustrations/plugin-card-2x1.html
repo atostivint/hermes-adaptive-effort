@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<title>Hermes Adaptive Effort — 2:1 catalog card</title>
+<!-- The app's own compiled CSS (verbatim) + the dark side of its default theme.
+     Provenance in README.md; nothing here is hand-transcribed except the frame
+     below, whose classes are prefixed `ill-` so they cannot collide with the
+     app's own utilities and component classes. -->
+<link rel="stylesheet" href="vendor/hermes-desktop-index-C9U-kDt2.css">
+<link rel="stylesheet" href="vendor/hermes-theme-nous-dark.css">
+<link rel="stylesheet" href="vendor/plugin-fallbacks.css">
+<style>
+  /* Frame only: canvas, the two-column grid, the 3.8x magnification of the
+     chip + popover, the two aura gradients and the coloured shadow. No
+     component styling.
+
+     Grid (1600 x 800 CSS):
+       content band   y 0 .. 780          (the real status bar owns 780 .. 800,
+                                           edge to edge, flush with the canvas)
+       brand column   x  64 .. 467.2      403.2 wide
+       gutter         x 467.2 .. 563.2    96
+       hero block     x 563.2 .. 1536     972.8 wide = 256 x 3.8
+       margins        64 left, 64 right, 64 above the bar
+     Both blocks are centred on the same axis, y = 390, so the top margin and
+     the margin above the bar are equal and neither block hangs in a corner. */
+  :root {
+    --ill-s: 3.8;                    /* magnification of the real chip + popover */
+    --ill-margin: 64px;              /* outer margin, left and right */
+    --ill-gutter: 96px;              /* gap between the two columns */
+    --ill-bar: 20px;                 /* the real status bar, product size */
+    --ill-panel: 256px;              /* the popover's real width (w-64) */
+    --ill-brand: 403.2px;            /* = 1600 - 64 - 96 - 256 * 3.8 - 64 */
+  }
+  html, body {
+    width: 1600px;
+    height: 800px;
+    overflow: hidden;
+  }
+  body {
+    background: var(--ui-bg-chrome);
+    color: var(--ui-text-primary);
+    font-family: var(--dt-font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Aura: two radial gradients from the accent token, transparent at 72%,
+     extents short enough that no viewport corner receives any paint. */
+  .ill-aura { position: absolute; z-index: 0; pointer-events: none; }
+  .ill-aura-a {
+    left: 589px; top: 90px; width: 920px; height: 600px;
+    background: radial-gradient(ellipse 460px 300px at 50% 50%,
+      color-mix(in srgb, var(--ui-accent) 24%, transparent) 0%,
+      color-mix(in srgb, var(--ui-accent) 0%, transparent) 72%);
+  }
+  .ill-aura-b {
+    left: -71px; top: 68px; width: 460px; height: 460px;
+    background: radial-gradient(ellipse 230px 230px at 50% 50%,
+      color-mix(in srgb, var(--ui-accent) 12%, transparent) 0%,
+      color-mix(in srgb, var(--ui-accent) 0%, transparent) 72%);
+  }
+
+  /* Left column: the plugin's own icon.png ("gauge") in a tile, the wordmark,
+     the one-line subtitle. Same left edge, one vertical rhythm. */
+  .ill-brand {
+    position: absolute; z-index: 1;
+    left: var(--ill-margin); top: 0; bottom: var(--ill-bar);
+    width: var(--ill-brand);
+    display: flex; flex-direction: column; justify-content: center;
+    align-items: flex-start;
+  }
+  .ill-brand .ill-tile {
+    width: 190px; height: 190px; box-sizing: border-box;
+    margin-bottom: 26px;
+    border-radius: 48px; overflow: hidden;
+    border: 1px solid var(--ui-stroke-secondary);
+    background: var(--ui-bg-elevated);
+  }
+  .ill-brand .ill-tile img { display: block; width: 100%; height: 100%; }
+  .ill-wordmark {
+    font-size: 46px; line-height: 56px; font-weight: 600; letter-spacing: -0.02em;
+    color: var(--ui-text-primary);
+  }
+  .ill-sub {
+    margin: 18px 0 0;
+    font-size: 20px; line-height: 28px; color: var(--ui-text-tertiary);
+  }
+
+  /* The subject: the chip and its open popover, built at the app's real sizes
+     and magnified. The wrapper spans the whole content band and right-aligns
+     the scaled block, so the right margin is 64px and the block is centred on
+     y = 390 without hard-coding the panel's own content height. */
+  .ill-hero {
+    position: absolute; z-index: 2;
+    left: var(--ill-margin); right: var(--ill-margin);
+    top: 0; bottom: var(--ill-bar);
+    display: flex; align-items: center; justify-content: flex-end;
+  }
+  .ill-hero-scaled {
+    width: var(--ill-panel);
+    transform: scale(var(--ill-s));
+    transform-origin: 100% 50%;
+  }
+  /* The bar segment the chip lives in, so the chip keeps its real `h-full`
+     context. Frame lighting: a hairline on top so the band reads as a surface
+     at thumbnail size (the app's footer has no border of its own). */
+  .ill-hero-bar {
+    border-top: 1px solid var(--ui-stroke-secondary);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ui-base) 10%, transparent);
+  }
+  /* Operator rule 0 28px 64px -24px at 35% — divided by the magnification so
+     the rendered shadow is exactly those values on the 1600x800 canvas.
+     `margin-bottom: 6px` is PopoverContent's sideOffset (6) at product scale. */
+  .ill-hero-pop {
+    /* rounded-lg in this build is calc(var(--radius-scalar) * .75rem) = 2.4px. */
+    border-radius: 2.4px;
+    margin-bottom: 6px;
+    box-shadow: 0 7.3684px 16.8421px -6.3158px color-mix(in srgb, var(--ui-accent) 35%, transparent);
+  }
+
+  /* The real status bar, at real size: edge to edge, flush with the bottom of
+     the canvas, its top hairline visible, so it reads as the app's own chrome
+     and not as a floating rectangle. It is therefore the one frame element that
+     touches the canvas edge: the two bottom corner pixels are the bar's own
+     fill, not --ui-bg-chrome (the top corners stay exact background). */
+  .ill-bar {
+    position: absolute; z-index: 3;
+    left: 0; right: 0; bottom: 0;
+    height: var(--ill-bar);
+    border-top: 1px solid var(--ui-stroke-secondary);
+  }
+</style>
+</head>
+<body>
+  <div class="ill-aura ill-aura-a"></div>
+  <div class="ill-aura ill-aura-b"></div>
+
+  <header class="ill-brand">
+    <span class="ill-tile"><img src="../icon.png" alt=""></span>
+    <span class="ill-wordmark">Hermes<br>Adaptive Effort</span>
+    <p class="ill-sub">One chip; one panel to set the mode.</p>
+  </header>
+
+  <!-- Enlarged chip + open popover: the plugin's own markup (desktop/plugin.js
+       lines 1026-1230) inside the app's Popover primitives and utilities. -->
+  <div class="ill-hero">
+    <div class="ill-hero-scaled">
+      <div class="ill-hero-pop">
+        <div data-slot="popover-content" role="dialog"
+             aria-label="Hermes Adaptive Effort"
+             class="z-50 rounded-lg outline-hidden border border-(--ui-stroke-secondary) bg-(--popover-surface) text-popover-foreground backdrop-blur-md [--popover-surface:color-mix(in_srgb,var(--ui-bg-elevated)_92%,transparent)] max-h-80 w-64 space-y-2 overflow-y-auto p-3">
+          <div class="space-y-3">
+            <section class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-medium">
+                <span>This conversation</span>
+                <span class="text-(--ui-accent)">default</span>
+              </div>
+              <div class="flex flex-wrap gap-1">
+                <button type="button" class="rounded-md bg-(--ui-fill-secondary) px-2 py-1 text-[0.6875rem] text-(--ui-text-secondary)">auto</button>
+                <button type="button" class="rounded-md bg-(--ui-fill-secondary) px-2 py-1 text-[0.6875rem] text-(--ui-text-secondary)">once</button>
+                <button type="button" class="rounded-md bg-(--ui-fill-secondary) px-2 py-1 text-[0.6875rem] text-(--ui-text-secondary)">always</button>
+                <button type="button" disabled class="rounded-md bg-(--ui-accent) px-2 py-1 text-[0.6875rem] font-medium text-white">&#9679; Use default</button>
+              </div>
+            </section>
+            <section class="space-y-1">
+              <div class="text-[0.6875rem] text-(--ui-text-secondary)">med &#8594; high</div>
+              <div class="break-all text-[0.6875rem] text-(--ui-text-tertiary)">Route: opencode-go &#183; deepseek-v4.1-flash</div>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <!-- The chip in a slice of the bar: same classes as the real one below. -->
+      <div class="ill-hero-bar flex h-5 items-stretch justify-end gap-2 bg-(--ui-sidebar-surface-background) px-1">
+        <button type="button" aria-haspopup="dialog" aria-expanded="true"
+                class="inline-flex h-full items-center gap-1 px-1.5 text-[0.6875rem] text-(--ui-accent)">
+          <i class="codicon codicon-zap text-[0.75rem]"></i>med &#8594; high
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- The app's real status bar (src/app/shell/statusbar-controls.tsx:102). -->
+  <footer data-slot="statusbar"
+          class="ill-bar flex h-5 shrink-0 items-stretch justify-between gap-2 bg-(--ui-sidebar-surface-background) px-1 py-0 text-(--ui-text-tertiary)">
+    <div class="flex min-w-0 items-stretch gap-0.5 overflow-x-clip"></div>
+    <div class="flex min-w-0 items-stretch gap-0.5 overflow-x-clip">
+      <button type="button" aria-haspopup="dialog"
+              class="inline-flex h-full items-center gap-1 px-1.5 text-[0.6875rem] text-(--ui-accent)">
+        <i class="codicon codicon-zap text-[0.75rem]"></i>med &#8594; high
+      </button>
+    </div>
+  </footer>
+</body>
+</html>
