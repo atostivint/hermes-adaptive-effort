@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - OpenCode Go `chat_completions` routes no longer change effort every turn: `auto` and `always` keep one decision per route there, as a precaution while the cause of an observed prefix replay stays unresolved. In our 40+ call probe on a ~2 KB prefix, `low` vs `medium` did not partition the cache (a never-used level hit, constant effort hit 7 of 7, session affinity is real, `max_tokens`/`temperature` alone still hit); a public upstream report measured `none` vs `max` partitioning on a compaction-sized prefix with a byte-identical replay, so the effect is value- or size-dependent. Named vocabularies, writable fields and injection are unchanged, the OpenCode Go `codex_responses` routes stay dynamic, and tool-error escalation no longer applies to those Chat routes because it is scoped to dynamic routes.
 
+### Fixed
+
+- A route-trial cache loss is only counted when the baseline read comes from the request that immediately preceded the change on the same route and in the same session. A miss after a change is no longer read as `observed_cache_loss` when another conversation answered in between, or when the previous request had itself missed; the 2026-11-14 probe showed that changing only `x-opencode-session`, with a byte-identical body and the same effort, loses the prefix once, so such a miss cannot be attributed to the plugin's rewrite. Contiguous misses, kept changes, `no_cache_data` and `rejected_level` are unchanged.
+
 ## [0.5.0] - 2026-11-11
 
 ### Changed

@@ -141,6 +141,64 @@ def test_a_clear_cache_loss_after_one_change_pins_the_route(harness, monkeypatch
     assert harness.entry()["dynamic"] is False
 
 
+def test_a_contiguous_miss_after_a_change_still_pins(harness, monkeypatch):
+    """The rule that must survive: the immediately preceding request is this session's."""
+    harness.use(monkeypatch, ScoreSequence(MEDIUM, MEDIUM, MEDIUM, HIGH))
+    harness.baseline()
+    assert effort_of(harness.send()) == "high"
+    harness.respond(read=20, write=1500)
+    assert harness.status() == {"dynamic": False, "dynamic_reason": "observed_cache_loss",
+                                "trial_progress": None}
+
+
+def test_a_miss_after_a_change_from_another_session_is_not_a_loss(harness, monkeypatch):
+    """A request from another conversation answered in between: nothing is concluded."""
+    harness.use(monkeypatch, ScoreSequence(MEDIUM, MEDIUM, MEDIUM, MEDIUM, HIGH))
+    harness.baseline()
+    harness.send(session="OTHER-SESSION")
+    harness.respond(read=2048)
+    assert effort_of(harness.send()) == "high"
+    harness.respond(read=0, write=2048)
+    assert harness.status() == {"dynamic": True, "dynamic_reason": "trial",
+                                "trial_progress": 0}
+
+
+def test_a_control_several_requests_earlier_does_not_authorize_a_loss(harness, monkeypatch):
+    """Two foreign requests sit between the control and the change; neither licenses a pin."""
+    harness.use(monkeypatch, ScoreSequence(MEDIUM, MEDIUM, MEDIUM, MEDIUM, MEDIUM, HIGH))
+    harness.baseline()
+    for read in (2048, 0):
+        harness.send(session="OTHER-SESSION")
+        harness.respond(read=read)
+    assert effort_of(harness.send()) == "high"
+    harness.respond(read=0, write=2048)
+    assert harness.status() == {"dynamic": True, "dynamic_reason": "trial",
+                                "trial_progress": 0}
+
+
+def test_a_miss_after_a_change_when_the_previous_request_already_missed(harness, monkeypatch):
+    """A miss cannot be compared against a previous miss, so it is not a loss."""
+    harness.use(monkeypatch, ScoreSequence(MEDIUM, MEDIUM, MEDIUM, MEDIUM, HIGH))
+    harness.baseline()
+    harness.send()
+    harness.respond(read=0)
+    assert effort_of(harness.send()) == "high"
+    harness.respond(read=0, write=2048)
+    assert harness.status() == {"dynamic": True, "dynamic_reason": "trial",
+                                "trial_progress": 0}
+
+
+def test_the_kept_path_still_reaches_observed(harness, monkeypatch):
+    """Contiguity does not change the success path: three contiguous kept changes."""
+    harness.use(monkeypatch, ScoreSequence(MEDIUM, MEDIUM, MEDIUM, HIGH, LOW, HIGH))
+    harness.baseline()
+    for kept in (1000, 1200, 1400):
+        harness.send()
+        harness.respond(read=kept)
+    assert harness.status() == {"dynamic": True, "dynamic_reason": "observed",
+                                "trial_progress": None}
+
+
 def test_loss_without_a_working_baseline_is_inconclusive(harness, monkeypatch):
     harness.use(monkeypatch, ScoreSequence(MEDIUM, HIGH, LOW))
     harness.send()
