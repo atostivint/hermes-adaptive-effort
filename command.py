@@ -425,6 +425,7 @@ def _conversation_mode_line(payload: Dict[str, Any]) -> str:
 
 _DYNAMIC_REASON_TEXT = {
     "listed": "listed",
+    "operator": "operator-listed",
     "observed": "observed",
     "observed_cache_loss": "observed cache loss",
     "rejected_level": "provider rejected a trial level",

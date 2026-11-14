@@ -271,6 +271,16 @@ def test_status_json_exposes_exact_conversation_identity_for_turn_entries(monkey
     middleware.reset_state()
 
 
+def test_effort_changes_line_names_an_operator_forced_route():
+    """``operator`` is an additive reason code: the route is dynamic because it was listed."""
+    line = command._effort_changes_line(dict(state="decided", dynamic=True,
+                                             dynamic_reason="operator"))
+    assert line == "Effort changes: every turn — dynamic (operator-listed)"
+    assert command._effort_changes_line(
+        dict(state="decided", dynamic=False, dynamic_reason="trial_disabled")
+    ) == "Effort changes: once, then kept — not dynamic (trial off)"
+
+
 def test_status_json_reports_failure_reason_for_a_failed_session():
     middleware.reset_state()
     middleware._remember("s2", {

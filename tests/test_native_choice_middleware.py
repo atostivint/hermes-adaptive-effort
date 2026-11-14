@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import json
 
+import pytest
+
 from conftest import import_plugin
 
 middleware = import_plugin("middleware")
@@ -196,6 +198,100 @@ def test_go_chat_route_keeps_its_named_choices_while_pinned_non_dynamic(monkeypa
     entry = middleware.session_state()[f"{SESSION}/turn-1"]
     assert (entry["dynamic"], entry["dynamic_reason"]) == (False, "trial_disabled")
     assert tuple(entry["choices"]) == ("low", "medium", "high")
+
+
+# ── operator opt-in on pinned routes (``adaptive_effort_routes``) ───────────
+
+GO_CHAT_BODY = {"model": "mimo-v2.6-flash", "reasoning_effort": "medium",
+                "messages": [{"role": "user", "content": "task"}]}
+
+
+def adaptive_call(turn_id):
+    return request_for("opencode-go", "mimo-v2.6-flash", "chat_completions",
+                       dict(GO_CHAT_BODY), turn_id=turn_id)
+
+
+def test_adaptive_routes_default_keeps_a_pinned_route_pinned(monkeypatch):
+    scorer = ChoiceScorer("low", "high")
+    configure(monkeypatch, scorer, mode="auto")
+
+    adaptive_call("turn-1")
+    adaptive_call("turn-2")
+
+    assert len(scorer.calls) == 1  # one decision per route: the pin still holds
+    entry = middleware.session_state()[f"{SESSION}/turn-2"]
+    assert (entry["dynamic"], entry["dynamic_reason"]) == (False, "trial_disabled")
+
+
+def test_a_listed_route_becomes_dynamic_with_the_operator_reason(monkeypatch):
+    scorer = ChoiceScorer("low", "high")
+    configure(monkeypatch, scorer, mode="auto",
+              adaptive_effort_routes="opencode-go/mimo-v2.6-flash")
+
+    first = adaptive_call("turn-1")
+    second = adaptive_call("turn-2")
+
+    assert first["request"]["reasoning_effort"] == "low"
+    assert second["request"]["reasoning_effort"] == "high"  # per turn again
+    assert len(scorer.calls) == 2
+    assert scorer.calls[0][1] == ("low", "medium", "high")  # same vocabulary
+    entry = middleware.session_state()[f"{SESSION}/turn-2"]
+    assert (entry["dynamic"], entry["dynamic_reason"]) == (True, "operator")
+    assert entry["trial_progress"] is None
+
+
+@pytest.mark.parametrize("setting", [
+    "",
+    "   ",
+    ",,,",
+    "no-slash-here",
+    "opencode-go/",
+    "/mimo-v2.6-flash",
+    "openrouter/mimo-v2.6-flash",
+    "opencode-go/mimo-v2.6-flash-typo",
+    "opencode-zen/mimo-v2.6-flash",
+])
+def test_malformed_or_unregistered_entries_change_nothing(monkeypatch, setting):
+    scorer = ChoiceScorer("low", "high")
+    configure(monkeypatch, scorer, mode="auto", adaptive_effort_routes=setting)
+
+    first = adaptive_call("turn-1")
+    second = adaptive_call("turn-2")
+
+    assert first["request"]["reasoning_effort"] == "low"
+    assert second["request"]["reasoning_effort"] == "low"
+    assert len(scorer.calls) == 1
+    entry = middleware.session_state()[f"{SESSION}/turn-2"]
+    assert (entry["dynamic"], entry["dynamic_reason"]) == (False, "trial_disabled")
+
+
+def test_listing_an_anthropic_route_never_makes_it_dynamic():
+    listed = {"adaptive_effort_routes": "anthropic/claude-fable-5-1"}
+    assert middleware._dynamic_effort_route(
+        "anthropic", "claude-fable-5-1", "anthropic_messages", settings=listed) is False
+    assert middleware._dynamic_info(
+        listed, "anthropic", "claude-fable-5-1", "anthropic_messages", request=None,
+        base_url="https://api.anthropic.com", has_effort_field=True)["dynamic_reason"] == "api_mode"
+    # A cache-safe route the operator names is dynamic; the list is not a wildcard.
+    assert middleware._dynamic_effort_route(
+        "opencode-go", "mimo-v2.6-flash", "chat_completions", settings=listed) is False
+
+
+def test_the_operator_list_never_authorizes_an_injection(monkeypatch):
+    """Dynamic status only: the DirectSDK route stays dynamic but never gets a new field."""
+    listed = ("claude-subscription-directsdk-experimental", "claude-opus-5-5[1m]", "chat_completions")
+    settings = {"adaptive_effort_routes": "claude-subscription-directsdk-experimental/"
+                                         "claude-opus-5-5[1m]"}
+    assert middleware._dynamic_effort_route(*listed, settings=settings) is True
+    scorer = ChoiceScorer("high")
+    configure(monkeypatch, scorer, mode="always", **settings)
+    body = {"model": "claude-opus-5-5[1m]", "messages": [{"role": "user", "content": "task"}]}
+
+    result = request_for(*listed, body=body)
+
+    assert result is None
+    assert scorer.calls == []
+    assert "extra_body" not in body  # the adapter carrier is never injected
 
 
 def test_openrouter_claude_verbosity_uses_only_its_named_choices(monkeypatch):
