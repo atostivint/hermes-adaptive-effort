@@ -137,10 +137,16 @@ def test_auto_is_dynamic_only_for_explicitly_verified_routes():
         "openai-codex", "gpt-6.1-sol", "codex_responses") is True
     assert middleware._dynamic_effort_route(
         "openai-codex", "gpt-5.6-terra", "codex_responses") is False
+    # The pin is a precaution, not a proven cause: a prefix replay is real on Go Chat
+    # Completions routes, our 40+ call probe on a ~2 KB prefix refuted the effort-keyed
+    # explanation for low vs medium, and a public report found none vs max did partition at a
+    # compaction-sized prefix, so the cause stays unresolved. Scoped to ``chat_completions``.
     assert middleware._dynamic_effort_route(
-        "opencode-go", "deepseek-v4-pro", "chat_completions") is True
+        "opencode-go", "deepseek-v4-pro", "chat_completions") is False
     assert middleware._dynamic_effort_route(
-        "opencode-go", "mimo-v2.6-flash", "chat_completions") is True
+        "opencode-go", "mimo-v2.6-flash", "chat_completions") is False
+    assert middleware._dynamic_effort_route(
+        "opencode-go", "grok-4.7", "codex_responses") is True
     assert middleware._dynamic_effort_route(
         "opencode-go", "mimo-v2.6-flash", "codex_responses") is False
     assert middleware._dynamic_effort_route(

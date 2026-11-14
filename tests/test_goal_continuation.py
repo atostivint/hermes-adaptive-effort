@@ -13,7 +13,11 @@ goal_loop = import_plugin("goal_loop")
 command = import_plugin("command")
 
 SESSION = "GOAL"
-GO = ("opencode-go", "glm-5.3", "chat_completions")
+# Goal-continuation escalation is scoped to exact dynamic routes with named choices, so
+# these tests drive a registered OpenCode Go *Responses* route (grok-4.7,
+# low/medium/high/xhigh). The Go Chat Completions route is pinned since 2026-11-14 and can
+# no longer exercise a raise; the non-dynamic case is covered by ``test_non_dynamic_route_does_not_raise``.
+GO = ("opencode-go", "grok-4.7", "codex_responses")
 OPENROUTER = ("openrouter", "x/y", "chat_completions")
 
 GOAL_PROMPT = (
@@ -61,15 +65,25 @@ def configure(monkeypatch, scorer=None, **values):
 
 def send(text, turn="t1", effort="low", route=GO):
     provider, model, api_mode = route
-    request = {
-        "model": model,
-        "messages": [{"role": "user", "content": text}],
-        "reasoning_effort": effort,
-    }
+    if api_mode == "codex_responses":
+        request = {
+            "model": model,
+            "input": [{"role": "user", "content": text}],
+            "reasoning": {"effort": effort, "summary": "auto"},
+        }
+    else:
+        request = {
+            "model": model,
+            "messages": [{"role": "user", "content": text}],
+            "reasoning_effort": effort,
+        }
     out = middleware.on_llm_request(
         request=request, session_id=SESSION, turn_id=turn, provider=provider, model=model,
         api_mode=api_mode)
-    return out["request"]["reasoning_effort"] if out else None
+    if out is None:
+        return None
+    sent = out["request"]
+    return (sent.get("reasoning") or {}).get("effort") or sent.get("reasoning_effort")
 
 
 def entry(turn):
@@ -101,9 +115,9 @@ def test_goal_continuation_raises_one_level_above_the_previous_turn(monkeypatch)
     configure(monkeypatch, scorer)
     send("fix the failing test", turn="t1")
     assert entry("t1")["target"] == "low"
-    assert send(GOAL_PROMPT, turn="t2") == "high"
+    assert send(GOAL_PROMPT, turn="t2") == "medium"  # grok-4.7: low/medium/high/xhigh
     assert entry("t2")["target"] == "low"          # the scorer's decision
-    assert entry("t2")["_applied_target"] == "high"  # the level sent for this retry
+    assert entry("t2")["_applied_target"] == "medium"  # the level sent for this retry
     assert entry("t2")["escalated"] is True
     assert entry("t2")["escalation_reason"] == "goal_continuation"
 
@@ -112,15 +126,15 @@ def test_a_second_goal_continuation_raises_again(monkeypatch):
     scorer = ChoiceScorer("low")
     configure(monkeypatch, scorer)
     send("fix the failing test", turn="t1")
-    assert send(GOAL_PROMPT, turn="t2") == "high"
-    assert send(GOAL_PROMPT, turn="t3") == "max"  # low -> high -> max
+    assert send(GOAL_PROMPT, turn="t2") == "medium"
+    assert send(GOAL_PROMPT, turn="t3") == "high"  # low -> medium -> high
 
 
 def test_kanban_continuation_raises_one_level(monkeypatch):
     scorer = ChoiceScorer("low")
     configure(monkeypatch, scorer)
     send("fix the failing test", turn="t1")
-    assert send(KANBAN_PROMPT, turn="t2") == "high"
+    assert send(KANBAN_PROMPT, turn="t2") == "medium"
     assert entry("t2")["escalation_reason"] == "goal_continuation"
 
 
@@ -166,16 +180,18 @@ def test_ceiling_caps_the_goal_raise(monkeypatch):
     send("fix the failing test", turn="t1", effort="high")
     assert entry("t1")["target"] == "high"
     scorer.value = "low"
-    assert send(GOAL_PROMPT, turn="t2", effort="low") == "high"  # max next, capped to high
+    # grok-4.7: one level above the previous ``high`` is ``xhigh``, capped back to ``high``.
+    assert send(GOAL_PROMPT, turn="t2", effort="low") == "high"
     assert entry("t2")["_applied_target"] == "high"
 
 
 def test_top_of_the_route_is_not_exceeded(monkeypatch):
-    scorer = ChoiceScorer("max")
+    scorer = ChoiceScorer("xhigh")
     configure(monkeypatch, scorer)
-    send("fix the failing test", turn="t1", effort="max")
-    assert send(GOAL_PROMPT, turn="t2", effort="max") is None  # already max: no rewrite
-    assert entry("t2")["target"] == "max"
+    send("fix the failing test", turn="t1", effort="xhigh")
+    # grok-4.7 tops out at ``xhigh``: one level above it does not exist.
+    assert send(GOAL_PROMPT, turn="t2", effort="xhigh") is None  # already top: no rewrite
+    assert entry("t2")["target"] == "xhigh"
     assert entry("t2")["escalated"] is False
 
 

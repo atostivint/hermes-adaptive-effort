@@ -265,10 +265,25 @@ def test_never_exceeds_the_route_top_and_never_reaches_ultra_or_none(monkeypatch
     assert effort.raise_choice_level("none", ("low", "high")) == "none"
 
 
-def test_works_on_chat_completions_dynamic_route_with_the_route_vocabulary(monkeypatch):
-    assert middleware._dynamic_effort_route(*GO_CHAT)
+def test_chat_completions_route_is_no_longer_dynamic_so_escalation_stops(monkeypatch):
+    """Pinned 2026-11-14 (T13): Go Chat Completions routes keep one decision per route.
+
+    Escalation is scoped to exact dynamic routes, so it follows that status and no longer
+    fires here, even though the route keeps its named vocabulary and its writable field.
+    A Go Responses route keeps both the status and the escalation.
+    """
+    assert not middleware._dynamic_effort_route(*GO_CHAT)
     configure(monkeypatch, ChoiceScorer("low"))
-    assert send(REPEAT_WITH_EDIT, route=GO_CHAT, effort_value="low") == "high"  # low/high/max
+    # low/high/max vocabulary: the scorer's ``low`` is applied without escalation.
+    assert send(REPEAT_WITH_EDIT, route=GO_CHAT, effort_value="high") == "low"
+    assert middleware.session_state()[f"{SESSION}/t1"]["escalated"] is False
+
+    middleware.reset_state()
+    go_responses = ("opencode-go", "grok-4.7", "codex_responses")
+    assert middleware._dynamic_effort_route(*go_responses)
+    configure(monkeypatch, ChoiceScorer("low"))
+    assert send(REPEAT_WITH_EDIT, route=go_responses,
+                effort_value="high") == "medium"  # low/medium/high/xhigh
 
 
 @pytest.mark.parametrize("mode", ["auto", "once", "always"])
