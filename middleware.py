@@ -80,6 +80,7 @@ DEFAULTS: Dict[str, Any] = {
     "effort_floor": "",
     "effort_ceiling": "",
     "allow_none": False,
+    "adaptive_effort_routes": "",
     "tool_error_escalation": True,
     "goal_continuation_escalation": False,
     "respect_manual_effort": True,
@@ -1066,6 +1067,8 @@ def _settings() -> Dict[str, Any]:
             read_setting("continuation_downgrade_votes",
                           DEFAULTS["continuation_downgrade_votes"])),
         "allow_none": _bool("allow_none", DEFAULTS["allow_none"]),
+        "adaptive_effort_routes": _adaptive_effort_routes(
+            read_setting("adaptive_effort_routes", DEFAULTS["adaptive_effort_routes"])),
         "tool_error_escalation": _bool(
             "tool_error_escalation", DEFAULTS["tool_error_escalation"]),
         "goal_continuation_escalation": _bool(
@@ -1107,6 +1110,67 @@ def _normalize_forced_models(raw: Any) -> Tuple[str, ...]:
             if model:
                 models.add(model)
     return tuple(sorted(models))
+
+
+#: ``dynamic_reason`` for a route the operator forced dynamic through
+#: ``adaptive_effort_routes``. Additive value on the existing field (status v2).
+OPERATOR = "operator"
+
+
+def _adaptive_effort_routes(raw: Any) -> Tuple[Tuple[str, str], ...]:
+    """Parse ``adaptive_effort_routes`` into exact ``(provider, model)`` pairs.
+
+    Comma-separated, trimmed, case-insensitive, no wildcard. An entry without a
+    ``provider/model`` shape is ignored: a malformed setting never fails a request, and an
+    entry that names no registered route has no effect (eligibility is checked at use).
+    """
+    if isinstance(raw, (tuple, list)):
+        pairs = set()
+        for entry in raw:
+            if isinstance(entry, (tuple, list)) and len(entry) == 2:
+                provider = str(entry[0] or "").strip().lower()
+                model = str(entry[1] or "").strip().lower()
+                if provider and model:
+                    pairs.add((provider, model))
+        return tuple(sorted(pairs))
+    if not isinstance(raw, str):
+        return ()
+    pairs = set()
+    for item in raw.split(","):
+        provider, separator, model = item.strip().lower().partition("/")
+        provider, model = provider.strip(), model.strip()
+        if separator and provider and model:
+            pairs.add((provider, model))
+    return tuple(sorted(pairs))
+
+
+def _operator_dynamic_route(settings: Dict[str, Any], provider: Any, model: Any, api_mode: Any,
+                            base_url: Any, route_choices: Any) -> bool:
+    """True when ``adaptive_effort_routes`` names this exact route and it is eligible.
+
+    The list changes *dynamic status* only: the route must still have a cache-safe API mode
+    (which excludes ``anthropic_messages``), carry a registered vocabulary (so a trial-only or
+    unknown route cannot be forced), and keep its own writable field — this never authorizes an
+    injection, adds a level, or touches a disabled control.
+    """
+    try:
+        entries = _adaptive_effort_routes(settings.get("adaptive_effort_routes"))
+        if not entries:
+            return False
+        provider_name, model_id, api = _route_identity(provider, model, api_mode)
+        model_key = model_id.lower()
+        bare_model = model_key.rsplit("/", 1)[-1]
+        if not any(entry_provider == provider_name and entry_model in (model_key, bare_model)
+                   for entry_provider, entry_model in entries):
+            return False
+        if not _cache_safety.effort_is_cache_safe(provider_name, model_id, api):
+            return False
+        choices = (route_choices if route_choices is not None
+                   else _effort.route_choice_levels(provider, model, api_mode, base_url))
+        return bool(choices)
+    except Exception:
+        logger.debug("hermes-adaptive-effort: adaptive effort routes ignored", exc_info=True)
+        return False
 
 
 def _classifies(client: Any) -> bool:
@@ -2129,7 +2193,8 @@ def _with_anthropic_effort_beta(request: Dict[str, Any]) -> Optional[Dict[str, A
 
 def _dynamic_effort_route(provider: Any, model: Any, api_mode: Any,
                           request: Any = None, base_url: Any = None,
-                          route_choices: Optional[Tuple[str, ...]] = None) -> bool:
+                          route_choices: Optional[Tuple[str, ...]] = None,
+                          settings: Optional[Dict[str, Any]] = None) -> bool:
     """True only for exact model/API routes with explicit effort and cache evidence."""
     route = _route_identity(provider, model, api_mode)
     provider_name, model_id, api = route
@@ -2147,6 +2212,11 @@ def _dynamic_effort_route(provider: Any, model: Any, api_mode: Any,
         )
     if not _cache_safety.effort_is_cache_safe(provider_name, model_id, api):
         return False
+    if settings is not None and _operator_dynamic_route(
+            settings, provider, model, api_mode, base_url, route_choices):
+        # Operator opt-in (``adaptive_effort_routes``): dynamic status only, never what may be
+        # written. The route keeps its own vocabulary and its own existing field.
+        return True
     if provider_name == "openai-codex" and api == "codex_responses":
         return bare_model == "gpt-6.1-sol"
     if provider_name == "opencode-zen" and api == "codex_responses":
@@ -2212,9 +2282,15 @@ def _dynamic_info(settings: Dict[str, Any], provider: Any, model: Any, api_mode:
         if dynamic_route is None:
             dynamic_route = _dynamic_effort_route(
                 provider, model, api_mode, request=request, base_url=base_url,
-                route_choices=route_choices)
+                route_choices=route_choices, settings=settings)
         if dynamic_route:
-            return {"dynamic": True, "dynamic_reason": _route_trial.LISTED, "trial_progress": None}
+            # ``listed`` when the registry itself grants it; ``operator`` when only
+            # ``adaptive_effort_routes`` does (the route is otherwise pinned).
+            listed = _dynamic_effort_route(
+                provider, model, api_mode, request=request, base_url=base_url,
+                route_choices=route_choices)
+            reason = _route_trial.LISTED if listed else OPERATOR
+            return {"dynamic": True, "dynamic_reason": reason, "trial_progress": None}
         route = _route_identity(provider, model, api_mode)
         if route[0] == "anthropic" or not _cache_safety.effort_is_cache_safe(*route):
             return {"dynamic": False, "dynamic_reason": _route_trial.API_MODE,
@@ -2589,7 +2665,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     try:
         dynamic_route: Optional[bool] = _dynamic_effort_route(
             provider, model, api_mode, request=request, base_url=base_url,
-            route_choices=route_choices)
+            route_choices=route_choices, settings=settings)
     except Exception:
         dynamic_route = None  # _dynamic_info retries it under its own fail-open guard
     dynamic_info = _dynamic_info(
@@ -2695,7 +2771,7 @@ def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if dynamic_route is None:
         dynamic_route = _dynamic_effort_route(
             provider, model, api_mode, request=request, base_url=base_url,
-            route_choices=route_choices)
+            route_choices=route_choices, settings=settings)
     # An unlisted cache-safe route earns dynamic status only from a trial (in progress or
     # observed); the trial changes an existing field and never injects one.
     trial_route = (

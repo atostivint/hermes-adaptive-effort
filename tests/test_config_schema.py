@@ -131,6 +131,19 @@ def test_config_schema_types_and_defaults_match_middleware():
     assert "unmeasured" in schema["dynamic_trial"]["description"]
 
 
+def test_adaptive_effort_routes_schema_matches_the_default():
+    schema = _load_manifest()["config_schema"]
+    assert schema["adaptive_effort_routes"]["type"] == "str"
+    assert schema["adaptive_effort_routes"]["default"] == middleware.DEFAULTS[
+        "adaptive_effort_routes"] == ""
+    assert middleware.DEFAULTS["adaptive_effort_routes"] == ""
+    # Empty means today's behaviour, and the description states the cache cost it trades.
+    description = schema["adaptive_effort_routes"]["description"]
+    assert "provider/model" in description
+    assert "prefix replay" in description
+    assert "never injects" in description
+
+
 def test_config_schema_declares_no_secret():
     schema = _load_manifest()["config_schema"]
     types = {key: entry.get("type") for key, entry in schema.items()}
