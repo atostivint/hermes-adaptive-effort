@@ -7,6 +7,13 @@ effort field this module lets ``auto`` change effort every turn *on trial* while
 Three effort changes that keep the cache grant dynamic status (``observed``); a clear drop right
 after a change pins the route again (``observed_cache_loss``). The worst case is one cache miss.
 
+A drop only counts when the comparison is **contiguous**: the request whose cache read is the
+baseline must be the immediately preceding request for that route, in the same session. A miss
+that follows a request from another conversation — or several requests — says nothing about the
+effort change, because the provider's cache entry can be lost for reasons this hook cannot see
+(a new session, a warm-up window). The provider's own session header is not exposed to
+``post_api_request``; the Hermes ``session_id`` captured in ``note_request`` is the identity used.
+
 Everything here is heuristic and the thresholds below are the only place they live. Only token
 counts, effort values and a request correlation id are kept, never text. Every entry point
 fails open: an error leaves requests unchanged and the route pinned.
@@ -69,6 +76,8 @@ _lock = threading.RLock()
 _ROUTES: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 #: (session, route key) -> counts of the previous request; no text.
 _SESSIONS: "OrderedDict[Tuple[str, str], Dict[str, Any]]" = OrderedDict()
+#: route key -> (request id, session) of the last completed request, for contiguity only.
+_LAST: "OrderedDict[str, Tuple[str, str]]" = OrderedDict()
 #: api_request_id -> what the middleware sent; consumed by the response/error hook.
 _PENDING: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 #: Clock seam (epoch seconds); tests replace it.
@@ -80,6 +89,7 @@ def reset() -> None:
     with _lock:
         _ROUTES.clear()
         _SESSIONS.clear()
+        _LAST.clear()
         _PENDING.clear()
 
 
@@ -205,7 +215,15 @@ def on_response(api_request_id: Any, usage: Any, message_count: Any = None) -> O
         pending = _PENDING.pop(str(api_request_id or ""), None)
     if pending is None:
         return None
+    request_id = str(api_request_id or "")
     key, sid = pending["route"], pending["session"]
+    with _lock:
+        # Whatever this response turns out to mean, it is now the last request for the route.
+        previous_last = _LAST.get(key)
+        _LAST[key] = (request_id, sid)
+        _LAST.move_to_end(key)
+        while len(_LAST) > MAX_TRACKED_ROUTES:
+            _LAST.popitem(last=False)
     record = _record(key)
     if record.get("verdict") is not None or record.get("store_failed"):
         return None
@@ -231,12 +249,23 @@ def on_response(api_request_id: Any, usage: Any, message_count: Any = None) -> O
         if state is None:
             return None
         before = {name: state.get(name) for name in ("read", "prompt", "messages", "at")}
-        state.update(read=cache_read, prompt=prompt, messages=messages, at=now)
+        previous_request_id = state.get("request_id")
+        state.update(read=cache_read, prompt=prompt, messages=messages, at=now,
+                     request_id=request_id)
         previous_read = _int(before["read"])
+        # The comparison must be contiguous: the baseline read has to come from the request
+        # that immediately preceded this one on the route, in this same session. A foreign
+        # request, a new session or a warm-up miss in between is not the effort change's doing.
+        contiguous = (
+            previous_last is not None
+            and previous_last[1] == sid
+            and previous_last[0] == previous_request_id
+        )
         # Only a comparison against a meaningful earlier read, soon enough, on an unrewritten
-        # history, says anything about the cache.
+        # history, and right after that very request, says anything about the cache.
         conclusive = (
             before["at"] is not None
+            and contiguous
             and previous_read >= MIN_CACHED_TOKENS
             and now - float(before["at"]) <= CACHE_TTL_S
             and not (messages and _int(before["messages"]) and messages < _int(before["messages"]))

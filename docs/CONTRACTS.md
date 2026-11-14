@@ -117,15 +117,15 @@ Selection is explicit: Jev, OpenAI Decisions, OpenRouter, Cloudflare, Nace, Olla
 
 `dynamic_trial` (bool, default `true`) lets `auto` test an unlisted route instead of pinning it forever. Eligible: a cache-safe API mode (`codex_responses`, `chat_completions`), not `anthropic`, no registered named-choice vocabulary, an **existing** writable effort field (the trial never injects one), and a readable verdict store. Trial decisions use the numeric score contract, so only `low`/`medium`/`high` are sent, clamped through the usual mapping. `always` records verdicts without pinning; `once` and `off` record nothing.
 
-The plugin registers two observer hooks, `post_api_request` (Hermes' normalised `usage`: `cache_read_tokens`, `cache_write_tokens`, `prompt_tokens`, plus `message_count`) and `api_request_error` (`status_code`). The middleware notes, per request id, the effort the request carried and whether it differs from the previous request of that session and route; the hooks join on `api_request_id`. Only token counts, effort values and request ids are kept (bounded: 64 session routes, 64 pending requests, 128 routes), never text.
+The plugin registers two observer hooks, `post_api_request` (Hermes' normalised `usage`: `cache_read_tokens`, `cache_write_tokens`, `prompt_tokens`, plus `message_count`) and `api_request_error` (`status_code`). The middleware notes, per request id, the effort the request carried and whether it differs from the previous request of that session and route; the hooks join on `api_request_id`. Only token counts, effort values and request ids are kept (bounded: 64 session routes, 64 pending requests, 128 routes), never text. A comparison is only made between **contiguous** requests: the request that produced the baseline read must be the immediately preceding one for that route, in the same session. The provider's own session header (for example `x-opencode-session`) is not part of the hook payload, so the Hermes `session_id` captured at request time is the identity this rule uses.
 
 Verdict per `(provider, exact model, api_mode)`. All thresholds are heuristics defined as constants in `route_trial.py`:
 
 | Observation | Result |
 | --- | --- |
 | Cache read after a change ≥ 50% of the previous request's read | one success; 3 successes → `observed` |
-| Cache read after a change < 10% of the previous read, previous read ≥ 256 tokens, and a no-change request in that session kept its cache | `observed_cache_loss`, route pinned immediately |
-| Gap over 5 minutes, prompt or message count shrank (compression / history rewrite), or the previous request had no cache read | inconclusive, not counted |
+| Cache read after a change < 10% of the previous read, previous read ≥ 256 tokens, the baseline read came from the **immediately preceding request on the same route and session** (contiguous: no other conversation answered in between, no session change), and a no-change request in that session kept its cache | `observed_cache_loss`, route pinned immediately |
+| Gap over 5 minutes, prompt or message count shrank (compression / history rewrite), the previous request had no cache read, or another session's request answered in between | inconclusive, not counted |
 | 5 consecutive responses without any cache counter | `no_cache_data`, pinned |
 | HTTP 400 or 422 on a request this plugin rewrote | `rejected_level`, pinned; that level is never sent again on the route |
 
