@@ -1,0 +1,1 @@
+{"ts":"2026-11-14T14:56:15+01:00","condition":"A","index":1,"session":"14a38fab-057f-4776-aa6b-c8d4711fa7cc","effort":"low","max_tokens":4,"temperature":0.0,"status":400,"cached_tokens":null,"prompt_tokens":null,"latency_ms":203.0,"error_code":"Model deepseek/deepseek-v4.1-flash isn't included in OpenCode Go. See the models it includes at https://opencode.ai/console/go."}

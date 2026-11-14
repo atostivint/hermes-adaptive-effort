@@ -1,0 +1,5 @@
+{"ts":"2026-11-14T15:01:30+01:00","condition":"C","index":1,"session":"bf7cbe36-e899-4b98-a852-ea44c2851eec","effort":"low","max_tokens":4,"temperature":0.0,"status":200,"cached_tokens":0,"prompt_tokens":2083,"latency_ms":3563.0}
+{"ts":"2026-11-14T15:01:34+01:00","condition":"C","index":2,"session":"bf7cbe36-e899-4b98-a852-ea44c2851eec","effort":"medium","max_tokens":4,"temperature":0.0,"status":200,"cached_tokens":0,"prompt_tokens":2083,"latency_ms":2703.0}
+{"ts":"2026-11-14T15:01:37+01:00","condition":"C","index":3,"session":"bf7cbe36-e899-4b98-a852-ea44c2851eec","effort":"low","max_tokens":4,"temperature":0.0,"status":200,"cached_tokens":0,"prompt_tokens":2083,"latency_ms":3047.0}
+{"ts":"2026-11-14T15:01:40+01:00","condition":"C","index":4,"session":"bf7cbe36-e899-4b98-a852-ea44c2851eec","effort":"medium","max_tokens":4,"temperature":0.0,"status":200,"cached_tokens":0,"prompt_tokens":2083,"latency_ms":3515.0}
+{"ts":"2026-11-14T15:01:43+01:00","condition":"C","index":5,"session":"bf7cbe36-e899-4b98-a852-ea44c2851eec","effort":"low","max_tokens":4,"temperature":0.0,"status":200,"cached_tokens":2048,"prompt_tokens":2083,"latency_ms":2735.0}
