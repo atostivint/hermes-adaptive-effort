@@ -182,6 +182,22 @@ def test_mimo_go_missing_field_uses_exact_chat_choice_route(monkeypatch):
         "opencode-go", "mimo-v2.6-flash", "codex_responses") == ()
 
 
+def test_go_chat_route_keeps_its_named_choices_while_pinned_non_dynamic(monkeypatch):
+    """T13 (2026-11-14): the pin stops per-turn reclassification, not the route vocabulary."""
+    scorer = ChoiceScorer("medium", "low")
+    configure(monkeypatch, scorer, mode="always")
+    body = {"model": "mimo-v2.6-flash", "reasoning_effort": "low",
+            "messages": [{"role": "user", "content": "task"}]}
+
+    result = request_for("opencode-go", "mimo-v2.6-flash", "chat_completions", body)
+
+    assert result["request"]["reasoning_effort"] == "medium"
+    assert scorer.calls[0][1] == ("low", "medium", "high")
+    entry = middleware.session_state()[f"{SESSION}/turn-1"]
+    assert (entry["dynamic"], entry["dynamic_reason"]) == (False, "trial_disabled")
+    assert tuple(entry["choices"]) == ("low", "medium", "high")
+
+
 def test_openrouter_claude_verbosity_uses_only_its_named_choices(monkeypatch):
     choices = ("low", "medium", "high", "xhigh", "max")
     for index, choice in enumerate(choices):

@@ -2154,6 +2154,16 @@ def _dynamic_effort_route(provider: Any, model: Any, api_mode: Any,
             "muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.3-contributor-free",
         }
     if provider_name == "opencode-go":
+        # Responses only. These Chat routes stay registered (vocabulary, injection, field) but
+        # keep one decision per route as a precaution: a prefix replay is real in production
+        # (12 full-prefix replays in one day of logs, 55% of fresh input tokens). The cause is
+        # unresolved and value- or size-dependent. Our 40+ call probe on a ~2 KB prefix refuted
+        # the effort-keyed explanation for low vs medium (a never-used level hit, and changing
+        # only x-opencode-session produced a miss, so session affinity is real); a public report
+        # on a compaction-sized prefix found none vs max did partition, with a byte-identical
+        # prefix and a single-field patch. So this is a precaution, not a verdict on the provider.
+        if api != "codex_responses":
+            return False
         return bare_model in _effort.OPEN_CODE_GO_INJECTION_ROUTES.get(api, {})
     return False
 

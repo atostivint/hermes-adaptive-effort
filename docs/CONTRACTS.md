@@ -15,7 +15,7 @@ The only public modes are `auto`, `once`, `always` and `off`. Parent and subagen
 | `always` | Per new user turn on every eligible route |
 | `off` | No scoring or request rewrite; bounded route metadata can remain visible |
 
-Without a turn ID, active modes use retained route scope. The dynamic registry includes the exact OpenCode Go/Zen control routes and `openai-codex/gpt-6.1-sol` on `codex_responses`, subject to transport cache safety, plus the separately guarded native Claude per-message route. An existing field, an `effort_models` entry or a model profile grants no dynamic capability; only an observed trial verdict can add an unlisted route.
+Without a turn ID, active modes use retained route scope. The dynamic registry includes the exact OpenCode Go **Responses** routes, the OpenCode Zen Responses routes and `openai-codex/gpt-6.1-sol`, subject to transport cache safety, plus the separately guarded native Claude per-message route. OpenCode Go **Chat Completions** routes are registered but pinned as not dynamic, as a precaution while the cause of an observed prefix replay stays unresolved. Our 40+ call probe on a ~2 KB prefix found `low` vs `medium` did not partition the cache (a level never used in the session still hit, constant effort hit 7 of 7, changing only `x-opencode-session` produced a miss while `max_tokens` or `temperature` alone still hit), whereas a public upstream report found `none` vs `max` did partition on a compaction-sized prefix with a byte-identical replay — so the effect is value- or size-dependent, and those routes keep one decision per route in `auto` and `always` until a delay- and value-controlled measurement settles it. An existing field, an `effort_models` entry or a model profile grants no dynamic capability; only an observed trial verdict can add an unlisted route.
 
 Turn decisions key on `(session_id, turn_id)`. Retained decisions key on `(session_id, provider, exact model, api_mode)`. Each ledger has its own `max_turns` bound. A new session, eviction, reset or reload can require a new classification.
 
@@ -135,14 +135,14 @@ Status entries and the Desktop decision event v2 gain, additively, `dynamic` (bo
 
 | `dynamic_reason` | `dynamic` | Meaning |
 | --- | --- | --- |
-| `listed` | true | exact registry route |
+| `listed` | true | exact registry route pinned as dynamic, e.g. the OpenCode Go and OpenCode Zen Responses routes and `openai-codex/gpt-6.1-sol` |
 | `observed` | true | trial passed |
 | `trial` | true | trial in progress (`trial_progress`/3) |
 | `observed_cache_loss` | false | clear cache drop right after an effort change |
 | `rejected_level` | false | provider rejected a trial level |
 | `no_cache_data` | false | provider reports no cache counters |
 | `api_mode` | false | cache-hostile or unknown API mode, or Claude outside the guarded path |
-| `trial_disabled` | false | unlisted route with `dynamic_trial` off, or no usable verdict store |
+| `trial_disabled` | false | `dynamic_trial` off, no usable verdict store, or a registered vocabulary that keeps the route out of the trial (an OpenCode Go `chat_completions` route, pinned as a precaution on 2026-11-14 while the value- or size-dependent cause of the observed prefix replay stays unresolved) |
 
 A route with no existing effort field reports `null` for both. `/hae status` and the Desktop details show one line, for example `Effort changes: every turn — on trial (1/3)` or `Effort changes: once, then kept — not dynamic (observed cache loss)`, with a suffix when the mode overrides it (`once` always keeps one decision; `always` changes every turn even on a non-dynamic route and flags the cache risk). `Cache:` is unchanged. Tool-error escalation never applies to trial routes: they have no named choices.
 

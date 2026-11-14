@@ -13,6 +13,7 @@ history_store = import_plugin("history_store")
 middleware = import_plugin("middleware")
 route_trial = import_plugin("route_trial")
 command = import_plugin("command")
+effort = import_plugin("effort")
 
 SESSION = "TRIAL-SESSION"
 ROUTE = ("acme-cloud", "acme/model-x", "chat_completions")
@@ -352,6 +353,31 @@ def test_a_listed_route_reports_listed_and_makes_no_trial_record(monkeypatch, tm
     assert harness.entry()["dynamic_reason"] == "listed"
     assert harness.entry()["dynamic"] is True
     assert route_trial._PENDING == {}
+
+
+def test_a_registered_go_chat_route_is_pinned_and_the_trial_cannot_lift_it():
+    """Measured 2026-11-14: Go Chat Completions effort changes lose the prefix cache.
+
+    Those routes stay registered --- the scorer still chooses from their vocabulary --- but
+    they are no longer dynamic, and because a registered vocabulary already keeps a route
+    out of the automatic trial, nothing can promote them back to ``observed``.
+    """
+    route = ("opencode-go", "kimi-k3", "chat_completions")
+    choices = effort.route_choice_levels(*route)
+    assert choices == ("low", "high", "max")
+    info = middleware._dynamic_info({"dynamic_trial": True}, *route, request=None,
+                                    base_url=None, has_effort_field=True, route_choices=choices)
+    assert info == {"dynamic": False, "dynamic_reason": "trial_disabled", "trial_progress": None}
+    assert not route_trial.eligible_route(route, choices)
+    # The pin is scoped to Chat Completions: the registered Go Responses route stays dynamic.
+    responses = ("opencode-go", "grok-4.7", "codex_responses")
+    responses_choices = effort.route_choice_levels(*responses)
+    assert middleware._dynamic_effort_route(*responses) is True
+    assert middleware._dynamic_info({"dynamic_trial": True}, *responses, request=None,
+                                    base_url=None, has_effort_field=True,
+                                    route_choices=responses_choices) == {
+        "dynamic": True, "dynamic_reason": "listed", "trial_progress": None}
+    assert not route_trial.eligible_route(responses, responses_choices)
 
 
 def test_anthropic_and_unknown_api_modes_are_never_trialled(monkeypatch, tmp_path):

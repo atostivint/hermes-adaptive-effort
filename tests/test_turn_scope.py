@@ -134,6 +134,38 @@ def test_second_turn_is_reclassified(monkeypatch):
     assert middleware._effort_slot(out2["request"])[2] == "high"
 
 
+def test_go_chat_completions_route_keeps_one_decision_per_route(monkeypatch):
+    """Pinned 2026-11-14: a Go Chat Completions effort change lost the prefix cache.
+
+    ``auto`` therefore retains one decision per route there; ``always`` still re-decides
+    each new user turn, because that is the mode's own contract.
+    """
+    use_settings(monkeypatch, mode="auto")
+    seq = ScoreSequence([0.1, 1.9])
+    monkeypatch.setattr(middleware, "_classifier_factory", seq)
+    request = {"model": "kimi-k3", "reasoning_effort": "medium",
+               "messages": [{"role": "user", "content": "Design a failover plan"}]}
+
+    def send(turn):
+        return middleware.on_llm_request(
+            request=dict(request), session_id="MAIN", provider="opencode-go", model="kimi-k3",
+            api_mode="chat_completions", task_id="t", turn_id=turn, api_request_id="r",
+            api_call_count=1, middleware_schema_version="hermes.middleware.v1")
+
+    assert send("t1")["request"]["reasoning_effort"] == "low"
+    assert send("t2")["request"]["reasoning_effort"] == "low"  # retained, not re-scored
+    assert len(seq.calls) == 1
+    assert middleware.session_state()["MAIN/t2"]["dynamic"] is False
+
+    middleware.reset_state()
+    use_settings(monkeypatch, mode="always")
+    seq = ScoreSequence([0.1, 1.9])
+    monkeypatch.setattr(middleware, "_classifier_factory", seq)
+    for turn, expected in (("t1", "low"), ("t2", "high")):
+        assert send(turn)["request"]["reasoning_effort"] == expected
+    assert len(seq.calls) == 2
+
+
 @pytest.mark.parametrize("mode", ["always"])
 @pytest.mark.parametrize("shape", ["extra_body", "reasoning_effort", "codex_input"])
 def test_full_history_classifies_current_turn_and_reuses_it_in_tool_loop(monkeypatch, mode, shape):
