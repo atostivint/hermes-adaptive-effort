@@ -1143,7 +1143,7 @@ function AdaptiveEffortChip() {
         jsx(PopoverContent, {
           align: 'end',
           sideOffset: 6,
-          className: 'max-h-80 w-72 space-y-2 overflow-y-auto p-3',
+          className: 'w-72 space-y-2 p-3',
           children: jsxs('div', {
             className: 'space-y-2',
             children: [
@@ -1215,7 +1215,9 @@ function AdaptiveEffortChip() {
                     children: 'More ▾'
                   }),
                   jsxs('div', {
-                    className: 'space-y-2 pt-2',
+                    // Scroll ownership: the popover sizes to its content, and only an
+                    // expanded More body can scroll (a long history), never the panel.
+                    className: 'max-h-64 space-y-2 overflow-y-auto pr-1 pt-2',
                     children: [
                       conversation
                         ? jsx(ModeButtons, {
