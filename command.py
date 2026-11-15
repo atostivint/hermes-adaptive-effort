@@ -34,6 +34,8 @@ USAGE = """Usage:
   /hae auto|once|always|off here            Set the mode for this conversation only
   /hae default here                         Clear this conversation's mode (use the default)
   /hae probe <text>                         Classify <text> once (prints score/label, stores nothing)
+  /hae cache                                Cache-loss diagnostic for the last 7 days
+  /hae cache json                           Machine-readable cache diagnostic
   /hae help                                 Show this help
 
 History:
@@ -57,6 +59,7 @@ writes to session state."""
 
 STATUS_SCHEMA = "hermes-adaptive-effort.status.v2"
 PROBE_SCHEMA = "hermes-adaptive-effort.probe.v1"
+CACHE_SCHEMA = "hermes-adaptive-effort.cache.v1"
 
 #: The only session fields ever rendered — an entry may hold anything (it is
 #: plugin-author payload), so prompt text and provider junk are filtered out.
@@ -107,6 +110,12 @@ def _dispatch(raw_args: str) -> str:
         if not rest:
             return USAGE
         return _probe(" ".join(rest))
+    if verb == "cache":
+        if not rest:
+            return _cache_text()
+        if rest == ["json"]:
+            return _cache_json()
+        return USAGE
     return USAGE
 
 
@@ -622,6 +631,77 @@ def _status_full_text() -> str:
 
 def _status_json() -> str:
     return json.dumps(_status_payload(), ensure_ascii=False)
+
+
+# ── cache diagnostic ────────────────────────────────────────────────────────
+
+_CACHE_EXCLUSION_LABELS = {
+    "excluded_session": "new session",
+    "excluded_idle": "idle gap",
+    "excluded_shrank": "compaction",
+    "excluded_no_counter": "no counter",
+    "excluded_already_cold": "already cold",
+}
+
+
+def _cache_rows() -> List[Dict[str, Any]]:
+    """Flush pending counters first so the verb shows what actually happened."""
+    _middleware._cache_stats.flush()
+    return _middleware._cache_stats.read_rows(7)
+
+
+def _cache_json() -> str:
+    rows = []
+    for row in _cache_rows():
+        provider, model, api_mode = row["route"]
+        prompt, cached = int(row.get("prompt_tokens") or 0), int(row.get("cached_tokens") or 0)
+        excluded = sum(int(row.get(name) or 0) for name in _middleware._cache_stats.EXCLUSIONS)
+        rows.append({
+            "day": row["day"],
+            "provider": provider,
+            "model": model,
+            "api_mode": api_mode,
+            "requests": int(row.get("requests") or 0),
+            "prompt_tokens": prompt,
+            "cached_tokens": cached,
+            "cache_ratio": round(cached / prompt, 4) if prompt else None,
+            "changes": int(row.get("changes") or 0),
+            "cold_after_change": int(row.get("cold_after_change") or 0),
+            "kept_after_change": int(row.get("kept_after_change") or 0),
+            "between": int(row.get("between") or 0),
+            "excluded": excluded,
+            "excluded_dominant": _middleware._cache_stats.dominant_exclusion(row),
+            "excluded_detail": {name: int(row.get(name) or 0)
+                                for name in _middleware._cache_stats.EXCLUSIONS},
+        })
+    return json.dumps({"schema": CACHE_SCHEMA, "days": 7, "rows": rows}, ensure_ascii=False)
+
+
+def _cache_text() -> str:
+    rows = _cache_rows()
+    if not rows:
+        return ("Hermes Adaptive Effort — cache (last 7 days)\n"
+                "No cache counters recorded yet. This diagnostic fills as requests complete;\n"
+                "it counts only the loss attributable to this plugin's own effort change.")
+    lines = ["Hermes Adaptive Effort — cache (last 7 days)"]
+    for row in rows:
+        provider, model, api_mode = row["route"]
+        prompt, cached = int(row.get("prompt_tokens") or 0), int(row.get("cached_tokens") or 0)
+        ratio = f"{100.0 * cached / prompt:.1f}%" if prompt else "n/a"
+        excluded = sum(int(row.get(name) or 0) for name in _middleware._cache_stats.EXCLUSIONS)
+        dominant = _middleware._cache_stats.dominant_exclusion(row)
+        why = _CACHE_EXCLUSION_LABELS.get(dominant, dominant or "none")
+        lines.append(
+            f"{row['day']}  {provider}/{model} ({api_mode})  "
+            f"req {int(row.get('requests') or 0)}  cache {ratio}  "
+            f"changes {int(row.get('changes') or 0)}  "
+            f"cold {int(row.get('cold_after_change') or 0)}  "
+            f"kept {int(row.get('kept_after_change') or 0)}  "
+            f"between {int(row.get('between') or 0)}  "
+            f"excluded {excluded} ({why})")
+    lines.append("cold = a change that cost the prefix cache; excluded = not attributable "
+                 "(idle gap, new session, compaction, no counter, already cold).")
+    return "\n".join(lines)
 
 
 # ── probe ───────────────────────────────────────────────────────────────────

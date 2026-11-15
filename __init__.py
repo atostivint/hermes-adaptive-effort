@@ -67,10 +67,11 @@ def register(ctx: Any) -> None:
     ctx.register_hook("post_api_request", _middleware.on_post_api_request)
     ctx.register_hook("api_request_error", _middleware.on_api_request_error)
     command_description = (
-        "Hermes Adaptive Effort: conversation history, status, bounded probe, and "
-        "auto|once|always|off for future requests"
+        "Hermes Adaptive Effort: conversation history, status, bounded probe, cache diagnostic, "
+        "and auto|once|always|off for future requests"
     )
-    command_args = "[history [N|all] [full]|status [full|json]|probe <text>|auto|once|always|off]"
+    command_args = ("[history [N|all] [full]|status [full|json]|probe <text>|cache [json]"
+                    "|auto|once|always|off]")
     ctx.register_command(
         "hae",
         handler=_command.handle,

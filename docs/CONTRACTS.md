@@ -311,6 +311,7 @@ Public schemas:
 | Probe | `hermes-adaptive-effort.probe.v1` |
 | Applied changes | `hermes-adaptive-effort.changes.v1` |
 | Conversation history | `hermes-adaptive-effort.history.v1` |
+| Cache diagnostic | `hermes-adaptive-effort.cache.v1` |
 | Scorer evaluation result (manual script, plugin data dir) | `hermes-adaptive-effort.scorer-eval.v1` |
 | Scorer evaluation summary (`GET /eval`) | `hermes-adaptive-effort.scorer-eval-summary.v1` |
 | Desktop decision event | `hermes-adaptive-effort.desktop-status.v2` |
@@ -367,6 +368,28 @@ The example illustrates shape, not a captured live event. Middleware's `effort_c
 The ring retains at most 64 actual rewritten transitions. It contains effort values and timestamps, without prompts or session IDs. Off, failed/unsupported attempts, unchanged values and tool loops resending the applied value emit no change. Insertions use `from: absent`.
 
 Deduplication uses `(decision_key, from, to)`. A reset/reload creates a new `stream_id`; consumers must drop their old cursor. This global feed cannot identify the focused conversation.
+
+## Cache diagnostic
+
+`/hae cache` and `/hae cache json` report `hermes-adaptive-effort.cache.v1` and answer one question only: when this plugin changed the effort between two turns on a route, did that change cost a cold prefix-cache miss? The JSON payload is `{schema, days: 7, rows: [...]}` where each row carries `day`, `provider`, `model`, `api_mode`, `requests`, `prompt_tokens`, `cached_tokens`, `cache_ratio`, `changes`, `cold_after_change`, `kept_after_change`, `between`, `excluded`, `excluded_dominant` and `excluded_detail`; the text form prints the same numbers per route-day. The verb does no classification and shares nothing with the selected scorer. Recording happens in every mode, on every route that exposes a readable effort value (a request with no effort field, or one at `none`, is not attributed), and the change it judges is a difference between the effort value the two requests carried — normally this plugin's rewrite, but a manual or selector change of the same field is indistinguishable from it.
+
+Attribution is per change, against the request that immediately preceded it on the same route and the same session, with the route as `(provider, exact model, api_mode)`. Thresholds come from `route_trial` — `LOSS_RATIO` 0.10, `KEPT_RATIO` 0.50, `CACHE_TTL_S` 300 s, `MIN_CACHED_TOKENS` 256 — so the diagnostic and the route trial cannot drift apart. The exclusions are checked in this order and the first that applies wins: `excluded_session` (a different session), `excluded_idle` (more than 300 s since the previous completion), `excluded_shrank` (the message count fell, i.e. compression), `excluded_no_counter` (the previous response carried no cache counter), `excluded_already_cold` (the previous read was below 256 tokens). A surviving change is classified `cold_after_change` (read below 10% of that baseline), `kept_after_change` (at least 50%) or `between`.
+
+`changes` counts attributable changes only: `changes == cold_after_change + kept_after_change + between` holds by construction, and a changed request that hit an exclusion appears in that exclusion bucket and never in `changes`. That is deliberate — a rate that folded an expired cache, a new session or a compaction into "the plugin's change cost the cache" would be false. A changed request whose own response reported no cache counter is counted in `requests` alone, since there is no evidence either way, so `changes` is a lower bound on the changes actually made.
+
+Rows are per day and route in the profile plugin-data SQLite file the history store already uses:
+
+| Column | Meaning |
+| --- | --- |
+| `day`, `route` | UTC day and route JSON `[provider, model, api_mode]`; `PRIMARY KEY (day, route)` |
+| `requests`, `prompt_tokens`, `cached_tokens` | completed requests and the counters those responses carried |
+| `changes` | attributable changes, as defined above |
+| `cold_after_change`, `kept_after_change`, `"between"` | the three classifications (`between` is an SQL keyword and is always quoted) |
+| `excluded_idle`, `excluded_session`, `excluded_shrank`, `excluded_no_counter`, `excluded_already_cold` | one bucket per excluded change |
+
+The table keeps 7 days, today included; every write prunes older rows in the same transaction. Counters are buffered in memory and written at most every 15 s or once 64 route-day rows are pending, so the response path never opens SQLite; the verb flushes before it reads. A hard kill can therefore lose up to 15 s of counters, and lost counters are simply not counted. A row stores counters, the day, the route and effort classes only: no prompt text, no session id, no request id and no timestamp finer than the day. The host session id is compared in process between two consecutive requests and is never written. Every entry point fails open — an unreadable or unwritable store reads as no rows (the text form says no cache counters were recorded yet) and nothing raises on the request path.
+
+What it cannot attribute: a miss caused by a cache-node change, a provider eviction or a request the plugin never observed is indistinguishable from one it caused; `none` is never attributed because it renders a shorter prompt; and an adjacent step such as `low -> medium` is weak evidence, as the 2026-11-14 measurement records.
 
 ## Desktop events and selector synchronization
 
