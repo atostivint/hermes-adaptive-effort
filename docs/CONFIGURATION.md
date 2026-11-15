@@ -357,6 +357,16 @@ Read `changes` as a floor, not as every change you made: a change is judged only
 
 This is an operator assertion. It cannot establish dynamic effort support, enable thinking, bypass disabled/malformed controls, or authorize an Anthropic/unknown API shape. Check the [compatibility matrix](MODEL_COMPATIBILITY.md#operator-force-list-for-unverified-model-ids) before using it.
 
+## Command output language
+
+The `/hae` command's own text — the help banner, the status, history and cache labels, and the human phrases inside status such as `key present` or `not verified` — is translated on the host's `core` translation surface. The shipped catalogs are French, German and Spanish, in `locales/fr.yaml`, `locales/de.yaml` and `locales/es.yaml`.
+
+The language follows the host setting (`HERMES_LANGUAGE`, then `display.language`, then the default); the plugin adds no setting of its own. Each catalog is registered at plugin load with `register_locale`, and the English string stays at every call site, so an unknown language, an unregistered key, a missing or malformed catalog, or a host whose context has no `register_locale` all fall back to the English text — a raw key is never rendered.
+
+Only `/hae` output is translated. Status values, reason codes (`scorer_paused`, `model_missing`, …), schema ids (`status.v2`, `cache.v1`), field names, effort level names and provider ids stay exactly as the contract defines them; `/hae status json`, `/hae probe` and `/hae cache json` are untouched, and the Desktop surface keeps its own strings. The cache line's column words (`req`, `cache`, `changes`, `cold`, `kept`, `between`, `excluded`) are human labels and are translated too, so the sample line above reads in the session's language.
+
+To add a language, copy `locales/fr.yaml` to `locales/<lang>.yaml`, translate the values, keep every `{placeholder}` and every line break, add the id to `CATALOG_LANGUAGES` in `i18n_text.py`, and keep the same 116 keys: `tests/test_i18n_command.py` fails on a missing or extra key, on a lost placeholder and on a changed line count.
+
 ## Data sharing
 
 | Action | Data sent to the selected scorer |

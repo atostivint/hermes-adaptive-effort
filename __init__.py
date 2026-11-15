@@ -11,12 +11,14 @@ from typing import Any
 
 if __package__:
     from . import command as _command
+    from . import i18n_text as _i18n_text
     from . import middleware as _middleware
 else:
     # Pytest may import the repository-root __init__.py as a standalone module
     # because this plugin is installed from the repository root. Hermes loads it
     # with a package name, so only that real plugin path needs sibling imports.
     _command = None
+    _i18n_text = None
     _middleware = None
 
 
@@ -66,6 +68,16 @@ def register(ctx: Any) -> None:
     # rejected request. They only read counts and a status code, never request or response text.
     ctx.register_hook("post_api_request", _middleware.on_post_api_request)
     ctx.register_hook("api_request_error", _middleware.on_api_request_error)
+
+    # Localized /hae output is best-effort. An older host without register_locale
+    # keeps the English defaults at each call site, and one malformed catalog is
+    # skipped (logged at debug) rather than failing the plugin load.
+    if _i18n_text is not None and hasattr(ctx, "register_locale"):
+        try:
+            _i18n_text.register_catalogs(ctx)
+        except Exception:  # pragma: no cover - never take the plugin down
+            pass
+
     command_description = (
         "Hermes Adaptive Effort: conversation history, status, bounded probe, cache diagnostic, "
         "and auto|once|always|off for future requests"
