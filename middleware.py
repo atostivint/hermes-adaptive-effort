@@ -37,6 +37,7 @@ from collections import OrderedDict, deque
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import cache_safety as _cache_safety
+from . import cache_stats as _cache_stats
 from . import effort as _effort
 from . import goal_loop as _goal_loop
 from . import history_store as _history_store
@@ -212,6 +213,7 @@ def reset_state() -> None:
         _CLI_STATUS_TEXT = "N/A"
         _MODE_OVERRIDE = None
     _route_trial.reset()
+    _cache_stats.reset_state()
     _history_store.invalidate_caches()
     _scorer_http.clear_key_cache()
     _effort.clear_caches()
@@ -2593,6 +2595,7 @@ def on_llm_request(**kwargs: Any) -> Optional[Dict[str, Any]]:
     try:
         result = _handle(kwargs)
         _note_trial_request(kwargs, result)
+        _note_cache_request(kwargs, result)
         return result
     except Exception:
         logger.debug("hermes-adaptive-effort: middleware error; failing open", exc_info=True)
@@ -2632,6 +2635,29 @@ def _note_trial_request(kwargs: Dict[str, Any], result: Optional[Dict[str, Any]]
         logger.debug("hermes-adaptive-effort: trial bookkeeping failed", exc_info=True)
 
 
+def _note_cache_request(kwargs: Dict[str, Any], result: Optional[Dict[str, Any]]) -> None:
+    """Tell the cache diagnostic what this request carries (counters only, every route).
+
+    The applied value is read back from the request this plugin is about to send, so a rewrite
+    and an untouched request are treated the same way; a request with no readable effort value
+    (or ``none``) is not attributed.
+    """
+    try:
+        request = result["request"] if result else kwargs.get("request")
+        slot = _effort_slot(request, kwargs.get("provider"), kwargs.get("model"),
+                            kwargs.get("api_mode"), kwargs.get("base_url"))
+        if slot is None:
+            return
+        _cache_stats.note_request(
+            kwargs.get("session_id"),
+            _route_identity(kwargs.get("provider"), kwargs.get("model"),
+                            kwargs.get("api_mode")),
+            kwargs.get("api_request_id"), slot[2], _cache_stats.message_count(request))
+    except Exception:
+        logger.debug("hermes-adaptive-effort: cache statistics bookkeeping failed",
+                     exc_info=True)
+
+
 def on_post_api_request(**kwargs: Any) -> None:
     """``post_api_request`` observer: feed the provider's cache counters to the route trial."""
     try:
@@ -2639,6 +2665,12 @@ def on_post_api_request(**kwargs: Any) -> None:
             kwargs.get("api_request_id"), kwargs.get("usage"), kwargs.get("message_count"))
     except Exception:
         logger.debug("hermes-adaptive-effort: post_api_request ignored", exc_info=True)
+    try:
+        _cache_stats.on_response(
+            kwargs.get("api_request_id"), kwargs.get("usage"), kwargs.get("message_count"))
+        _cache_stats.flush(force=False)
+    except Exception:
+        logger.debug("hermes-adaptive-effort: cache statistics ignored", exc_info=True)
 
 
 def on_api_request_error(**kwargs: Any) -> None:
@@ -2647,6 +2679,10 @@ def on_api_request_error(**kwargs: Any) -> None:
         _route_trial.on_error(kwargs.get("api_request_id"), kwargs.get("status_code"))
     except Exception:
         logger.debug("hermes-adaptive-effort: api_request_error ignored", exc_info=True)
+    try:
+        _cache_stats.on_error(kwargs.get("api_request_id"))
+    except Exception:
+        logger.debug("hermes-adaptive-effort: cache statistics error ignored", exc_info=True)
 
 
 def _handle(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:

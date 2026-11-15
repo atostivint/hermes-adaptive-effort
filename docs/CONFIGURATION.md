@@ -338,6 +338,18 @@ Everything else is unchanged. The route must be cache-safe, carry its own regist
 
 `claude-subscription-directsdk-experimental` routes are cache-safe Chat Completions with a registered vocabulary, so listing one is honoured. The same measurement recommends against it: those ids run large Claude contexts, where one new effort value can cost one full-prefix replay. Leave the setting empty when the cache matters more than per-turn adaptivity.
 
+### Check whether an effort change cost the cache
+
+`/hae cache` prints one line per route and day for the last 7 days; `/hae cache json` returns the same numbers as `hermes-adaptive-effort.cache.v1`. A line reads:
+
+```
+2026-11-15  opencode-go/deepseek-v4.1-flash (codex_responses)  req 42  cache 61.2%  changes 7  cold 2  kept 4  between 1  excluded 3 (idle gap)
+```
+
+`req` is completed requests and `cache` the share of prompt tokens the provider served from cache. `changes` is the effort changes this plugin made that could be judged, split into `cold` (the change cost the prefix cache), `kept` (it did not) and `between` (10–50% of the previous read, inconclusive). `excluded` counts the changes it refused to judge and names the largest reason: idle gap, new session, compaction, no counter or already cold.
+
+Read `changes` as a floor, not as every change you made: a change is judged only when the request that immediately preceded it on the same route and session left a usable baseline, a change whose own response reported no cache counter is skipped, and a manual or selector change of the effort field looks the same as the plugin's own. A cold miss caused by a cache-node change, a provider eviction or a request the plugin never saw is indistinguishable from one it caused, and an adjacent step such as `low -> medium` is weak evidence — so treat `cold` as a reason to investigate, not a verdict.
+
 ### Assert support for an exact model
 
 `effort_models` accepts comma- or newline-separated exact model IDs, with an optional provider/namespace prefix stripped for matching. It permits adding a missing field only to known Responses or Chat Completions containers.
