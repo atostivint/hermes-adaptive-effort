@@ -71,6 +71,7 @@ let rest = null
 let showDesktopPopup = false
 let debugMode = false
 let chipDisplayMode = 'transition'
+let chipDisplayPreferenceRead = false
 let preferenceStorage = null
 const debugLog = []
 const liveDecisions = new Map()
@@ -95,15 +96,25 @@ function effortLabel(value) {
   return EFFORT_LABELS[value.toLowerCase()] || value
 }
 
-function applyChipDisplayPreference(value) {
-  if (!CHIP_DISPLAY_MODES.has(value)) return
-  chipDisplayMode = value
-  try {
-    preferenceStorage?.set(CHIP_DISPLAY_KEY, value)
-  } catch (_ignored) {
-    // A storage failure only loses the preference for the next restart.
+// `chip_display` is a plugin setting now, read from the status payload. The old
+// Desktop preference is read exactly once, and only while the setting carries no
+// valid value, so a saved choice migrates without ever overriding the setting.
+function applyChipDisplaySetting(value) {
+  const configured = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  if (CHIP_DISPLAY_MODES.has(configured)) {
+    chipDisplayMode = configured
+    chipDisplayPreferenceRead = true
+    return
   }
-  emitLiveChange()
+  if (chipDisplayPreferenceRead) return
+  chipDisplayPreferenceRead = true
+  let stored = null
+  try {
+    stored = preferenceStorage?.get?.(CHIP_DISPLAY_KEY, null)
+  } catch (_ignored) {
+    stored = null
+  }
+  if (CHIP_DISPLAY_MODES.has(stored)) chipDisplayMode = stored
 }
 
 function emitLiveChange() {
@@ -120,6 +131,7 @@ function applyStatusSettings(data) {
     showDesktopPopup = data.settings.show_desktop_popup
   }
   if (typeof data?.settings?.debug === 'boolean') debugMode = data.settings.debug
+  applyChipDisplaySetting(data?.settings?.chip_display)
 }
 
 // Debug diagnostics carry a stable code plus counts and flags only: never a
@@ -753,12 +765,15 @@ async function switchMode(mode, query, conversationId) {
   }
 }
 
-function ModeButtons({ mode, query, conversationId, withDefault, disabled }) {
+function ModeButtons({ mode, query, conversationId, withDefault, disabled, only }) {
   const scoped = Boolean(withDefault)
   const names = scoped ? [...MODES, 'default'] : MODES
+  const shown = Array.isArray(only) && only.length > 0
+    ? names.filter(name => only.includes(name))
+    : names
   return jsx('div', {
     className: 'flex flex-wrap gap-1',
-    children: names.map(name => {
+    children: shown.map(name => {
       const active = name === mode
       const help = name === 'default'
         ? 'Remove this conversation override and follow the default mode.'
@@ -782,29 +797,32 @@ function ModeButtons({ mode, query, conversationId, withDefault, disabled }) {
   })
 }
 
-const CHIP_DISPLAY_HELP = {
-  transition: 'Show the previous and chosen effort, for example low → med.',
-  effort: 'Show only the chosen effort, for example med.'
-}
-
-function ChipDisplayButtons({ value }) {
+// The popover's first row: this chat's mode as one control, no label in front of
+// it. The scope is carried by the accessible name and the title instead.
+// `bg-(--ui-fill-secondary)` is the token the mode buttons have always used for
+// their own fill; this app build does not define it, so only the active segment
+// is painted — the same rendering the old buttons had.
+function ModeSegmented({ mode, query, conversationId, scope, disabled }) {
+  const scoped = scope !== 'all'
   return jsx('div', {
-    className: 'flex flex-wrap gap-1',
-    children: [['transition', 'Transition'], ['effort', 'Effort only']].map(([name, label]) => {
-      const active = value === name
-      return jsx(Tip, {
-        label: CHIP_DISPLAY_HELP[name],
-        side: 'top',
-        children: jsx('button', {
-          type: 'button',
-          'aria-pressed': active,
-          'aria-label': `Chip display: ${label}. ${CHIP_DISPLAY_HELP[name]}`,
-          onClick: () => applyChipDisplayPreference(name),
-          className: active
-            ? 'rounded-md bg-(--ui-accent) px-2 py-1 text-[0.6875rem] font-medium text-white'
-            : 'rounded-md bg-(--ui-fill-secondary) px-2 py-1 text-[0.6875rem] text-(--ui-text-secondary) hover:text-(--ui-text-primary)',
-          children: label
-        })
+    role: 'group',
+    'aria-label': scoped ? 'This chat mode' : 'All chats mode',
+    title: scoped
+      ? 'This chat: choose how effort is decided for this conversation'
+      : 'All chats: choose how effort is decided when a chat has no override',
+    className: 'flex h-7 w-full items-stretch gap-0.5 rounded-md bg-(--ui-fill-secondary) p-0.5',
+    children: MODES.map(name => {
+      const active = name === mode
+      return jsx('button', {
+        type: 'button',
+        'aria-label': `${name}: ${MODE_HELP[name]}`,
+        'aria-pressed': active,
+        disabled: active || Boolean(disabled),
+        onClick: () => switchMode(name, query, scoped ? conversationId : undefined),
+        className: active
+          ? 'inline-flex flex-1 items-center justify-center rounded-sm bg-(--ui-accent) px-1 text-[0.6875rem] font-medium text-white'
+          : 'inline-flex flex-1 items-center justify-center rounded-sm px-1 text-[0.6875rem] text-(--ui-text-secondary) hover:text-(--ui-text-primary) disabled:opacity-50',
+        children: name
       }, name)
     })
   })
@@ -1025,7 +1043,6 @@ function AdaptiveEffortDetails({ data, mode, effort, transition, reason, route, 
 
 function AdaptiveEffortChip() {
   const [open, setOpen] = useState(false)
-  const [showDetails, setShowDetails] = useState(false)
   const [, setLiveVersion] = useState(0)
   const focusedSessionId = useValue(host.state.focusedSessionId)
   const focusedStoredSessionId = useValue(host.state.focusedStoredSessionId)
@@ -1099,10 +1116,7 @@ function AdaptiveEffortChip() {
 
   return jsx(Popover, {
     open,
-    onOpenChange: nextOpen => {
-      setOpen(nextOpen)
-      if (!nextOpen) setShowDetails(false)
-    },
+    onOpenChange: nextOpen => setOpen(nextOpen),
     children: jsxs('div', {
       children: [
         jsx(ChangeNotifications, { query: changesQuery, statusQuery: query }),
@@ -1129,9 +1143,9 @@ function AdaptiveEffortChip() {
         jsx(PopoverContent, {
           align: 'end',
           sideOffset: 6,
-          className: 'max-h-80 w-64 space-y-2 overflow-y-auto p-3',
+          className: 'max-h-80 w-72 space-y-2 overflow-y-auto p-3',
           children: jsxs('div', {
-            className: 'space-y-3',
+            className: 'space-y-2',
             children: [
               query.isError
                 ? jsxs('div', {
@@ -1145,97 +1159,96 @@ function AdaptiveEffortChip() {
                   ]
                 })
                 : jsxs('div', {
-                  className: 'space-y-3',
+                  className: 'space-y-2',
                   children: [
-                    conversation
-                      ? jsxs('section', {
-                        className: 'space-y-1.5',
-                        children: [
-                          jsxs('div', {
-                            className: 'flex items-center justify-between text-xs font-medium',
-                            children: [jsx('span', { children: 'This conversation' }),
-                              jsx('span', { className: 'text-(--ui-accent)', children: overridden ? conversationMode : 'default' })]
-                          }),
-                          jsx(ModeButtons, {
-                            mode: overridden ? conversationMode : 'default',
-                            query,
-                            conversationId: scopeId,
-                            withDefault: true,
-                            disabled: !scopeId
-                          }),
-                          !scopeId
-                            ? jsx('div', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: 'Open a saved conversation to set its mode.' })
-                            : null
-                        ]
+                    jsx(ModeSegmented, {
+                      mode: conversation ? (overridden ? conversationMode : defaultMode) : defaultMode,
+                      query,
+                      conversationId: scopeId,
+                      scope: conversation ? 'conversation' : 'all',
+                      disabled: conversation ? !scopeId : false
+                    }),
+                    conversation && !scopeId
+                      ? jsx('div', {
+                        className: 'text-[0.625rem] text-(--ui-text-tertiary)',
+                        children: 'Open a saved conversation to set its mode.'
                       })
                       : null,
-                    jsxs('section', {
-                      className: 'space-y-1.5',
-                      children: [
-                        jsxs('div', {
-                          className: 'flex items-center justify-between text-xs font-medium',
-                          children: [jsx('span', { children: conversation ? 'All conversations' : 'Routing mode' }),
-                            jsx(Tip, {
-                              label: MODE_HELP[defaultMode] || 'Choose how effort is classified and applied.',
-                              side: 'top',
-                              children: jsx('span', { className: 'text-(--ui-accent)', children: defaultMode || '…' })
-                            })]
-                        }),
-                        jsx(ModeButtons, { mode: defaultMode, query })
-                      ]
+                    jsx('div', {
+                      className: 'truncate text-[0.6875rem] text-(--ui-text-tertiary)',
+                      title: `${transition} · ${route}`,
+                      children: `${transition} · ${route}`
                     }),
-                    jsxs('section', {
-                      className: 'space-y-1.5',
-                      children: [
-                        jsxs('div', {
-                          className: 'flex items-center justify-between text-xs font-medium',
-                          children: [jsx('span', { children: 'Chip display' }),
-                            jsx(Tip, {
-                              label: 'Choose whether the status-bar chip shows the effort transition or only the chosen effort.',
-                              side: 'top',
-                              children: jsx('span', {
-                                className: 'text-(--ui-accent)',
-                                children: chipDisplayMode === 'effort' ? 'effort only' : 'transition'
+                    conversation
+                      ? jsxs('details', {
+                        children: [
+                          jsxs('summary', {
+                            className: 'flex cursor-pointer items-center justify-between gap-2 text-[0.6875rem] text-(--ui-text-tertiary)',
+                            children: [
+                              jsx('span', { children: 'All chats' }),
+                              jsxs('span', {
+                                className: 'inline-flex items-center gap-1',
+                                children: [
+                                  jsx(Tip, {
+                                    label: MODE_HELP[defaultMode] || 'Choose how effort is classified and applied.',
+                                    side: 'top',
+                                    children: jsx('span', { className: 'text-(--ui-text-secondary)', children: defaultMode || '…' })
+                                  }),
+                                  jsx('span', { className: 'text-(--ui-text-quaternary)', children: '▾' })
+                                ]
                               })
-                            })]
-                        }),
-                        jsx(ChipDisplayButtons, { value: chipDisplayMode })
-                      ]
-                    })
+                            ]
+                          }),
+                          jsx('div', {
+                            className: 'pt-2',
+                            children: jsx(ModeButtons, { mode: defaultMode, query })
+                          })
+                        ]
+                      })
+                      : null
                   ]
                 }),
-              query.isError ? null : jsx(ScorerEvaluation, { query: evalQuery }),
-              jsx(Tip, {
-                label: 'Conversation, scorer, gateway and activity details.',
-                side: 'top',
-                children: jsx('button', {
-                  type: 'button',
-                  'aria-label': showDetails ? 'Hide details' : 'Show details',
-                  'aria-expanded': showDetails,
-                  onClick: () => setShowDetails(!showDetails),
-                  className: 'text-[0.6875rem] text-(--ui-text-tertiary) hover:text-(--ui-text-primary)',
-                  children: showDetails ? 'Less ▴' : 'More ▾'
-                })
-              }),
-              showDetails
-                ? jsx(AdaptiveEffortDetails, {
-                  data,
-                  mode,
-                  effort,
-                  transition,
-                  reason,
-                  route,
-                  syncReason: live?.syncReason,
-                  settings,
-                  scorerProvider,
-                  scorerModel,
-          credential,
-                  gateway,
-                  focusedEntry,
-                  history: historyQuery.data,
-                  historyError: historyQuery.isError
-                })
-                : null
+              jsxs('details', {
+                children: [
+                  jsx('summary', {
+                    className: 'flex cursor-pointer items-center gap-1 text-[0.6875rem] text-(--ui-text-tertiary)',
+                    children: 'More ▾'
+                  }),
+                  jsxs('div', {
+                    className: 'space-y-2 pt-2',
+                    children: [
+                      conversation
+                        ? jsx(ModeButtons, {
+                          mode: overridden ? conversationMode : 'default',
+                          query,
+                          conversationId: scopeId,
+                          withDefault: true,
+                          only: ['default'],
+                          disabled: !scopeId
+                        })
+                        : null,
+                      query.isError ? null : jsx(ScorerEvaluation, { query: evalQuery }),
+                      jsx(AdaptiveEffortDetails, {
+                        data,
+                        mode,
+                        effort,
+                        transition,
+                        reason,
+                        route,
+                        syncReason: live?.syncReason,
+                        settings,
+                        scorerProvider,
+                        scorerModel,
+                        credential,
+                        gateway,
+                        focusedEntry,
+                        history: historyQuery.data,
+                        historyError: historyQuery.isError
+                      })
+                    ]
+                  })
+                ]
+              })
             ]
           })
         })
@@ -1251,12 +1264,8 @@ export default {
   register(ctx) {
     rest = ctx.rest
     preferenceStorage = ctx.storage && typeof ctx.storage.get === 'function' ? ctx.storage : null
-    try {
-      const saved = preferenceStorage?.get(CHIP_DISPLAY_KEY, 'transition')
-      if (CHIP_DISPLAY_MODES.has(saved)) chipDisplayMode = saved
-    } catch (_ignored) {
-      chipDisplayMode = 'transition'
-    }
+    // `chip_display` now comes from the plugin settings; the stored preference is
+    // read once by applyChipDisplaySetting when the setting carries no valid value.
     void rest('/status', { timeoutMs: 15000 }).then(applyStatusSettings).catch(() => {})
     ctx.onEvent(DECISION_EVENT, event => handleDecisionEvent(ctx, event))
     ctx.onEvent(SESSION_INFO_EVENT, publishSessionInfo)

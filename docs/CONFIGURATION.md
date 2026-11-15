@@ -221,6 +221,7 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | `max_turns` | `64` | Capacity of each bounded turn/route decision ledger |
 | `show_tui_status` | `true` | Show terminal Effort status item |
 | `show_desktop_popup` | `true` | Show Desktop chip, popup and notifications |
+| `chip_display` | `transition` | What the Desktop status-bar chip shows: `transition` shows the previous and the chosen effort (for example `low -> high`), `effort` shows only the chosen level (for example `med`). Anything else uses `transition`. Cosmetic: it is read from the status payload, never used for classification |
 | `debug` | `false` | Append a diagnostic code and counts to Desktop selector-sync notices and log each sync step to the Desktop developer console |
 
 ### Default scoring deadline per provider
