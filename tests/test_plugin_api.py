@@ -341,16 +341,18 @@ def test_desktop_plugin_static_contract():
     assert "Route: ${route}" in details
     assert "route: ${route}" in chip
     assert "show_desktop_popup === false" in chip
-    assert "Routing mode" in chip
-    assert "Chip display" in chip
-    assert "ChipDisplayButtons" in text
-    assert "const CHIP_DISPLAY_KEY = 'chip_display'" in text
-    assert "ctx.storage" in text  # display prefs are Desktop-scoped, never config.yaml
+    assert "All chats" in chip
+    assert "this chat" in chip.lower()
+    assert "data?.settings?.chip_display" in text  # read in applyStatusSettings
+    assert "Chip display" not in chip
+    assert "ChipDisplayButtons" not in text
+    assert "function ModeSegmented" in text
+    assert "const CHIP_DISPLAY_KEY = 'chip_display'" in text  # legacy key, read once
+    assert "ctx.storage" in text  # the old preference is read once, never written
     assert "function effortLabel(value)" in text
     assert "chipDisplayMode === 'effort' ? effortLabel(effort) : transition" in chip
-    assert "Show details" in chip and "Hide details" in chip
     assert "onOpenChange: nextOpen =>" in chip
-    assert "if (!nextOpen) setShowDetails(false)" in chip
+    assert "More ▾" in chip and "setShowDetails" not in chip
     assert "function DecisionNotifications" in text
     assert "Effort not applied" in text
     assert "kind: 'warning'" in text

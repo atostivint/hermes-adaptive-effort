@@ -149,3 +149,10 @@ def test_config_schema_declares_no_secret():
     types = {key: entry.get("type") for key, entry in schema.items()}
     assert "secret" not in set(types.values()), (
         f"credentials stay in TYPESAFE_API_KEY or OPENROUTER_API_KEY/.env, never config.yaml: {types}")
+
+def test_chip_display_schema_matches_the_default_and_choices():
+    schema = _load_manifest()["config_schema"]
+    assert schema["chip_display"]["type"] == "str"
+    assert set(schema["chip_display"].get("choices") or []) == {"transition", "effort"}
+    assert schema["chip_display"]["default"] == middleware.DEFAULTS["chip_display"] == "transition"
+    assert schema["chip_display"]["label"].startswith("Display")

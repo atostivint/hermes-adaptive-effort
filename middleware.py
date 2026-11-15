@@ -53,6 +53,9 @@ logger = logging.getLogger(__name__)
 
 PLUGIN_ID = "hermes-adaptive-effort"
 VALID_MODES: Tuple[str, ...] = ("auto", "once", "always", "off")
+# Cosmetic only: the middleware never reads it, the Desktop repaints the chip from
+# the status payload. Kept here so the config form and the defaults share one source.
+CHIP_DISPLAY_MODES: Tuple[str, ...] = ("transition", "effort")
 DEFAULTS: Dict[str, Any] = {
     "mode": "off",
     "subagent_mode": "off",
@@ -88,6 +91,7 @@ DEFAULTS: Dict[str, Any] = {
     "dynamic_trial": True,
     "show_tui_status": True,
     "show_desktop_popup": True,
+    "chip_display": "transition",
     "debug": False,
 }
 
@@ -990,6 +994,11 @@ def _settings() -> Dict[str, Any]:
         except Exception:
             return int(fallback)
 
+    def _chip_display(key: str, fallback: str) -> str:
+        """`transition` or `effort`; anything else is the default (categorical, not free text)."""
+        value = str(read_setting(key, fallback) or "").strip().lower()
+        return value if value in CHIP_DISPLAY_MODES else fallback
+
     def _bool(key: str, fallback: bool) -> bool:
         value = read_setting(key, fallback)
         if isinstance(value, bool):
@@ -1081,6 +1090,7 @@ def _settings() -> Dict[str, Any]:
         "show_tui_status": _bool("show_tui_status", DEFAULTS["show_tui_status"]),
         "show_desktop_popup": _bool(
             "show_desktop_popup", DEFAULTS["show_desktop_popup"]),
+        "chip_display": _chip_display("chip_display", DEFAULTS["chip_display"]),
         "debug": _bool("debug", DEFAULTS["debug"]),
     }
     settings["effort_floor"], settings["effort_ceiling"] = _effort.normalize_bounds(

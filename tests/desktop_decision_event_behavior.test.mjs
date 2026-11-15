@@ -80,7 +80,7 @@ function makeHarness(options = {}) {
   vm.runInContext(`${source.slice(start, end)}\n;globalThis.api = {
     rememberDecision, handleDecisionEvent, publishSessionInfo, liveFor,
     syncAppliedEffort, AdaptiveEffortChip, ScorerEvaluation, evaluationRows, setPopup: value => { showDesktopPopup = value },
-    setChipDisplay: value => applyChipDisplayPreference(value),
+    setStorage: value => { preferenceStorage = value },
     setRest: value => { rest = value }, getNotices: () => notices,
     applyStatusSettings, getDebugLog: () => debugLog
   }`, context, { filename: 'desktop/plugin.js' })
@@ -209,10 +209,26 @@ test('chip display can show only the chosen effort with compact names', () => {
     sessions: [{ ...decision().payload.status, previous: 'minimal', target: 'medium' }]
   } })
   assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'min → med')
-  h.api.setChipDisplay('effort')
+  h.api.applyStatusSettings({ settings: { chip_display: 'effort' } })
   assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'med')
-  h.api.setChipDisplay('transition')
+  h.api.applyStatusSettings({ settings: { chip_display: 'transition' } })
   assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'min → med')
+  h.api.applyStatusSettings({ settings: { chip_display: 'bogus' } })
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'min → med')
+})
+
+test('a stored chip-display preference migrates once and never overrides the setting', () => {
+  const stored = { get: (key, fallback) => (key === 'chip_display' ? 'effort' : fallback) }
+  const h = makeHarness({ status: {
+    mode: 'auto', settings: { show_desktop_popup: true },
+    sessions: [{ ...decision().payload.status, previous: 'minimal', target: 'medium' }]
+  } })
+  h.api.setStorage(stored)
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'med')
+  h.api.applyStatusSettings({ settings: { chip_display: 'transition' } })
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'min → med')
+  h.api.applyStatusSettings({ settings: { chip_display: 'effort' } })
+  assert.equal(findEffortChip(h.api.AdaptiveEffortChip()), 'med')
 })
 
 test('a v1 event without previous still renders the decided level alone', () => {
@@ -507,12 +523,18 @@ const scopedStatus = (conversation, extra = {}) => ({
   ...extra
 })
 
-test('popup shows This conversation and All conversations sections', () => {
+test('popup leads with the this-chat mode control and has no chip-display section', () => {
   const h = makeHarness({ status: scopedStatus({}) })
-  const texts = textsOf(h.api.AdaptiveEffortChip())
-  assert.ok(texts.includes('This conversation'))
-  assert.ok(texts.includes('All conversations'))
+  const tree = h.api.AdaptiveEffortChip()
+  const texts = textsOf(tree)
+  assert.ok(texts.includes('All chats'))
+  assert.ok(!texts.includes('This conversation'))
+  assert.ok(!texts.includes('All conversations'))
+  assert.ok(!texts.includes('Chip display'))
   assert.ok(!texts.includes('Routing mode'))
+  const control = collect(tree, node => node.props?.['aria-label'] === 'This chat mode')
+  assert.equal(control.length, 1)
+  assert.match(String(control[0].props.title), /this chat/i)
 })
 
 test('conversation buttons POST scope=conversation with the stored conversation id', async () => {
@@ -569,8 +591,9 @@ test('older status payloads without conversation fields keep the global UI', () 
   const tree = h.api.AdaptiveEffortChip()
   assert.equal(findEffortChip(tree), 'high')
   const texts = textsOf(tree)
-  assert.ok(texts.includes('Routing mode'))
-  assert.ok(!texts.includes('This conversation'))
+  assert.ok(!texts.includes('Routing mode'))
+  assert.ok(!texts.includes('All chats'))
+  assert.equal(collect(tree, node => node.props?.['aria-label'] === 'All chats mode').length, 1)
   assert.equal(modeButtons(tree, 'off:').length, 1)
 })
 
