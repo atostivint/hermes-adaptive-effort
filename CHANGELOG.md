@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-16
+
 ### Added
 
 - `/hae` now speaks French, German and Spanish on the host's `core` translation surface: `locales/fr.yaml`, `locales/de.yaml` and `locales/es.yaml` carry the command's own wording (help banner, status and history labels, cache table, the human phrases inside status) and are registered through `register_locale` at plugin load, while the English string stays at every call site, so an unregistered key, an unknown language, a missing catalog or a host without `register_locale` renders exactly the text it rendered before. Reason codes, schema ids, field names, effort level names and provider ids are never translated, the JSON verbs are unchanged, and the Desktop surface keeps its own strings. The catalogs were translated by the local `Qwen3.6-35B-A3B-UD-IQ2_XXS` model and reviewed line by line by hand — not by a native speaker.
@@ -135,7 +137,8 @@ First tagged pre-release with four routing modes, five scorer providers, and rou
 
 See [full release notes](docs/releases/v0.3.0.md) for validation limits and contract changes.
 
-[Unreleased]: https://github.com/atostivint/hermes-adaptive-effort/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/atostivint/hermes-adaptive-effort/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v0.6.0
 [0.5.0]: https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v0.5.0
 [0.4.0]: https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v0.4.0
 [0.3.1]: https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v0.3.1
