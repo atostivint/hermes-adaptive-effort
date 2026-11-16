@@ -355,6 +355,13 @@ GO_MEASURED_ROUTES = {
     "minimax-m3.1-flash": ("low", "medium", "high", "xhigh", "max"),
     "step-5-preview": ("low", "medium", "high"),
     "glm-5.3-flash": ("low", "high", "max"),
+    # Measured 2026-11-16 (opencode-go-new-models-20261116): one 200 per listed level,
+    # acceptance only. ``minimal`` was probed on ``hy4-flash-free`` alone.
+    "hy4-flash-free": ("minimal", "low", "medium", "high", "xhigh", "max"),
+    "qwen4-max": ("low", "medium", "high", "xhigh", "max"),
+    "kimi-k2.7-code": ("low", "medium", "high", "xhigh", "max"),
+    "longcat-2.0": ("low", "medium", "high", "xhigh", "max"),
+    "iceman-contributor-free": ("low", "medium", "high", "xhigh"),
 }
 
 
@@ -389,6 +396,13 @@ def test_measurement_confirms_the_three_already_registered_go_entries():
         "minimax-m3.1-flash": ("reasoning_effort", ("low", "medium", "high", "xhigh",
                                                     "max")),
         "step-5-preview": ("reasoning_effort", ("low", "medium", "high")),
+        # 2026-11-16 catalogue run; acceptance only.
+        "hy4-flash-free": ("reasoning_effort", ("minimal", "low", "medium", "high", "xhigh",
+                                                "max")),
+        "qwen4-max": ("reasoning_effort", ("low", "medium", "high", "xhigh", "max")),
+        "kimi-k2.7-code": ("reasoning_effort", ("low", "medium", "high", "xhigh", "max")),
+        "longcat-2.0": ("reasoning_effort", ("low", "medium", "high", "xhigh", "max")),
+        "iceman-contributor-free": ("reasoning_effort", ("low", "medium", "high", "xhigh")),
     }
     assert effort.route_choice_levels(
         "opencode-go", "deepseek-v4.1-flash", "chat_completions") == (
@@ -417,6 +431,27 @@ def test_measured_go_routes_require_the_chat_completions_api_mode(model):
         assert effort.route_choice_levels("opencode-go", model, api) == (), api
 
 
+def test_403_and_429_go_models_are_deliberately_not_registered():
+    """Absence of access is not absence of a field: those ids stay unknown, never pinned."""
+    refused = (
+        # HTTP 403 "Model access is disabled" on this workspace, every level, body never judged.
+        "hy4", "hy4-preview", "hy3", "qwen3.8-flash", "qwen3.8-max", "qwen3.7-plus",
+        "kimi-k3.1-pro", "mimo-v2.6-pro", "minimax-m3",
+        # HTTP 429 on every level, including the one allowed retry.
+        "longcat-2.5-free",
+    )
+    for model in refused:
+        assert effort.route_choice_levels(
+            "opencode-go", model, "chat_completions") == (), model
+        assert model not in effort.OPEN_CODE_GO_INJECTION_ROUTES["chat_completions"], model
+    # Neighbouring names of the five registered ids are never inferred either.
+    for model in ("hy4-flash", "hy4-flash-free-preview", "qwen4", "qwen4-max-preview",
+                  "kimi-k2.7", "kimi-k2.7-code-preview", "longcat-2", "longcat-2.0-free",
+                  "iceman", "iceman-contributor", "iceman-contributor-free-preview"):
+        assert effort.route_choice_levels(
+            "opencode-go", model, "chat_completions") == (), model
+
+
 @pytest.mark.parametrize(("model", "levels"), sorted(GO_MEASURED_ROUTES.items()))
 def test_measured_go_routes_require_the_opencode_go_provider(model, levels):
     for provider in ("openai", "opencode-zen", "zai", "openrouter", "anthropic", "", None):
@@ -435,6 +470,13 @@ def test_measured_go_routes_require_the_opencode_go_provider(model, levels):
     ("minimax-m3.1-flash", "minimal"),
     ("step-5-preview", "max"),
     ("glm-5.3-flash", "medium"),
+    # 2026-11-16: the gateway itself refused ``max`` on this id and named xhigh as the top.
+    ("iceman-contributor-free", "max"),
+    # ``minimal`` was probed on hy4-flash-free alone: the other four never accept it.
+    ("qwen4-max", "minimal"),
+    ("kimi-k2.7-code", "minimal"),
+    ("longcat-2.0", "minimal"),
+    ("iceman-contributor-free", "minimal"),
 ])
 def test_measured_go_vocabulary_rejects_an_answer_outside_the_route_list(provider, model,
                                                                         value):
