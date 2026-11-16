@@ -155,8 +155,11 @@ def test_manifest_schema_budget_and_blocked_reason_are_explicit():
     assert report["schema"] == "hermes-adaptive-effort.validation-check.v1"
     assert report["valid"] is True
     assert report["network_requests"] == 0
-    assert report["go_score_mappings"] == 51
-    assert report["go_distinct_wire_pairs"] == 44
+    # 22 exact Go routes x 3 scores (low/medium/high): 17 routes -> 51 before the 2026-11-16
+    # catalogue run, +5 registered routes -> 66. The wire pairs are (exact model, wire value):
+    # the same 5 routes add 3 each (low/medium/high all map to themselves) -> 44 + 15 = 59.
+    assert report["go_score_mappings"] == 66
+    assert report["go_distinct_wire_pairs"] == 59
     assert report["run_ready"] is False
     assert list(find_mappings_with_values(report, CODEX_USAGE_POLICY))
     assert report["run_block_reason"] == (

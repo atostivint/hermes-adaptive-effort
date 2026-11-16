@@ -73,6 +73,22 @@ OPEN_CODE_GO_INJECTION_ROUTES = {
         # (the value was taken) is not evidence of a distinct reasoning intensity.
         "minimax-m3.1-flash": ("reasoning_effort", ("low", "medium", "high", "xhigh", "max")),
         "step-5-preview": ("reasoning_effort", ("low", "medium", "high")),
+        # Measured 2026-11-16 on zen/go/v1; acceptance only, intensity unmeasured.
+        "hy4-flash-free": ("reasoning_effort", ("minimal", "low", "medium", "high", "xhigh",
+                                                "max")),
+        # Measured 2026-11-16 on zen/go/v1; acceptance only, intensity unmeasured.
+        # ``minimal`` was not probed for this id and is not inferred.
+        "qwen4-max": ("reasoning_effort", ("low", "medium", "high", "xhigh", "max")),
+        # Measured 2026-11-16 on zen/go/v1; acceptance only, intensity unmeasured.
+        # ``minimal`` was not probed for this id and is not inferred.
+        "kimi-k2.7-code": ("reasoning_effort", ("low", "medium", "high", "xhigh", "max")),
+        # Measured 2026-11-16 on zen/go/v1; acceptance only, intensity unmeasured.
+        # ``minimal`` was not probed for this id and is not inferred.
+        "longcat-2.0": ("reasoning_effort", ("low", "medium", "high", "xhigh", "max")),
+        # Measured 2026-11-16 on zen/go/v1; acceptance only, intensity unmeasured. The gateway
+        # refused ``max`` and named low/medium/high/xhigh as the supported set, so xhigh is the
+        # ceiling; ``minimal`` was not probed and is not inferred.
+        "iceman-contributor-free": ("reasoning_effort", ("low", "medium", "high", "xhigh")),
     },
 }
 _OPEN_CODE_GO_PROVIDERS = frozenset({"opencode-go", "opencode_go", "go", "opencode-go-sub"})

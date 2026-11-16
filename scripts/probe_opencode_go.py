@@ -49,6 +49,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -201,11 +202,12 @@ def endpoint_for(base_url, api_mode):
 
 
 def _scrub(text, key):
-    """Remove the credential from a diagnostic string before it reaches the log."""
+    """Remove the credential and account identifiers before a message reaches the log."""
     if not text:
         return ""
     if key:
         text = text.replace(key, "<redacted>")
+    text = re.sub(r"wrk_[A-Za-z0-9]+", "<workspace>", text)
     return text[:200]
 
 
@@ -303,6 +305,189 @@ def _print_record(record):
     print(line)
 
 
+# ── catalogue mode (2026-11-16: which new Go ids carry a reasoning-effort field) ──────────
+
+#: A fixed system line of roughly 50 tokens, so the probe looks like a real request
+#: without any user data. The probe question stays the same one-line prompt.
+CATALOG_SYSTEM = (
+    "This is a fixed measurement request. The system text is constant across every call, "
+    "contains no user data, and exists only so the request has a stable ~50-token system "
+    "message in front of a single short question. Answer the question literally and stop."
+)
+#: The 85-request ceiling from the 2026-11-16 brief.
+MAX_CATALOG_REQUESTS = 85
+DEFAULT_CATALOG_OUT = (REPO_ROOT / "docs" / "validation" / "runs"
+                       / "opencode-go-new-models-20261116" / "probe.jsonl")
+
+
+def parse_model_levels(spec):
+    """``"model=level,level;model=level"`` -> ``[(model, [level, ...]), ...]`` in order."""
+    plan = []
+    for chunk in (spec or "").split(";"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        model, _, levels = chunk.partition("=")
+        model = model.strip()
+        chosen = [level.strip() for level in levels.split(",") if level.strip()]
+        if model and chosen:
+            plan.append((model, chosen))
+    return plan
+
+
+def classify_verdict(status, error_code):
+    """Turn one HTTP result into the verdict the report is built from."""
+    message = (error_code or "").lower()
+    if status == 200:
+        return "accepted"
+    if status == 401:
+        return "auth"
+    if status == 403:
+        # "Model access is disabled" is a per-model workspace decision, not a bad credential;
+        # reporting it as an auth failure would have stopped the whole catalogue run.
+        if "access is disabled" in message or "model access" in message:
+            return "model_access_disabled"
+        return "auth"
+    if status == 429:
+        return "rate_limited"
+    if status in (400, 422):
+        if any(marker in message for marker in (
+                "isn't included", "is not included", "model not found", "unknown model",
+                "does not exist", "no such model", "invalid model")):
+            return "model_unusable"
+        if any(marker in message for marker in (
+                "effort", "reasoning", "thinking", "level")):
+            return "level_refused"
+        return "bad_request"
+    return "error"
+
+
+def _catalog_body(model, level):
+    return {
+        "model": model,
+        "messages": [{"role": "system", "content": CATALOG_SYSTEM},
+                     {"role": "user", "content": PROBE_PROMPT}],
+        "max_tokens": 4,
+        "temperature": 0,
+        "stream": False,
+        "reasoning_effort": level,
+    }
+
+
+def probe_catalog(base_url, key, session_id, model, level, timeout_s):
+    """One catalogue probe. Returns ``(record, transient)``; no prompt or key is recorded."""
+    url = base_url.rstrip("/") + "/chat/completions"
+    request = urllib.request.Request(url, data=json.dumps(_catalog_body(model, level)).encode(),
+                                     method="POST")
+    request.add_header("Content-Type", "application/json")
+    request.add_header("Accept", "application/json")
+    request.add_header("User-Agent", "hermes-adaptive-effort-catalog-probe/1")
+    request.add_header("x-opencode-session", session_id)
+    if key:
+        request.add_header("Authorization", "Bearer " + key)
+    record = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "model": model, "level": level, "carrier": CARRIER_REASONING_EFFORT,
+              "status": 0, "verdict": "error", "error_code": None, "latency_ms": 0.0}
+    transient = False
+    started = time.monotonic()
+    try:
+        response = _opener().open(request, timeout=timeout_s)
+        try:
+            response.read(65536)
+            record["status"] = int(response.status)
+        finally:
+            response.close()
+    except urllib.error.HTTPError as error:
+        record["status"] = int(error.code)
+        transient = int(error.code) in (429, 500, 502, 503, 504, 529)
+        payload = _read_error(error)
+        error.close()
+        code = _error_code(payload)
+        record["error_code"] = _scrub(code, key) if code else None
+    except Exception as error:  # timeout, DNS, TLS
+        record["status"] = 0
+        record["error_code"] = type(error).__name__
+    record["latency_ms"] = round((time.monotonic() - started) * 1000.0, 1)
+    record["verdict"] = classify_verdict(record["status"], record["error_code"])
+    return record, transient
+
+
+def run_catalog(args):
+    """Probe each ``model=levels`` pair sequentially under the catalogue budget."""
+    plan = parse_model_levels(args.model_levels)
+    if not plan:
+        print("no --model-levels given (expected \"model=level,level;model=level\")",
+              file=sys.stderr)
+        return 2
+    planned = sum(len(levels) for _model, levels in plan)
+    if args.dry_run:
+        print("catalogue dry run: {0} model(s), {1} request(s), budget {2}, nothing sent".format(
+            len(plan), planned, MAX_CATALOG_REQUESTS))
+        print("endpoint base: " + args.base_url)
+        print("output: " + args.out)
+        print("")
+        print("{:<30} {:<9} {}".format("model", "carrier", "levels"))
+        for model, levels in plan:
+            print("{:<30} {:<9} {}".format(model, CARRIER_REASONING_EFFORT, ",".join(levels)))
+        return 0
+
+    key, key_source = resolve_key()
+    if not key:
+        print("STOP: no OpenCode Go credential found (env OPENCODE_GO_API_KEY, "
+              "OPENCODE_API_KEY, or the CLI auth store). Nothing sent.", file=sys.stderr)
+        return 2
+
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    session_id = args.session_id.strip() or str(uuid.uuid4())
+    print("credential source: " + key_source)
+    print("endpoint base: " + args.base_url)
+    print("output: " + str(out_path))
+    print("")
+    print("{:<30} {:<9} {:>4} {:<14} {}".format(
+        "model", "level", "HTTP", "verdict", "error"))
+    sent = 0
+    accepted_models = set()
+    stop_reason = None
+    for model, levels in plan:
+        for level in levels:
+            if sent >= MAX_CATALOG_REQUESTS:
+                stop_reason = "request budget exhausted"
+                break
+            record, transient = probe_catalog(args.base_url, key, session_id, model, level,
+                                              args.timeout)
+            sent += 1
+            with out_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+            print("{:<30} {:<9} {:>4} {:<14} {}".format(
+                record["model"], record["level"], record["status"], record["verdict"],
+                (record["error_code"] or "")[:90]))
+            if record["verdict"] == "accepted":
+                accepted_models.add(model)
+            if record["verdict"] == "auth":
+                stop_reason = "authentication failed (HTTP {0})".format(record["status"])
+                break
+            if transient and sent < MAX_CATALOG_REQUESTS:
+                time.sleep(2.0)
+                retry, _ = probe_catalog(args.base_url, key, session_id, model, level,
+                                         args.timeout)
+                sent += 1
+                with out_path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(retry, ensure_ascii=True) + "\n")
+                print("  retry -> {0} {1}".format(retry["status"], retry["verdict"]))
+                if retry["verdict"] == "accepted":
+                    accepted_models.add(model)
+        if stop_reason:
+            break
+    print("")
+    print("{0} request(s) sent (budget {1}); {2}/{3} models accepted at least one level".format(
+        sent, MAX_CATALOG_REQUESTS, len(accepted_models), len(plan)))
+    if stop_reason:
+        print("STOP: " + stop_reason, file=sys.stderr)
+        return 3
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Probe which reasoning-effort levels the OpenCode Go routes accept.")
@@ -321,7 +506,14 @@ def main(argv=None):
     parser.add_argument("--session-id", default="",
                         help="value for the required x-opencode-session header "
                              "(default: a fresh UUID for the run)")
+    parser.add_argument("--catalog", action="store_true",
+                        help="catalogue mode: probe new ids with an explicit model=levels spec")
+    parser.add_argument("--model-levels", default="",
+                        help="catalogue spec: \"model=level,level;model=level\"")
     args = parser.parse_args(argv)
+
+    if args.catalog:
+        return run_catalog(args)
 
     wanted_models = {m.strip() for m in args.models.split(",") if m.strip()}
     wanted_levels = {lv.strip() for lv in args.levels.split(",") if lv.strip()}

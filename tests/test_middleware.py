@@ -317,6 +317,8 @@ GO_MODEL_API_MODES = {
     "muse-spark-1.3-contributor": "codex_responses",
     "muse-spark-1.2-contributor": "codex_responses",
     "omen-alpha": "chat_completions", "gpt-6-luna": "codex_responses",
+    "hy4-flash-free": "chat_completions", "qwen4-max": "chat_completions",
+    "iceman-contributor-free": "chat_completions",
 }
 
 GO_INJECTION_MODELS = {
@@ -324,6 +326,9 @@ GO_INJECTION_MODELS = {
     "muse-spark-1.3-contributor", "muse-spark-1.2-contributor", "glm-5.2",
     "glm-5.3", "glm-5.3-flash", "kimi-k3", "mimo-v2.6-flash", "deepseek-v4-pro",
     "deepseek-v4-flash", "deepseek-v4.1-flash", "minimax-m3.1-flash", "step-5-preview",
+    # Measured 2026-11-16 (opencode-go-new-models-20261116), acceptance only.
+    "hy4-flash-free", "qwen4-max", "kimi-k2.7-code", "longcat-2.0",
+    "iceman-contributor-free",
 }
 
 
