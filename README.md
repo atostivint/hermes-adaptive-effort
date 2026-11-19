@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/atostivint/hermes-adaptive-effort/actions/workflows/ci.yml/badge.svg)](https://github.com/atostivint/hermes-adaptive-effort/actions/workflows/ci.yml) [![Security](https://github.com/atostivint/hermes-adaptive-effort/actions/workflows/security.yml/badge.svg)](https://github.com/atostivint/hermes-adaptive-effort/actions/workflows/security.yml)
 
-One of four small Hermes Agent tools built to make daily use practical on simple, affordable setups. Adaptive Effort asks a separate decision model to judge each task, then adjusts the reasoning effort of the outgoing request. Your conversation model still answers. Off by default, fails open.
+A Hermes plugin that asks a separate System One decision model to judge each task, then adjusts the reasoning effort of the outgoing model request.
 
 Your conversation model still answers the task. You choose the scorer: Jev (the default), OpenAI Decisions, an OpenRouter decision model (Decisions API), Cloudflare Clef / Clef Flash / Clef Omni, Nace Drex (`drex-v2.0`, key `NACE_API_KEY`), a local Ollama model (no key), or a custom System One endpoint.
 
