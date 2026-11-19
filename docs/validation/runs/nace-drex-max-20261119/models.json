@@ -1,0 +1,77 @@
+{
+  "endpoint": "https://console.nace.ai/v1/models",
+  "status": 200,
+  "latency_ms": 296.0,
+  "candidates": [
+    "drex-max",
+    "drex-max-v1.1",
+    "drex-max-finance",
+    "drex-latest"
+  ],
+  "available": [
+    "drex-max",
+    "drex-max-v1.1",
+    "drex-max-finance",
+    "drex-latest"
+  ],
+  "returned_ids": [
+    "drex-v2.0",
+    "drex-max-v1.1",
+    "drex-max-finance",
+    "drex-latest",
+    "drex-v1.0",
+    "drex-v1.1",
+    "drex-v1.5",
+    "drex-max"
+  ],
+  "catalog": [
+    {
+      "name": "drex-v2.0",
+      "alias_for": null,
+      "release_date": "2026-10-06",
+      "retired": false
+    },
+    {
+      "name": "drex-max-v1.1",
+      "alias_for": null,
+      "release_date": "2026-10-28",
+      "retired": false
+    },
+    {
+      "name": "drex-max-finance",
+      "alias_for": null,
+      "release_date": "2026-11-01",
+      "retired": false
+    },
+    {
+      "name": "drex-latest",
+      "alias_for": "drex-max-v1.1",
+      "release_date": "2026-10-28",
+      "retired": false
+    },
+    {
+      "name": "drex-v1.0",
+      "alias_for": "drex-max-v1.1",
+      "release_date": "2026-09-24",
+      "retired": true
+    },
+    {
+      "name": "drex-v1.1",
+      "alias_for": "drex-max-v1.1",
+      "release_date": "2026-09-25",
+      "retired": true
+    },
+    {
+      "name": "drex-v1.5",
+      "alias_for": "drex-max-v1.1",
+      "release_date": "2026-09-28",
+      "retired": true
+    },
+    {
+      "name": "drex-max",
+      "alias_for": "drex-max-v1.1",
+      "release_date": "2026-10-13",
+      "retired": true
+    }
+  ]
+}

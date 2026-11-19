@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- The existing `nace_model` setting now has validated Drex Max ids: `drex-max-v1.1`, `drex-max-finance`, the moving alias `drex-latest` and the retired `drex-max` (served by v1.1). A live 2026-11-19 check returned valid named-choice, numeric-score and continuation answers for all four through the unchanged adapter; `drex-max` and `drex-latest` report `model: drex-max-v1.1`. Max models share one whole-request 262,144-token budget and add 422 / 529 failure paths. No default change (`drex-v2.0`) and no runtime change. Cost, quality and long-state behaviour are unmeasured (see `docs/validation/runs/nace-drex-max-20261119/report.md`).
+
 ## [0.6.0] - 2026-11-16
 
 ### Added
