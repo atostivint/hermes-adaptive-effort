@@ -110,6 +110,8 @@ settings:
   nace_model: drex-v2.0
 ```
 
+`drex-v2.0` stays the default. The same `nace_model` setting also accepts the validated Drex Max ids `drex-max-v1.1` and `drex-max-finance`, the moving alias `drex-latest`, and the retired `drex-max` (served by v1.1). Max models share one whole-request 262,144-token budget and differ in failure codes and reported model id; see the [configuration note](docs/CONFIGURATION.md#nace-drex) and the [2026-11-19 live check](docs/validation/runs/nace-drex-max-20261119/report.md). Cost, quality and long-state behaviour are unmeasured.
+
 </details>
 
 <details>

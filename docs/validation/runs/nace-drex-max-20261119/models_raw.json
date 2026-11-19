@@ -1,0 +1,53 @@
+{
+  "models": [
+    {
+      "name": "drex-v2.0",
+      "description": "Drex 2.0 decision model, a mixture of experts with 3B active parameters. Typed questions in, calibrated probabilities out; states up to 131,072 tokens.",
+      "release_date": "2026-10-06",
+      "alias_for": null
+    },
+    {
+      "name": "drex-max-v1.1",
+      "description": "Drex Max v1.1 multimodal decision model. Typed questions in, calibrated probabilities out; up to 262,144 input tokens across the whole request. A long state is read as a subset chosen for your questions.",
+      "release_date": "2026-10-28",
+      "alias_for": null
+    },
+    {
+      "name": "drex-max-finance",
+      "description": "Drex Max Finance multimodal decision model for finance. Up to 262,144 input tokens across the whole request. A long state is read as a subset chosen for your questions.",
+      "release_date": "2026-11-01",
+      "alias_for": null
+    },
+    {
+      "name": "drex-latest",
+      "description": "Points to drex-max-v1.1 (Drex Max v1.1). Moves to a newer version only on an announced date.",
+      "release_date": "2026-10-28",
+      "alias_for": "drex-max-v1.1"
+    },
+    {
+      "name": "drex-v1.0",
+      "description": "Retired on 2026-10-21. Requests that name it are served by drex-max-v1.1 (Drex Max v1.1) at its price.",
+      "release_date": "2026-09-24",
+      "alias_for": "drex-max-v1.1"
+    },
+    {
+      "name": "drex-v1.1",
+      "description": "Retired on 2026-09-28. Requests that name it are served by drex-max-v1.1 (Drex Max v1.1) at its price.",
+      "release_date": "2026-09-25",
+      "alias_for": "drex-max-v1.1"
+    },
+    {
+      "name": "drex-v1.5",
+      "description": "Retired on 2026-11-08. Requests that name it are served by drex-max-v1.1 (Drex Max v1.1) at its price.",
+      "release_date": "2026-09-28",
+      "alias_for": "drex-max-v1.1"
+    },
+    {
+      "name": "drex-max",
+      "description": "Retired on 2026-11-08. Requests that name it are served by drex-max-v1.1 (Drex Max v1.1) at its price.",
+      "release_date": "2026-10-13",
+      "alias_for": "drex-max-v1.1"
+    }
+  ],
+  "request_id": "req_56b9ddfa6de57f6fadcee33e478d56ab"
+}
