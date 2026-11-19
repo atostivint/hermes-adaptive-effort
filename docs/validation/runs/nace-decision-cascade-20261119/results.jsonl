@@ -1,0 +1,60 @@
+{"calls": 1, "expected": "minimal", "failures": 0, "invalid_answers": 0, "item_id": "c002", "label": "minimal", "latency_ms": 1109.0, "strategy": "oneshot", "tags": ["short_followup", "ambiguous"]}
+{"calls": 3, "expected": "minimal", "failures": 0, "invalid_answers": 0, "item_id": "c002", "label": "minimal", "latency_ms": 2000.0, "strategy": "cascade", "tags": ["short_followup", "ambiguous"]}
+{"calls": 1, "expected": "minimal", "failures": 0, "invalid_answers": 0, "item_id": "c007", "label": "low", "latency_ms": 407.0, "strategy": "oneshot", "tags": ["trivial_vs_architectural"]}
+{"calls": 3, "expected": "minimal", "failures": 0, "invalid_answers": 0, "item_id": "c007", "label": "minimal", "latency_ms": 1828.0, "strategy": "cascade", "tags": ["trivial_vs_architectural"]}
+{"calls": 1, "expected": "minimal", "failures": 0, "invalid_answers": 0, "item_id": "c011", "label": "minimal", "latency_ms": 531.0, "strategy": "oneshot", "tags": ["short_followup"]}
+{"calls": 3, "expected": "minimal", "failures": 0, "invalid_answers": 0, "item_id": "c011", "label": "minimal", "latency_ms": 1719.0, "strategy": "cascade", "tags": ["short_followup"]}
+{"calls": 1, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c013", "label": "low", "latency_ms": 328.0, "strategy": "oneshot", "tags": ["fix_vs_explain", "trivial_vs_architectural"]}
+{"calls": 3, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c013", "label": "minimal", "latency_ms": 969.0, "strategy": "cascade", "tags": ["fix_vs_explain", "trivial_vs_architectural"]}
+{"calls": 1, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c015", "label": "low", "latency_ms": 468.0, "strategy": "oneshot", "tags": ["short_followup", "ambiguous"]}
+{"calls": 3, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c015", "label": "minimal", "latency_ms": 954.0, "strategy": "cascade", "tags": ["short_followup", "ambiguous"]}
+{"calls": 1, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c018", "label": "low", "latency_ms": 437.0, "strategy": "oneshot", "tags": ["trivial_vs_architectural"]}
+{"calls": 3, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c018", "label": "minimal", "latency_ms": 1016.0, "strategy": "cascade", "tags": ["trivial_vs_architectural"]}
+{"calls": 1, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c021", "label": "low", "latency_ms": 328.0, "strategy": "oneshot", "tags": ["short_followup", "ambiguous"]}
+{"calls": 3, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c021", "label": "minimal", "latency_ms": 938.0, "strategy": "cascade", "tags": ["short_followup", "ambiguous"]}
+{"calls": 1, "expected": "medium", "failures": 0, "invalid_answers": 0, "item_id": "c025", "label": "low", "latency_ms": 547.0, "strategy": "oneshot", "tags": ["fix_vs_explain"]}
+{"calls": 3, "expected": "medium", "failures": 0, "invalid_answers": 0, "item_id": "c025", "label": "low", "latency_ms": 969.0, "strategy": "cascade", "tags": ["fix_vs_explain"]}
+{"calls": 1, "expected": "medium", "failures": 0, "invalid_answers": 0, "item_id": "c033", "label": "medium", "latency_ms": 422.0, "strategy": "oneshot", "tags": ["trivial_vs_architectural", "multi_step"]}
+{"calls": 3, "expected": "medium", "failures": 0, "invalid_answers": 0, "item_id": "c033", "label": "low", "latency_ms": 1000.0, "strategy": "cascade", "tags": ["trivial_vs_architectural", "multi_step"]}
+{"calls": 1, "expected": "high", "failures": 0, "invalid_answers": 0, "item_id": "c034", "label": "medium", "latency_ms": 500.0, "strategy": "oneshot", "tags": ["multi_step", "ambiguous"]}
+{"calls": 2, "expected": "high", "failures": 0, "invalid_answers": 0, "item_id": "c034", "label": "medium", "latency_ms": 953.0, "strategy": "cascade", "tags": ["multi_step", "ambiguous"]}
+{"calls": 1, "expected": "high", "failures": 0, "invalid_answers": 0, "item_id": "c040", "label": "high", "latency_ms": 406.0, "strategy": "oneshot", "tags": ["fix_vs_explain", "multi_step"]}
+{"calls": 2, "expected": "high", "failures": 0, "invalid_answers": 0, "item_id": "c040", "label": "max", "latency_ms": 641.0, "strategy": "cascade", "tags": ["fix_vs_explain", "multi_step"]}
+{"calls": 1, "expected": "high", "failures": 0, "invalid_answers": 0, "item_id": "c041", "label": "medium", "latency_ms": 484.0, "strategy": "oneshot", "tags": ["trivial_vs_architectural", "multi_step"]}
+{"calls": 2, "expected": "high", "failures": 0, "invalid_answers": 0, "item_id": "c041", "label": "medium", "latency_ms": 641.0, "strategy": "cascade", "tags": ["trivial_vs_architectural", "multi_step"]}
+{"calls": 1, "expected": "high", "failures": 0, "invalid_answers": 0, "item_id": "c044", "label": "high", "latency_ms": 344.0, "strategy": "oneshot", "tags": ["fix_vs_explain", "multi_step"]}
+{"calls": 2, "expected": "high", "failures": 0, "invalid_answers": 0, "item_id": "c044", "label": "medium", "latency_ms": 625.0, "strategy": "cascade", "tags": ["fix_vs_explain", "multi_step"]}
+{"calls": 1, "expected": "xhigh", "failures": 0, "invalid_answers": 0, "item_id": "c054", "label": "medium", "latency_ms": 344.0, "strategy": "oneshot", "tags": ["ambiguous", "multi_step"]}
+{"calls": 3, "expected": "xhigh", "failures": 0, "invalid_answers": 0, "item_id": "c054", "label": "high", "latency_ms": 984.0, "strategy": "cascade", "tags": ["ambiguous", "multi_step"]}
+{"calls": 1, "expected": "max", "failures": 0, "invalid_answers": 0, "item_id": "c059", "label": "high", "latency_ms": 328.0, "strategy": "oneshot", "tags": ["fix_vs_explain", "multi_step"]}
+{"calls": 2, "expected": "max", "failures": 0, "invalid_answers": 0, "item_id": "c059", "label": "max", "latency_ms": 906.0, "strategy": "cascade", "tags": ["fix_vs_explain", "multi_step"]}
+{"calls": 1, "expected": "max", "failures": 0, "invalid_answers": 0, "item_id": "c064", "label": "medium", "latency_ms": 313.0, "strategy": "oneshot", "tags": ["ambiguous", "multi_step"]}
+{"calls": 3, "expected": "max", "failures": 0, "invalid_answers": 0, "item_id": "c064", "label": "high", "latency_ms": 4000.0, "strategy": "cascade", "tags": ["ambiguous", "multi_step"]}
+{"calls": 1, "expected": "medium", "failures": 0, "invalid_answers": 0, "item_id": "c068", "label": "high", "latency_ms": 484.0, "strategy": "oneshot", "tags": ["correction_or_replan"]}
+{"calls": 3, "expected": "medium", "failures": 0, "invalid_answers": 0, "item_id": "c068", "label": "minimal", "latency_ms": 985.0, "strategy": "cascade", "tags": ["correction_or_replan"]}
+{"calls": 1, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c070", "label": "low", "latency_ms": 328.0, "strategy": "oneshot", "tags": ["correction_or_replan"]}
+{"calls": 3, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c070", "label": "minimal", "latency_ms": 968.0, "strategy": "cascade", "tags": ["correction_or_replan"]}
+{"calls": 1, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c072", "label": "low", "latency_ms": 407.0, "strategy": "oneshot", "tags": ["correction_or_replan", "short_followup"]}
+{"calls": 3, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c072", "label": "minimal", "latency_ms": 1015.0, "strategy": "cascade", "tags": ["correction_or_replan", "short_followup"]}
+{"calls": 1, "expected": "medium", "failures": 0, "invalid_answers": 0, "item_id": "c073", "label": "low", "latency_ms": 344.0, "strategy": "oneshot", "tags": ["correction_or_replan"]}
+{"calls": 3, "expected": "medium", "failures": 0, "invalid_answers": 0, "item_id": "c073", "label": "minimal", "latency_ms": 1000.0, "strategy": "cascade", "tags": ["correction_or_replan"]}
+{"calls": 1, "expected": "high", "failures": 0, "invalid_answers": 0, "item_id": "c075", "label": "high", "latency_ms": 484.0, "strategy": "oneshot", "tags": ["correction_or_replan", "multi_step"]}
+{"calls": 2, "expected": "high", "failures": 0, "invalid_answers": 0, "item_id": "c075", "label": "max", "latency_ms": 641.0, "strategy": "cascade", "tags": ["correction_or_replan", "multi_step"]}
+{"calls": 1, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c077", "label": "low", "latency_ms": 328.0, "strategy": "oneshot", "tags": ["strict_format"]}
+{"calls": 3, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c077", "label": "minimal", "latency_ms": 938.0, "strategy": "cascade", "tags": ["strict_format"]}
+{"calls": 1, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c078", "label": "low", "latency_ms": 375.0, "strategy": "oneshot", "tags": ["mechanical_edit"]}
+{"calls": 3, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c078", "label": "minimal", "latency_ms": 968.0, "strategy": "cascade", "tags": ["mechanical_edit"]}
+{"calls": 1, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c080", "label": "low", "latency_ms": 454.0, "strategy": "oneshot", "tags": ["mechanical_edit"]}
+{"calls": 3, "expected": "low", "failures": 0, "invalid_answers": 0, "item_id": "c080", "label": "minimal", "latency_ms": 1109.0, "strategy": "cascade", "tags": ["mechanical_edit"]}
+{"calls": 1, "expected": "medium", "failures": 0, "invalid_answers": 0, "item_id": "c081", "label": "low", "latency_ms": 344.0, "strategy": "oneshot", "tags": ["strict_format"]}
+{"calls": 3, "expected": "medium", "failures": 0, "invalid_answers": 0, "item_id": "c081", "label": "minimal", "latency_ms": 1015.0, "strategy": "cascade", "tags": ["strict_format"]}
+{"calls": 1, "expected": "medium", "failures": 0, "invalid_answers": 0, "item_id": "c082", "label": "medium", "latency_ms": 313.0, "strategy": "oneshot", "tags": ["mechanical_edit"]}
+{"calls": 3, "expected": "medium", "failures": 0, "invalid_answers": 0, "item_id": "c082", "label": "low", "latency_ms": 1390.0, "strategy": "cascade", "tags": ["mechanical_edit"]}
+{"calls": 1, "expected": "medium", "failures": 0, "invalid_answers": 0, "item_id": "c083", "label": "low", "latency_ms": 344.0, "strategy": "oneshot", "tags": ["strict_format"]}
+{"calls": 3, "expected": "medium", "failures": 0, "invalid_answers": 0, "item_id": "c083", "label": "minimal", "latency_ms": 1000.0, "strategy": "cascade", "tags": ["strict_format"]}
+{"calls": 1, "expected": "high", "failures": 0, "invalid_answers": 0, "item_id": "c084", "label": "medium", "latency_ms": 469.0, "strategy": "oneshot", "tags": ["strict_format", "ambiguous"]}
+{"calls": 2, "expected": "high", "failures": 0, "invalid_answers": 0, "item_id": "c084", "label": "medium", "latency_ms": 641.0, "strategy": "cascade", "tags": ["strict_format", "ambiguous"]}
+{"calls": 1, "expected": "high", "failures": 0, "invalid_answers": 0, "item_id": "c085", "label": "high", "latency_ms": 328.0, "strategy": "oneshot", "tags": ["strict_format", "multi_step"]}
+{"calls": 2, "expected": "high", "failures": 0, "invalid_answers": 0, "item_id": "c085", "label": "medium", "latency_ms": 640.0, "strategy": "cascade", "tags": ["strict_format", "multi_step"]}
+{"calls": 1, "expected": "high", "failures": 0, "invalid_answers": 0, "item_id": "c086", "label": "medium", "latency_ms": 516.0, "strategy": "oneshot", "tags": ["mechanical_edit", "ambiguous"]}
+{"calls": 3, "expected": "high", "failures": 0, "invalid_answers": 0, "item_id": "c086", "label": "high", "latency_ms": 1125.0, "strategy": "cascade", "tags": ["mechanical_edit", "ambiguous"]}
