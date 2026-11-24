@@ -14,7 +14,8 @@ from typing import Any, Dict, Optional, Tuple
 # (PEP 562 ``__getattr__`` below), so a profile that never selects them never imports them.
 from . import cloudflare_client, jev_client, nace_client, ollama_client
 
-_LAZY_ADAPTERS = frozenset({"custom_client", "openai_decision_client", "openrouter_client"})
+_LAZY_ADAPTERS = frozenset({"custom_client", "openai_decision_client", "openrouter_client",
+                            "opencode_go_client"})
 
 
 def __getattr__(name: str) -> Any:
@@ -30,9 +31,10 @@ OPENROUTER = "openrouter"
 CLOUDFLARE = "cloudflare"
 CUSTOM = "custom"
 OPENAI_DECISION = "openai_decision"
+OPENCODE_GO = "opencode_go"
 NACE = "nace"
 OLLAMA = "ollama"
-PROVIDERS = (JEV, OPENROUTER, CLOUDFLARE, CUSTOM, OPENAI_DECISION, NACE, OLLAMA)
+PROVIDERS = (JEV, OPENROUTER, CLOUDFLARE, CUSTOM, OPENAI_DECISION, OPENCODE_GO, NACE, OLLAMA)
 
 # Default scoring deadline (seconds) used when the operator leaves ``timeout_s`` at 0.
 # Not measured on this plugin's traffic: the Jev/Clef figures come from claude-router's
@@ -43,6 +45,7 @@ PROVIDER_TIMEOUT_S = {
     OPENROUTER: 3.0,
     CLOUDFLARE: 3.0,
     OPENAI_DECISION: 3.0,
+    OPENCODE_GO: 3.0,
     NACE: 3.0,
     CUSTOM: 10.0,
     # A local model may have to load into memory on the first call; a longer cold start still
@@ -90,6 +93,17 @@ def build_client(settings: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]
             openai_decision_client = __getattr__("openai_decision_client")
             return openai_decision_client.OpenAIDecisionClient(
                 model=settings.get("scorer_model") or openai_decision_client.DEFAULT_MODEL,
+                timeout=settings["timeout_s"],
+                max_prompt_chars=settings["prompt_chars"],
+                classification_instructions=settings.get("classification_instructions", ""),
+            ), None
+        except Exception:
+            return None, "classifier_error"
+    if provider == OPENCODE_GO:
+        try:
+            opencode_go_client = __getattr__("opencode_go_client")
+            return opencode_go_client.OpenCodeGoClient(
+                model=settings.get("scorer_model") or opencode_go_client.DEFAULT_MODEL,
                 timeout=settings["timeout_s"],
                 max_prompt_chars=settings["prompt_chars"],
                 classification_instructions=settings.get("classification_instructions", ""),
@@ -168,6 +182,8 @@ def credential_present(provider: Any = JEV, custom_auth: Any = "none") -> bool:
         return __getattr__("openrouter_client").credential_present()
     if selected == OPENAI_DECISION:
         return __getattr__("openai_decision_client").credential_present()
+    if selected == OPENCODE_GO:
+        return __getattr__("opencode_go_client").credential_present()
     if selected == CLOUDFLARE:
         return cloudflare_client.credential_present()
     if selected == NACE:
@@ -185,7 +201,7 @@ def credential_required(provider: Any = JEV, custom_auth: Any = "none") -> bool:
     selected = str(provider or JEV).strip().lower()
     if selected == CUSTOM:
         return str(custom_auth or "none").strip().lower() == "bearer"
-    return selected in (JEV, OPENROUTER, CLOUDFLARE, OPENAI_DECISION, NACE)
+    return selected in (JEV, OPENROUTER, CLOUDFLARE, OPENAI_DECISION, OPENCODE_GO, NACE)
 
 
 def endpoint_for(provider: Any, jev_endpoint: Any, cloudflare_account_id: Any = "",
@@ -198,6 +214,9 @@ def endpoint_for(provider: Any, jev_endpoint: Any, cloudflare_account_id: Any = 
         return endpoint, endpoint
     if selected == OPENAI_DECISION:
         endpoint = __getattr__("openai_decision_client").DEFAULT_ENDPOINT
+        return endpoint, endpoint
+    if selected == OPENCODE_GO:
+        endpoint = __getattr__("opencode_go_client").DEFAULT_ENDPOINT
         return endpoint, endpoint
     if selected == NACE:
         raw = nace_client.configured_base_url()
@@ -232,6 +251,9 @@ def model_for(provider: Any, configured_model: Any,
         return str(ollama_model or "").strip()
     if selected == OPENAI_DECISION:
         default_model = __getattr__("openai_decision_client").DEFAULT_MODEL
+        return str(configured_model or default_model).strip() or default_model
+    if selected == OPENCODE_GO:
+        default_model = __getattr__("opencode_go_client").DEFAULT_MODEL
         return str(configured_model or default_model).strip() or default_model
     return str(configured_model or "").strip()
 

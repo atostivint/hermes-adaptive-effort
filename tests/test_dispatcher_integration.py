@@ -213,6 +213,50 @@ def test_real_dispatcher_routes_through_openai_decisions_adapter(dispatched, no_
     assert entry["probes"] == 1
 
 
+def test_real_dispatcher_routes_through_opencode_go_adapter(dispatched, no_network, monkeypatch):
+    """The real dispatcher selects the Go adapter and sends one System One score question."""
+    from hermes_cli.middleware import apply_llm_request_middleware
+
+    middleware = dispatched["middleware"]
+    middleware.reset_state()
+    middleware._classifier_factory = None
+    settings = {"mode": "auto", "scorer_provider": "opencode_go", "scorer_model": ""}
+    monkeypatch.setattr(
+        middleware, "_settings_provider", lambda key, default=None: settings.get(key, default))
+    # The adapter loads lazily; resolve it through the payload's own scorers module.
+    client = _payload_module(dispatched["home"], ".scorers").opencode_go_client
+    monkeypatch.setattr(client, "_default_key_reader", lambda: "test-go-key")
+    requests = []
+
+    def transport(request, _timeout):
+        requests.append(request)
+        return {"answers": {"effort": {"score": 1.75}}}
+
+    monkeypatch.setattr(client, "_default_transport", transport)
+    request = _recorded()
+    result = apply_llm_request_middleware(
+        request,
+        session_id="sess-int-opencode-go",
+        provider="openrouter",
+        model="openrouter/meta/llama-3.3-70b-instruct",
+        api_mode="chat",
+        turn_id="turn-opencode-go",
+    )
+
+    assert result.changed is True
+    assert result.payload["extra_body"]["reasoning"]["effort"] == "high"
+    assert len(requests) == 1
+    body = json.loads(requests[0].data.decode("utf-8"))
+    assert requests[0].full_url == "https://opencode.ai/inference/go/systemone/v1/systemone"
+    assert body["model"] == "jev-1.14"
+    entry = middleware.session_state()["sess-int-opencode-go/turn-opencode-go"]
+    assert entry["provider"] == "openrouter"
+    assert entry["model"] == "openrouter/meta/llama-3.3-70b-instruct"
+    assert entry["scorer_provider"] == "opencode_go"
+    assert entry["scorer_model"] == "jev-1.14"
+    assert entry["probes"] == 1
+
+
 def test_real_dispatcher_leaves_the_request_untouched_when_mode_is_off(dispatched, no_network):
     from hermes_cli.middleware import apply_llm_request_middleware
 

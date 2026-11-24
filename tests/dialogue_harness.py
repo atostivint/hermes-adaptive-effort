@@ -16,7 +16,7 @@ from conftest import PLUGIN_DIR, import_plugin
 middleware = import_plugin("middleware")
 _ADAPTER_MODULES = tuple(import_plugin(name) for name in (
     "jev_client", "nace_client", "openrouter_client", "openai_decision_client",
-    "cloudflare_client", "custom_client"))
+    "cloudflare_client", "custom_client", "opencode_go_client"))
 
 ACCOUNT_ID = "0123456789abcdef0123456789abcdef"
 
@@ -39,6 +39,7 @@ ADAPTERS: Dict[str, Dict[str, Any]] = {
     "nace": {"scorer_provider": "nace"},
     "openrouter": {"scorer_provider": "openrouter", "scorer_model": "vendor/scorer"},
     "openai_decision": {"scorer_provider": "openai_decision"},
+    "opencode_go": {"scorer_provider": "opencode_go"},
     "cloudflare": {"scorer_provider": "cloudflare", "cloudflare_account_id": ACCOUNT_ID,
                    "cloudflare_model": "clef"},
     "custom_systemone": {"scorer_provider": "custom", "scorer_model": "rubric-v1",

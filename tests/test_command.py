@@ -154,6 +154,25 @@ def test_openai_decisions_status_reports_default_model_fixed_endpoint_and_creden
     assert "configured: https://api.typesafe.ai" not in rendered
 
 
+def test_opencode_go_status_reports_default_model_fixed_endpoint_and_credential(monkeypatch):
+    configured = {"scorer_provider": "opencode_go"}
+    monkeypatch.setattr(middleware, "_settings_provider",
+                        lambda key, default=None: configured.get(key, default))
+    monkeypatch.setattr(middleware._scorers.opencode_go_client, "_default_key_reader",
+                        lambda: "")
+
+    payload = json.loads(command.handle("status json"))
+    rendered = command.handle("status full")
+    endpoint = "https://opencode.ai/inference/go/systemone/v1/systemone"
+    assert payload["settings"]["scorer_provider"] == "opencode_go"
+    assert payload["settings"]["scorer_model_effective"] == "jev-1.14"
+    assert payload["settings"]["endpoint_effective"] == endpoint
+    assert payload["credential_required"] is True
+    assert payload["credential"] is False
+    assert f"Endpoint: {endpoint}" in rendered
+    assert "configured: https://api.typesafe.ai" not in rendered
+
+
 def test_ollama_status_reports_the_local_chat_endpoint_not_the_jev_base(monkeypatch):
     configured = {"scorer_provider": "ollama", "ollama_model": "llama3.2:3b"}
     monkeypatch.setattr(middleware, "_settings_provider",

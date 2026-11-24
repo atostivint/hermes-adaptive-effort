@@ -9,6 +9,7 @@ openrouter_client = import_plugin("openrouter_client")
 cloudflare_client = import_plugin("cloudflare_client")
 custom_client = import_plugin("custom_client")
 openai_decision_client = import_plugin("openai_decision_client")
+opencode_go_client = import_plugin("opencode_go_client")
 nace_client = import_plugin("nace_client")
 ollama_client = import_plugin("ollama_client")
 scorers = import_plugin("scorers")
@@ -68,6 +69,38 @@ def test_openai_decisions_uses_an_explicit_model_and_shared_guidance():
     assert failure is None
     assert client.model == "configured-model"
     assert client.classification_instructions == guidance
+
+
+def test_opencode_go_uses_fixed_endpoint_and_defaults_the_decision_model():
+    client, failure = scorers.build_client(settings(scorer_provider="opencode_go"))
+    assert failure is None
+    assert isinstance(client, opencode_go_client.OpenCodeGoClient)
+    assert client.model == "jev-1.14"
+    endpoint = scorers.endpoint_for("opencode_go", "ignored")
+    assert endpoint == (opencode_go_client.DEFAULT_ENDPOINT,
+                        opencode_go_client.DEFAULT_ENDPOINT)
+    assert scorers.model_for("opencode_go", "") == "jev-1.14"
+    assert scorers.credential_required("opencode_go") is True
+    assert "opencode_go" in scorers.PROVIDERS
+
+
+def test_opencode_go_uses_an_explicit_model_and_shared_guidance():
+    guidance = "Prefer high when the task spans independent systems."
+    client, failure = scorers.build_client(settings(
+        scorer_provider="opencode_go", scorer_model="gpt-6-luna-decision",
+        classification_instructions=guidance))
+    assert failure is None
+    assert client.model == "gpt-6-luna-decision"
+    assert client.classification_instructions == guidance
+    assert scorers.model_for("opencode_go", "gpt-6-luna-decision") == "gpt-6-luna-decision"
+
+
+def test_opencode_go_credential_presence_uses_its_own_reader_only(monkeypatch):
+    monkeypatch.setattr(opencode_go_client, "_default_key_reader", lambda: "")
+    monkeypatch.setattr(jev_client, "_default_key_reader", lambda: "jev-key")
+    assert scorers.credential_present("opencode_go") is False
+    monkeypatch.setattr(opencode_go_client, "_default_key_reader", lambda: "go-key")
+    assert scorers.credential_present("opencode_go") is True
 
 
 def test_cloudflare_uses_fixed_model_and_requires_a_valid_account():
@@ -153,6 +186,7 @@ def test_classifier_guidance_is_shared_by_every_provider():
         settings(**common, scorer_provider="custom", scorer_model="local-model",
                  custom_endpoint="http://127.0.0.1:8080/v1/systemone"),
         settings(**common, scorer_provider="openai_decision"),
+        settings(**common, scorer_provider="opencode_go"),
         settings(**common, scorer_provider="nace"),
     )
 
@@ -173,6 +207,9 @@ def test_status_endpoint_and_model_follow_selected_scorer():
     assert scorers.model_for("openai_decision", "") == "gpt-6-luna"
     assert scorers.endpoint_for("openai_decision", "ignored")[1] == \
         openai_decision_client.DEFAULT_ENDPOINT
+    assert scorers.model_for("opencode_go", "") == opencode_go_client.DEFAULT_MODEL
+    assert scorers.endpoint_for("opencode_go", "ignored")[1] == \
+        opencode_go_client.DEFAULT_ENDPOINT
     account_id = "0123456789abcdef0123456789abcdef"
     endpoint, effective = scorers.endpoint_for("cloudflare", "jev-endpoint", account_id)
     assert endpoint == effective == cloudflare_client.endpoint_for(account_id)
@@ -197,10 +234,12 @@ def test_importing_scorers_does_not_import_unselected_adapters():
     out = subprocess.run([sys.executable, "-I", "-c", code, str(PLUGIN_DIR)],
                          capture_output=True, text=True, check=True).stdout.splitlines()
     before, after = out
-    for lazy in ("custom_client", "openai_decision_client", "openrouter_client"):
+    for lazy in ("custom_client", "openai_decision_client", "openrouter_client",
+                 "opencode_go_client"):
         assert lazy not in before
     assert "openai_decision_client" in after
     assert "custom_client" not in after and "openrouter_client" not in after
+    assert "opencode_go_client" not in after
 
 
 def test_build_client_returns_the_right_client_for_every_provider():
@@ -210,6 +249,7 @@ def test_build_client_returns_the_right_client_for_every_provider():
         "cloudflare": cloudflare_client.CloudflareClient,
         "custom": custom_client.CustomClient,
         "openai_decision": openai_decision_client.OpenAIDecisionClient,
+        "opencode_go": opencode_go_client.OpenCodeGoClient,
         "nace": nace_client.NaceClient,
         "ollama": ollama_client.OllamaClient,
     }

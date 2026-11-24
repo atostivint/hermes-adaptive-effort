@@ -36,6 +36,7 @@ Required keys resolve through Hermes' secret scope first, then the process envir
 | --- | --- | --- |
 | Jev | `TYPESAFE_API_KEY` | None; `jev_model` defaults to `jev-latest` |
 | OpenAI Decisions | `OPENAI_API_KEY` | None; empty `scorer_model` uses `gpt-6-luna` |
+| OpenCode Go | `OPENCODE_GO_API_KEY` (legacy `OPENCODE_API_KEY` also accepted) | None; empty `scorer_model` uses `jev-1.14` |
 | OpenRouter | `OPENROUTER_API_KEY` | Explicit `scorer_model` naming an OpenRouter decision model |
 | Cloudflare | `CLOUDFLARE_AUTH_TOKEN` | 32-character hexadecimal `cloudflare_account_id` |
 | Nace | `NACE_API_KEY` (legacy `DREX_API_KEY` also accepted) | None; `nace_model` defaults to `drex-v2.0` |
@@ -103,6 +104,25 @@ settings:
 The plugin uses the fixed `https://api.openai.com/v1/decisions` endpoint and defaults to `gpt-6-luna`. `scorer_model` can pass an explicit model, but the [official Decisions guide](https://developers.openai.com/api/docs/guides/decisions) listed only `gpt-6-luna` during the 2026-10-07 review. The API was in public beta at that review.
 
 For an exact model/API route with a registered effort vocabulary, the adapter asks one choice question containing those named levels and accepts exactly one of them. Other routes use the legacy ordered score question. A refusal, unavailable model or invalid response leaves the original request unchanged.
+
+### OpenCode Go
+
+Use a Go API key as `OPENCODE_GO_API_KEY`. Keys resolve through Hermes' secret scope first, then the process environment (see [Make credentials available](#make-credentials-available)); the legacy `OPENCODE_API_KEY` is read only when the primary is absent or empty. `/hae status` reports presence without exposing the key.
+
+```yaml
+settings:
+  mode: auto
+  scorer_provider: opencode_go
+  scorer_model: "jev-1.14"
+```
+
+The endpoint is fixed at `https://opencode.ai/inference/go/systemone/v1/systemone`: there is no operator-configurable URL, and the body is the shared System One rubric. Every request carries the named `hermes-adaptive-effort/<version>` User-Agent; a generic `Python-urllib` User-Agent is rejected by Cloudflare with HTTP 403, code 1010. Decision requests need no `x-opencode-session` header. An empty `scorer_model` defaults to `jev-1.14`; the other known decision model IDs are `gemini-decision-1` and `gpt-6-luna-decision`. A non-empty value is passed through as an operator assertion — the adapter does not verify that the endpoint accepts it. The Go decision endpoint is distinct from the OpenCode console / pay-as-you-go API: use a key valid for the Go endpoint, not a console-only key.
+
+The default deadline is 3.0 s (`timeout_s: 0`; see [Default scoring deadline per provider](#default-scoring-deadline-per-provider)). There is no provider fallback: a missing key (`credential_missing`), timeout, transport error or malformed answer leaves the original request unchanged and appears in status. Routing still starts `off`.
+
+Check the connection with `/hae probe <text>` after selecting this provider. Probe scores the text you type with the selected scorer, uses the shared numeric `0..2` score contract (not the route's named choices), stores no decision and may incur charges; it works even while routing is off. An HTTP 403/1010 there means the named User-Agent was not sent; a `credential_missing` result means no Go key resolved. The adapter is fail-open like every other one; see [adapter contracts](CONTRACTS.md#scorer-adapter-contracts).
+
+An operator probe on 2026-11-24 used synthetic tasks and an operator key (never printed) and returned finite `0..2` scores plus correct named choices for all three known models. Any latency or cost figures from that probe are single-call observations, not an A/B measurement.
 
 ### OpenRouter
 
@@ -192,10 +212,10 @@ The defaults below match `middleware.DEFAULTS` and the manifest settings schema.
 | --- | --- | --- |
 | `mode` | `off` | Main mode: `auto`, `once`, `always`, `off` |
 | `subagent_mode` | `off` | Independent child mode; the main mode must also be active |
-| `scorer_provider` | `jev` | `jev`, `openai_decision`, `openrouter`, `cloudflare`, `nace`, `ollama`, `custom` |
+| `scorer_provider` | `jev` | `jev`, `openai_decision`, `opencode_go`, `openrouter`, `cloudflare`, `nace`, `ollama`, `custom` |
 | `jev_model` | `jev-latest` | Jev model name |
 | `endpoint` | `https://api.typesafe.ai/v1/systemone` | Jev endpoint; ignored by other scorers |
-| `scorer_model` | empty | Optional for OpenAI Decisions; required for OpenRouter/custom |
+| `scorer_model` | empty | Optional for OpenAI Decisions and OpenCode Go (defaults noted above); required for OpenRouter/custom |
 | `cloudflare_account_id` | empty | Cloudflare account ID |
 | `cloudflare_model` | `clef` | `clef`, `clef-flash` or `clef-omni` |
 | `nace_model` | `drex-v2.0` | Nace Drex model name |
@@ -236,6 +256,7 @@ When `timeout_s` is `0` (the default) the deadline follows the selected `scorer_
 | `openrouter` | 3.0 s |
 | `cloudflare` | 3.0 s |
 | `openai_decision` | 3.0 s |
+| `opencode_go` | 3.0 s |
 | `nace` | 3.0 s |
 | `ollama` | 10.0 s (a local model may have to load into memory on the first call; a longer cold start still fails open on that call) |
 | `custom` | 10.0 s (often fronts a local model that must load on its first call; a longer cold start still fails open on that call) |
@@ -387,6 +408,6 @@ These limits describe the plugin. They do not guarantee how an external service 
 
 - OpenRouter requests ask for ZDR endpoints and deny data-collecting endpoints (`provider` preferences; documented in the Decisions request schema). OpenRouter still processes the input; see its [ZDR policy and routing controls](https://openrouter.ai/docs/guides/features/zdr).
 - OpenAI documents Decisions ZDR support for eligible customers. The plugin cannot verify account eligibility; see the [Decisions guide](https://developers.openai.com/api/docs/guides/decisions).
-- The plugin gives no ZDR guarantee for Jev, Cloudflare, Nace or custom endpoints. With `scorer_provider: ollama`, task text stays on this machine only when `ollama_endpoint` is local; the plugin cannot vouch for a remote URL an operator types.
+- The plugin gives no ZDR guarantee for Jev, Cloudflare, Nace, OpenCode Go or custom endpoints. The Go decision endpoint is distinct from the OpenCode console / pay-as-you-go API, and no ZDR is claimed for Go decision models. With `scorer_provider: ollama`, task text stays on this machine only when `ollama_endpoint` is local; the plugin cannot vouch for a remote URL an operator types.
 
 No provider falls back to another scorer. Missing configuration, transport errors, timeouts or malformed scores leave requests unchanged and appear in status. See [troubleshooting](USAGE.md#troubleshooting).
