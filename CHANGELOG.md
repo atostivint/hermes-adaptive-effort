@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-24
+
 ### Added
 
 - The existing `nace_model` setting now has validated Drex Max ids: `drex-max-v1.1`, `drex-max-finance`, the moving alias `drex-latest` and the retired `drex-max` (served by v1.1). A live 2026-11-19 check returned valid named-choice, numeric-score and continuation answers for all four through the unchanged adapter; `drex-max` and `drex-latest` report `model: drex-max-v1.1`. Max models share one whole-request 262,144-token budget and add 422 / 529 failure paths. No default change (`drex-v2.0`) and no runtime change. Cost, quality and long-state behaviour are unmeasured (see `docs/validation/runs/nace-drex-max-20261119/report.md`).
@@ -143,7 +145,8 @@ First tagged pre-release with four routing modes, five scorer providers, and rou
 
 See [full release notes](docs/releases/v0.3.0.md) for validation limits and contract changes.
 
-[Unreleased]: https://github.com/atostivint/hermes-adaptive-effort/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/atostivint/hermes-adaptive-effort/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v0.7.0
 [0.6.0]: https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v0.6.0
 [0.5.0]: https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v0.5.0
 [0.4.0]: https://github.com/atostivint/hermes-adaptive-effort/releases/tag/v0.4.0
