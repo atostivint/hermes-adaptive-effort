@@ -118,6 +118,8 @@ def scorer_model_name(settings: Dict[str, Any], scorers: Any) -> str:
     configured = str(settings.get("scorer_model") or "")
     if provider == scorers.OPENAI_DECISION and not configured:
         return str(scorers.openai_decision_client.DEFAULT_MODEL)
+    if provider == scorers.OPENCODE_GO and not configured:
+        return str(scorers.opencode_go_client.DEFAULT_MODEL)
     return configured
 
 

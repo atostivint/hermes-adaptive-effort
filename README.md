@@ -4,7 +4,7 @@
 
 A Hermes plugin that asks a separate System One decision model to judge each task, then adjusts the reasoning effort of the outgoing model request.
 
-Your conversation model still answers the task. You choose the scorer: Jev (the default), OpenAI Decisions, an OpenRouter decision model (Decisions API), Cloudflare Clef / Clef Flash / Clef Omni, Nace Drex (`drex-v2.0`, key `NACE_API_KEY`), a local Ollama model (no key), or a custom System One endpoint.
+Your conversation model still answers the task. You choose the scorer: Jev (the default), OpenAI Decisions, OpenCode Go decision models, an OpenRouter decision model (Decisions API), Cloudflare Clef / Clef Flash / Clef Omni, Nace Drex (`drex-v2.0`, key `NACE_API_KEY`), a local Ollama model (no key), or a custom System One endpoint.
 
 > **Preview:** v0.3.0 is a pre-release. Live effort acceptance is only partially validated; see the [release notes](docs/releases/v0.3.0.md#validation-status--read-before-relying-on-it).
 
@@ -34,6 +34,7 @@ Any one scorer is enough; Jev is only the default. Pick one:
 | --- | --- | --- | --- |
 | Jev (TypeSafe) | `jev` (default) | `TYPESAFE_API_KEY` | Nothing |
 | OpenAI Decisions | `openai_decision` | `OPENAI_API_KEY` | Nothing (`gpt-6-luna` by default) |
+| OpenCode Go | `opencode_go` | `OPENCODE_GO_API_KEY` | Nothing (`jev-1.14` by default; legacy `OPENCODE_API_KEY` fallback) |
 | OpenRouter Decisions | `openrouter` | `OPENROUTER_API_KEY` | A decision model in `scorer_model` |
 | Cloudflare Clef | `cloudflare` | `CLOUDFLARE_AUTH_TOKEN` | Your 32-hex `cloudflare_account_id` |
 | Nace Drex | `nace` | `NACE_API_KEY` | Nothing (`drex-v2.0` by default) |
@@ -69,6 +70,21 @@ Use an `OPENAI_API_KEY` from your OpenAI API account. The plugin calls the fixed
 settings:
   scorer_provider: openai_decision
 ```
+
+</details>
+
+<details>
+<summary><b>OpenCode Go</b></summary>
+
+Use a Go API key as `OPENCODE_GO_API_KEY` (the legacy `OPENCODE_API_KEY` is read when the primary is absent). The plugin posts a System One body to the fixed `https://opencode.ai/inference/go/systemone/v1/systemone` endpoint; there is no endpoint setting and no `x-opencode-session` header is sent for decision requests. Every request carries the named `hermes-adaptive-effort/<version>` User-Agent — a generic `Python-urllib` User-Agent is rejected by Cloudflare with HTTP 403 code 1010. An empty `scorer_model` uses `jev-1.14`; the other known decision model IDs are `gemini-decision-1` and `gpt-6-luna-decision`.
+
+```yaml
+settings:
+  scorer_provider: opencode_go
+  scorer_model: "jev-1.14"   # optional; also gemini-decision-1 or gpt-6-luna-decision
+```
+
+The Go decision endpoint is distinct from the OpenCode console / pay-as-you-go API, and no ZDR is claimed for Go decision models. This adapter fails open like the others (a missing key, timeout, transport error or malformed answer leaves the request unchanged) and never falls back to another scorer; routing still starts `off`. Check it with `/hae probe <text>`, which scores text you type with the selected scorer even while routing is off. See the [configuration guide](docs/CONFIGURATION.md#opencode-go).
 
 </details>
 

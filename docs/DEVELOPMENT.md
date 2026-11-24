@@ -65,7 +65,7 @@ A function autouse fixture resets plugin state and substitutes empty settings, s
 | Request preservation, modes, turn/route reuse and concurrency | `test_middleware.py`, `test_command_modes.py`, `test_turn_scope.py`, `test_decision_cache.py`, `test_cache_safety.py` |
 | Mapping, rubric and exact model context | `test_effort.py`, `test_rubric.py`, `test_model_profiles.py` |
 | Named choices, scorer formats, exact route options and Claude turn markers | `test_named_effort_choices.py`, `test_native_choice_middleware.py` |
-| Scorer construction and transports | `test_scorers.py`, `test_jev_client.py`, `test_openai_decision_client.py`, `test_openrouter_client.py`, `test_cloudflare_client.py`, `test_nace_client.py`, `test_custom_client.py`, `test_scorer_retry.py`, `test_scorer_http.py` |
+| Scorer construction and transports | `test_scorers.py`, `test_jev_client.py`, `test_openai_decision_client.py`, `test_opencode_go_client.py`, `test_openrouter_client.py`, `test_cloudflare_client.py`, `test_nace_client.py`, `test_custom_client.py`, `test_scorer_retry.py`, `test_scorer_http.py` |
 | Child lifecycle and routing | `test_subagent.py` |
 | Goal and kanban continuation escalation: markers, ladder, ceiling, scope, privacy | `test_goal_continuation.py` |
 | Dynamic-route trial: verdicts, persistence, status codes, hooks, privacy | `test_route_trial.py` (plus hook registration in `test_dispatcher_integration.py`) |

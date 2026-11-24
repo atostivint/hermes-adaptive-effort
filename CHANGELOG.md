@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The existing `nace_model` setting now has validated Drex Max ids: `drex-max-v1.1`, `drex-max-finance`, the moving alias `drex-latest` and the retired `drex-max` (served by v1.1). A live 2026-11-19 check returned valid named-choice, numeric-score and continuation answers for all four through the unchanged adapter; `drex-max` and `drex-latest` report `model: drex-max-v1.1`. Max models share one whole-request 262,144-token budget and add 422 / 529 failure paths. No default change (`drex-v2.0`) and no runtime change. Cost, quality and long-state behaviour are unmeasured (see `docs/validation/runs/nace-drex-max-20261119/report.md`).
 
+- An optional OpenCode Go decision scorer (`scorer_provider: opencode_go`) that sends the plugin's rubric as a System One body to the fixed `https://opencode.ai/inference/go/systemone/v1/systemone` endpoint with a named `hermes-adaptive-effort/<version>` User-Agent and no `x-opencode-session` header, using `OPENCODE_GO_API_KEY` (legacy `OPENCODE_API_KEY` fallback) and an empty `scorer_model` that defaults to `jev-1.14` (known IDs `gemini-decision-1` and `gpt-6-luna-decision`; provider timeout 3 s). It is fail-open with no fallback and mode stays `off` by default. A 2026-11-24 live probe returned finite 0..2 scores and correct named choices for all three models on the plugin's exact rubric; that was one call per model, not an A/B measurement of cost, quality or cache.
+
 ## [0.6.0] - 2026-11-16
 
 ### Added

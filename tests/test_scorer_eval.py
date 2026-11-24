@@ -80,6 +80,15 @@ def test_percentile_nearest_rank():
     assert script.percentile([], 50) is None
 
 
+def test_scorer_model_name_opencode_go_default_and_explicit_passthrough():
+    assert script.scorer_model_name({"scorer_provider": "opencode_go"}, scorers) == "jev-1.14"
+    assert script.scorer_model_name({"scorer_provider": "opencode_go"}, scorers) == \
+        scorers.opencode_go_client.DEFAULT_MODEL
+    assert script.scorer_model_name(
+        {"scorer_provider": "opencode_go", "scorer_model": "custom-go-model"}, scorers
+    ) == "custom-go-model"
+
+
 class _Clock:
     """Each call advances 0.05 s, so every timed classification measures 50 ms."""
 

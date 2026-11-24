@@ -18,6 +18,7 @@ jev_client = import_plugin("jev_client")
 nace_client = import_plugin("nace_client")
 openrouter_client = import_plugin("openrouter_client")
 openai_client = import_plugin("openai_decision_client")
+opencode_go_client = import_plugin("opencode_go_client")
 cloudflare_client = import_plugin("cloudflare_client")
 custom_client = import_plugin("custom_client")
 
@@ -219,6 +220,7 @@ PAYLOADS = {
     "openai_decision": {"answers": [{"name": "effort", "type": "score", "score": 1.25,
                                      "probabilities": [], "confidence": 1.0}],
                         "model": "gpt-6-luna", "usage": {}},
+    "opencode_go": {"answers": {"effort": SCORE}},
     "cloudflare": {"success": True, "errors": [], "messages": [],
                    "result": {"answers": {"effort": SCORE}}},
     "custom": {"answers": {"effort": SCORE}},
@@ -235,6 +237,9 @@ def _client(name, transport):
             model="vendor/model", api_key="k", transport=transport, timeout=2.0)
     if name == "openai_decision":
         return openai_client.OpenAIDecisionClient(
+            key_reader=lambda: "k", transport=transport, timeout=2.0)
+    if name == "opencode_go":
+        return opencode_go_client.OpenCodeGoClient(
             key_reader=lambda: "k", transport=transport, timeout=2.0)
     if name == "cloudflare":
         return cloudflare_client.CloudflareClient(
