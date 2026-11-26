@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import os
 import sys
 import types
 import urllib.error
@@ -120,8 +121,14 @@ def test_secret_scope_precedes_environment_then_environment_is_fallback(monkeypa
     monkeypatch.setenv("OPENAI_API_KEY", "environment-key")
 
     assert client_module._default_key_reader() == "scope-key"
-    secret_scope.get_secret = lambda _key, _default: ""
+
+    # A normal single-profile get_secret reads the environment itself.
+    secret_scope.get_secret = lambda key, default: os.environ.get(key, default)
     assert client_module._default_key_reader() == "environment-key"
+
+    # A routed profile with no key in scope must not inherit the launch environment.
+    secret_scope.get_secret = lambda key, default: default
+    assert client_module._default_key_reader() == ""
 
 
 def test_credential_probe_does_not_make_a_request():

@@ -414,6 +414,114 @@ def test_retry_semantics_are_unchanged_through_the_shared_sender():
     assert len(calls) == 1
 
 
+# ── secret resolution ────────────────────────────────────────────────────────
+
+
+def _fake_secret_scope(monkeypatch, get_secret):
+    import sys
+    import types
+
+    scope = types.ModuleType("agent.secret_scope")
+    scope.get_secret = get_secret
+    monkeypatch.setitem(sys.modules, "agent.secret_scope", scope)
+
+
+def test_read_secret_returns_empty_when_scope_has_no_value_even_if_environment_has_one(monkeypatch):
+    # A routed profile must never inherit the launch profile's environment key.
+    _fake_secret_scope(monkeypatch, lambda name, default: default)
+    monkeypatch.setenv("SCORER_HTTP_TEST_KEY", "launch-profile-key")
+    assert scorer_http.read_secret("SCORER_HTTP_TEST_KEY") == ""
+
+
+def test_read_secret_uses_the_scope_value_and_the_single_profile_env_path(monkeypatch):
+    monkeypatch.setenv("SCORER_HTTP_TEST_KEY", "environment-key")
+    seen = []
+
+    def get_secret(name, default):
+        seen.append(name)
+        # Real get_secret reads os.environ outside multiplex mode.
+        return os.environ.get(name, default)
+
+    _fake_secret_scope(monkeypatch, get_secret)
+    assert scorer_http.read_secret("SCORER_HTTP_TEST_KEY") == "environment-key"
+    assert seen == ["SCORER_HTTP_TEST_KEY"]
+
+    _fake_secret_scope(monkeypatch, lambda name, default: " scope-key ")
+    assert scorer_http.read_secret("SCORER_HTTP_TEST_KEY") == "scope-key"
+
+
+def test_read_secret_fails_open_when_the_scope_lookup_raises(monkeypatch):
+    def unscoped(name, default):
+        raise RuntimeError("no scope installed while multiplexing")
+
+    _fake_secret_scope(monkeypatch, unscoped)
+    monkeypatch.setenv("SCORER_HTTP_TEST_KEY", "launch-profile-key")
+    assert scorer_http.read_secret("SCORER_HTTP_TEST_KEY") == ""
+
+
+# ── active profile identity ──────────────────────────────────────────────────
+
+
+def _fake_hermes(monkeypatch, *, profile_home=None, override=None,
+                 process_home="process-home"):
+    import sys
+    import types
+
+    constants = types.ModuleType("hermes_constants")
+    constants.get_hermes_home_override = lambda: override
+    constants.get_routing_process_hermes_home = lambda: process_home
+    constants.hermes_home_key = lambda home: f"key({home})"
+    monkeypatch.setitem(sys.modules, "hermes_constants", constants)
+
+    class State:
+        secrets = types.SimpleNamespace(profile_home=profile_home)
+
+    scope = types.ModuleType("hermes_scope")
+    scope.current_state = lambda: State()
+    monkeypatch.setitem(sys.modules, "hermes_scope", scope)
+
+
+def test_active_profile_key_prefers_the_bound_scope_home(monkeypatch):
+    _fake_hermes(monkeypatch, profile_home="scope-home", override="override-home")
+    assert scorer_http._active_profile_key() == "key(scope-home)"
+
+
+def test_active_profile_key_falls_back_to_override_then_process_home(monkeypatch):
+    _fake_hermes(monkeypatch, profile_home=None, override="override-home")
+    assert scorer_http._active_profile_key() == "key(override-home)"
+
+    _fake_hermes(monkeypatch, profile_home=None, override=None)
+    assert scorer_http._active_profile_key() == "key(process-home)"
+
+
+def test_active_profile_key_fails_open_when_hermes_lookup_fails(monkeypatch):
+    import sys
+    import types
+
+    def boom():
+        raise RuntimeError("home unavailable")
+
+    constants = types.ModuleType("hermes_constants")
+    constants.get_hermes_home_override = boom
+    constants.get_routing_process_hermes_home = boom
+    constants.hermes_home_key = boom
+    monkeypatch.setitem(sys.modules, "hermes_constants", constants)
+    assert scorer_http._active_profile_key() == ""
+
+
+def test_active_profile_key_is_empty_when_hermes_is_absent(monkeypatch):
+    import builtins
+    real_import = builtins.__import__
+
+    def no_hermes(name, *args, **kwargs):
+        if name == "hermes_constants" or name.startswith("hermes_constants."):
+            raise ImportError("no Hermes on this host")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_hermes)
+    assert scorer_http._active_profile_key() == ""
+
+
 # ── key cache ────────────────────────────────────────────────────────────────
 
 
@@ -457,6 +565,57 @@ def test_clear_key_cache_and_reset_state_drop_cached_keys():
     assert scorer_http.resolve_key("p", lambda: "new") == "new"
     middleware.reset_state()
     assert scorer_http.resolve_key("p", lambda: "newer") == "newer"
+
+
+def test_resolve_key_is_partitioned_by_the_active_profile(monkeypatch):
+    profile = ["profile-a"]
+    monkeypatch.setattr(scorer_http, "_active_profile_key", lambda: profile[0])
+    reads = []
+
+    def reader():
+        reads.append(1)
+        return f"key-{len(reads)}"
+
+    assert scorer_http.resolve_key("p", reader) == "key-1"
+    profile[0] = "profile-b"
+    assert scorer_http.resolve_key("p", reader) == "key-2"
+    profile[0] = "profile-a"
+    assert scorer_http.resolve_key("p", reader) == "key-1"
+    assert len(reads) == 2
+
+
+def test_resolve_key_ttl_and_profile_partition_are_independent(monkeypatch):
+    profile = ["profile-a"]
+    monkeypatch.setattr(scorer_http, "_active_profile_key", lambda: profile[0])
+    now = [100.0]
+    reads = []
+
+    def reader():
+        reads.append(1)
+        return f"key-{len(reads)}"
+
+    clock = lambda: now[0]  # noqa: E731
+    assert scorer_http.resolve_key("p", reader, clock=clock) == "key-1"
+    now[0] += 1
+    assert scorer_http.resolve_key("p", reader, clock=clock) == "key-1"
+    profile[0] = "profile-b"
+    assert scorer_http.resolve_key("p", reader, clock=clock) == "key-2"
+    now[0] += scorer_http.KEY_TTL_S
+    assert scorer_http.resolve_key("p", reader, clock=clock) == "key-3"
+    assert len(reads) == 3
+
+
+def test_clear_key_cache_drops_keys_of_every_profile(monkeypatch):
+    profile = ["profile-a"]
+    monkeypatch.setattr(scorer_http, "_active_profile_key", lambda: profile[0])
+    assert scorer_http.resolve_key("p", lambda: "a-old") == "a-old"
+    profile[0] = "profile-b"
+    assert scorer_http.resolve_key("p", lambda: "b-old") == "b-old"
+
+    scorer_http.clear_key_cache()
+    assert scorer_http.resolve_key("p", lambda: "b-fresh") == "b-fresh"
+    profile[0] = "profile-a"
+    assert scorer_http.resolve_key("p", lambda: "a-fresh") == "a-fresh"
 
 
 @pytest.mark.parametrize("name", NAMES)

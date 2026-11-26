@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import os
 import sys
 import types
 import urllib.error
@@ -197,12 +198,18 @@ def test_primary_credential_then_legacy_name_resolve_secret_scope_before_environ
     assert client_module._default_key_reader() == "scope-primary"
     assert seen[0] == ("scope", "OPENCODE_GO_API_KEY")
 
-    scope.get_secret = lambda name, default: default
+    # A normal single-profile get_secret reads the environment itself.
+    scope.get_secret = lambda name, default: os.environ.get(name, default)
     assert client_module._default_key_reader() == "env-primary"
 
     monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
     assert client_module._default_key_reader() == "env-legacy"
     monkeypatch.delenv("OPENCODE_API_KEY", raising=False)
+    assert client_module._default_key_reader() == ""
+
+    # A routed profile with no key in scope must not inherit the launch environment.
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "env-primary")
+    scope.get_secret = lambda name, default: default
     assert client_module._default_key_reader() == ""
 
 

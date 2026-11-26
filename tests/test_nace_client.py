@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sys
 import types
 import urllib.error
@@ -144,9 +145,10 @@ def test_raising_key_reader_is_treated_as_missing_credential():
 
 def test_nace_key_wins_over_legacy_drex_key_and_secret_scope_precedes_env(monkeypatch):
     # Never consult the real Hermes secret store from a unit test.
-    empty_scope = types.ModuleType("agent.secret_scope")
-    empty_scope.get_secret = lambda name, default: default
-    monkeypatch.setitem(sys.modules, "agent.secret_scope", empty_scope)
+    scope = types.ModuleType("agent.secret_scope")
+    # Outside multiplex mode get_secret reads the process environment itself.
+    scope.get_secret = lambda name, default: os.environ.get(name, default)
+    monkeypatch.setitem(sys.modules, "agent.secret_scope", scope)
     monkeypatch.delenv("NACE_API_KEY", raising=False)
     monkeypatch.delenv("DREX_API_KEY", raising=False)
     assert nace_client._default_key_reader() == ""
@@ -157,11 +159,13 @@ def test_nace_key_wins_over_legacy_drex_key_and_secret_scope_precedes_env(monkey
     monkeypatch.setenv("NACE_API_KEY", "nace-env")
     assert nace_client._default_key_reader() == "nace-env"
 
-    scope = types.ModuleType("agent.secret_scope")
     scope.get_secret = lambda name, default: {"NACE_API_KEY": "nace-scope"}.get(name, default)
-    monkeypatch.setitem(sys.modules, "agent.secret_scope", scope)
     assert nace_client._default_key_reader() == "nace-scope"
     assert nace_client.credential_present() is True
+
+    # A routed profile with no key in scope gets nothing despite the launch environment.
+    scope.get_secret = lambda name, default: default
+    assert nace_client._default_key_reader() == ""
 
 
 def test_base_url_normalization(monkeypatch):

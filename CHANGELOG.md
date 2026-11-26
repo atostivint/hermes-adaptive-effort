@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Scorer credentials no longer fall back to the process environment when Hermes secret scope says the active profile has no key, and the 30 s key cache is partitioned by the active profile, closing cross-profile key reuse. Single-profile environment resolution still works through `get_secret`.
+
 ## [0.7.0] - 2026-11-24
 
 ### Added

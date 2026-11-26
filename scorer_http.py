@@ -9,8 +9,10 @@ exception-to-reason ladder and response parser. They live here once:
   response behind an ``HTTPError``; :func:`read_json` closes every other response.
 * :func:`resolve_key` keeps a resolved API key for :data:`KEY_TTL_S` seconds. Only a
   non-empty key is cached, so adding a credential takes effect at once; rotating or
-  removing one can lag by up to the TTL. ``credential_present`` never uses the cache and
-  nothing here returns a secret to a caller other than the adapter that asked for it.
+  removing one can lag by up to the TTL. The cache is partitioned by the active Hermes
+  profile so one profile cannot reuse another's key inside a multiplexed process.
+  ``credential_present`` never uses the cache and nothing here returns a secret to a
+  caller other than the adapter that asked for it.
 
 Retry semantics stay in :mod:`scorer_retry` and are not changed.
 """
@@ -73,12 +75,48 @@ PLUGIN_VERSION = _read_plugin_version()
 #: ``User-Agent`` product token shared by the scorer adapters.
 USER_AGENT = f"hermes-adaptive-effort/{PLUGIN_VERSION}"
 
-_KEY_CACHE: "dict[str, tuple[float, str]]" = {}
+_KEY_CACHE: "dict[tuple[str, str], tuple[float, str]]" = {}
 _KEY_LOCK = threading.Lock()
 
 
+def _active_profile_key() -> str:
+    """Canonical identity of the active Hermes profile for the key cache; never a secret.
+
+    A multiplexed Hermes process serves several profiles with different secret scopes.
+    A key resolved under one profile must not be reused under another within the TTL, so
+    the cache key carries this identity. The bound scope's stamped home is the most
+    direct identity; the context-local ``HERMES_HOME`` override and then the routing
+    process home are fallbacks for unscoped/single-profile turns. Hermes is imported
+    lazily and every lookup failure yields ``""``, so a host without Hermes keeps the
+    single-bucket behaviour and no request can fail because of this helper.
+    """
+    try:
+        from hermes_constants import (
+            get_hermes_home_override,
+            get_routing_process_hermes_home,
+            hermes_home_key,
+        )
+        home = None
+        try:
+            from hermes_scope import current_state
+            secrets = getattr(current_state(), "secrets", None)
+            home = getattr(secrets, "profile_home", None)
+        except Exception:
+            pass
+        home = home or get_hermes_home_override() or get_routing_process_hermes_home()
+        return str(hermes_home_key(home))
+    except Exception:
+        return ""
+
+
 def read_secret(name: str) -> str:
-    """Resolve *name* through Hermes' secret scope first, then the environment."""
+    """Resolve *name* through Hermes' secret scope; fail open with ``""``.
+
+    There is deliberately no ``os.environ`` fallback: in a multiplexed process
+    ``get_secret`` returns nothing for a key the active profile lacks, and reading the
+    launch profile's environment here would hand its key to the served profile.
+    Outside multiplex mode ``get_secret`` already reads the environment.
+    """
     try:
         from agent.secret_scope import get_secret
         value = get_secret(name, "") or ""
@@ -86,7 +124,7 @@ def read_secret(name: str) -> str:
             return str(value).strip()
     except Exception:
         pass
-    return (os.environ.get(name) or "").strip()
+    return ""
 
 
 def clear_key_cache() -> None:
@@ -97,10 +135,15 @@ def clear_key_cache() -> None:
 
 def resolve_key(cache_id: str, reader: Callable[[], str], *,
                 clock: Callable[[], float] = time.monotonic) -> str:
-    """``reader()`` with a short TTL cache of a non-empty result under *cache_id*."""
+    """``reader()`` with a short TTL cache of a non-empty result under *cache_id*.
+
+    The active Hermes profile is part of the internal cache key, so the public
+    signature and every caller's *cache_id* stay unchanged.
+    """
     now = clock()
+    key = (_active_profile_key(), cache_id)
     with _KEY_LOCK:
-        hit = _KEY_CACHE.get(cache_id)
+        hit = _KEY_CACHE.get(key)
         if hit is not None and now - hit[0] < KEY_TTL_S:
             return hit[1]
     try:
@@ -109,9 +152,9 @@ def resolve_key(cache_id: str, reader: Callable[[], str], *,
         return ""
     with _KEY_LOCK:
         if value:
-            _KEY_CACHE[cache_id] = (now, value)
+            _KEY_CACHE[key] = (now, value)
         else:
-            _KEY_CACHE.pop(cache_id, None)
+            _KEY_CACHE.pop(key, None)
     return value
 
 
