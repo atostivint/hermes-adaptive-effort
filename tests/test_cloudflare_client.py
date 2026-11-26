@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import urllib.error
 
 import pytest
@@ -136,10 +137,15 @@ def test_cloudflare_secret_scope_precedes_environment_then_falls_back(monkeypatc
     monkeypatch.setenv("CLOUDFLARE_AUTH_TOKEN", "env-token")
     assert client_module._default_key_reader() == "scope-token"
 
-    scope.get_secret = lambda *_: ""
+    # A normal single-profile get_secret reads the environment itself.
+    scope.get_secret = lambda name, default: os.environ.get(name, default)
     assert client_module._default_key_reader() == "env-token"
     assert client_module.credential_present(lambda: " token ") is True
     assert client_module.credential_present(lambda: "") is False
+
+    # A routed profile with no key in scope must not inherit the launch environment.
+    scope.get_secret = lambda name, default: default
+    assert client_module._default_key_reader() == ""
 
 
 def test_prompt_and_token_never_appear_in_logs(caplog):
